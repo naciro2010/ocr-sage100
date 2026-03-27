@@ -1,0 +1,36 @@
+spring:
+  application:
+    name: ocr-sage100
+  datasource:
+    url: jdbc:postgresql://localhost:5432/ocrsage
+    username: ocrsage
+    password: ocrsage
+  jpa:
+    hibernate:
+      ddl-auto: validate
+    open-in-view: false
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+# Claude API configuration
+claude:
+  api-key: ${CLAUDE_API_KEY:}
+  model: claude-sonnet-4-6
+  base-url: https://api.anthropic.com
+
+# Sage 100 configuration
+sage100:
+  base-url: ${SAGE100_BASE_URL:http://localhost:8443}
+  api-key: ${SAGE100_API_KEY:}
+  timeout: 30s
+
+# File storage
+storage:
+  upload-dir: uploads
+
+server:
+  port: 8080
