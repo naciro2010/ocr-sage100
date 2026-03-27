@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { getDashboard } from '../api/client'
 import type { DashboardStats } from '../api/types'
-import { BarChart3, FileText, RefreshCw, AlertCircle } from 'lucide-react'
+import { BarChart3, RefreshCw, AlertCircle } from 'lucide-react'
 
 const STATUS_LABELS: Record<string, string> = {
   UPLOADED: 'Uploadée',
