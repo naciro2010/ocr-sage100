@@ -3,6 +3,7 @@ package com.ocrsage.service
 import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.InvoiceResponse
 import com.ocrsage.entity.Invoice
+import com.ocrsage.entity.InvoiceLineItem
 import com.ocrsage.entity.InvoiceStatus
 import com.ocrsage.repository.InvoiceRepository
 import org.slf4j.LoggerFactory
@@ -14,7 +15,6 @@ import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
-import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -24,7 +24,7 @@ class InvoiceService(
     private val invoiceRepository: InvoiceRepository,
     private val ocrService: OcrService,
     private val aiExtractionService: AiExtractionService,
-    private val sage100Service: Sage100Service,
+    private val sage1000Service: Sage1000Service,
     @Value("\${storage.upload-dir}") private val uploadDir: String
 ) {
 
@@ -66,13 +66,55 @@ class InvoiceService(
             invoiceRepository.save(invoice)
 
             val extracted = aiExtractionService.extractInvoiceData(invoice.rawText!!)
+
+            // Supplier info
             invoice.supplierName = extracted.supplierName
+            invoice.supplierIce = extracted.supplierIce
+            invoice.supplierIf = extracted.supplierIf
+            invoice.supplierRc = extracted.supplierRc
+            invoice.supplierPatente = extracted.supplierPatente
+            invoice.supplierCnss = extracted.supplierCnss
+            invoice.supplierAddress = extracted.supplierAddress
+            invoice.supplierCity = extracted.supplierCity
+
+            // Client info
+            invoice.clientName = extracted.clientName
+            invoice.clientIce = extracted.clientIce
+
+            // Invoice details
             invoice.invoiceNumber = extracted.invoiceNumber
             invoice.invoiceDate = extracted.invoiceDate
             invoice.amountHt = extracted.amountHt
+            invoice.tvaRate = extracted.tvaRate
             invoice.amountTva = extracted.amountTva
             invoice.amountTtc = extracted.amountTtc
+            invoice.discountAmount = extracted.discountAmount
+            invoice.discountPercent = extracted.discountPercent
             extracted.currency?.let { invoice.currency = it }
+
+            // Payment
+            invoice.paymentMethod = extracted.paymentMethod
+            invoice.paymentDueDate = extracted.paymentDueDate
+            invoice.bankName = extracted.bankName
+            invoice.bankRib = extracted.bankRib
+
+            // Line items
+            extracted.lineItems?.forEachIndexed { index, line ->
+                val item = InvoiceLineItem(
+                    invoice = invoice,
+                    lineNumber = line.lineNumber.takeIf { it > 0 } ?: (index + 1),
+                    description = line.description,
+                    quantity = line.quantity,
+                    unit = line.unit,
+                    unitPriceHt = line.unitPriceHt,
+                    tvaRate = line.tvaRate,
+                    tvaAmount = line.tvaAmount,
+                    totalHt = line.totalHt,
+                    totalTtc = line.totalTtc
+                )
+                invoice.lineItems.add(item)
+            }
+
             invoice.status = InvoiceStatus.EXTRACTED
             invoiceRepository.save(invoice)
         } catch (e: Exception) {
@@ -83,7 +125,7 @@ class InvoiceService(
             return InvoiceResponse.from(invoice)
         }
 
-        // Auto-validate: check required fields
+        // Auto-validate
         if (invoice.supplierName != null && invoice.amountTtc != null && invoice.invoiceNumber != null) {
             invoice.status = InvoiceStatus.READY_FOR_SAGE
         } else {
@@ -116,7 +158,7 @@ class InvoiceService(
             throw IllegalStateException("Invoice ${invoice.id} is not ready for Sage sync (status: ${invoice.status})")
         }
 
-        val result = sage100Service.syncInvoice(invoice)
+        val result = sage1000Service.syncInvoice(invoice)
         if (result.success) {
             invoice.sageSynced = true
             invoice.sageSyncDate = LocalDateTime.now()

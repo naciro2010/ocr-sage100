@@ -15,12 +15,13 @@ services:
     ports:
       - "8080:8080"
     environment:
-      SPRING_DATASOURCE_URL: jdbc:postgresql://db:5432/ocrsage
-      SPRING_DATASOURCE_USERNAME: ocrsage
-      SPRING_DATASOURCE_PASSWORD: ocrsage
+      DATABASE_URL: jdbc:postgresql://db:5432/ocrsage
+      DATABASE_USERNAME: ocrsage
+      DATABASE_PASSWORD: ocrsage
       CLAUDE_API_KEY: ${CLAUDE_API_KEY}
-      SAGE100_BASE_URL: ${SAGE100_BASE_URL:-http://localhost:8443}
-      SAGE100_API_KEY: ${SAGE100_API_KEY:-}
+      SAGE1000_BASE_URL: ${SAGE1000_BASE_URL:-http://localhost:8443}
+      SAGE1000_API_KEY: ${SAGE1000_API_KEY:-}
+      SAGE1000_COMPANY_CODE: ${SAGE1000_COMPANY_CODE:-DEFAULT}
     depends_on:
       - db
 
