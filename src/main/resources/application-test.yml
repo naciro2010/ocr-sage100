@@ -7,9 +7,12 @@ spring:
   jpa:
     hibernate:
       ddl-auto: create-drop
-    database-platform: org.hibernate.dialect.H2Dialect
+    show-sql: true
   flyway:
     enabled: false
+
+storage:
+  upload-dir: /tmp/ocrsage-test-uploads
 
 claude:
   api-key: test-key
