@@ -4,36 +4,6 @@
       "Read",
       "Glob",
       "Grep",
-      "Bash(ls:*)",
-      "Bash(cat:*)",
-      "Bash(git status*)",
-      "Bash(git log*)",
-      "Bash(git diff*)",
-      "Bash(git branch*)",
-      "Bash(git checkout*)",
-      "Bash(git add*)",
-      "Bash(git commit*)",
-      "Bash(git push*)",
-      "Bash(git pull*)",
-      "Bash(git fetch*)",
-      "Bash(git stash*)",
-      "Bash(git merge*)",
-      "Bash(./gradlew *)",
-      "Bash(./gradlew)",
-      "Bash(npm *)",
-      "Bash(npx *)",
-      "Bash(node *)",
-      "Bash(docker compose *)",
-      "Bash(docker build*)",
-      "Bash(docker ps*)",
-      "Bash(docker logs*)",
-      "Bash(cd frontend*)",
-      "Bash(cd backend*)",
-      "Bash(mkdir *)",
-      "Bash(pwd)",
-      "Bash(which *)",
-      "Bash(java *)",
-      "Bash(kotlin *)",
       "Edit",
       "Write",
       "Agent",
@@ -42,8 +12,179 @@
       "WebSearch",
       "WebFetch",
       "NotebookEdit",
-      "mcp__github__*"
+      "mcp__github__*",
+
+      "Bash(ls:*)",
+      "Bash(cat:*)",
+      "Bash(pwd)",
+      "Bash(which *)",
+      "Bash(mkdir *)",
+      "Bash(cp *)",
+      "Bash(mv *)",
+      "Bash(rm *)",
+      "Bash(touch *)",
+      "Bash(chmod *)",
+      "Bash(wc *)",
+      "Bash(diff *)",
+      "Bash(env*)",
+      "Bash(echo *)",
+      "Bash(tree *)",
+      "Bash(sort *)",
+      "Bash(uniq *)",
+      "Bash(head *)",
+      "Bash(tail *)",
+      "Bash(xargs *)",
+
+      "Bash(git *)",
+
+      "Bash(./gradlew*)",
+      "Bash(gradle *)",
+      "Bash(java *)",
+      "Bash(javac *)",
+      "Bash(kotlin *)",
+      "Bash(jar *)",
+
+      "Bash(cd backend*)",
+      "Bash(cd frontend*)",
+
+      "Bash(npm *)",
+      "Bash(npx *)",
+      "Bash(node *)",
+      "Bash(tsc *)",
+      "Bash(vite *)",
+      "Bash(eslint *)",
+
+      "Bash(docker *)",
+      "Bash(docker-compose *)",
+      "Bash(docker compose *)",
+
+      "Bash(psql *)",
+      "Bash(pg_dump *)",
+      "Bash(pg_restore *)",
+      "Bash(flyway *)",
+
+      "Bash(curl *)",
+      "Bash(wget *)",
+      "Bash(http *)",
+      "Bash(jq *)",
+
+      "Bash(python *)",
+      "Bash(python3 *)",
+      "Bash(pip *)",
+      "Bash(pip3 *)"
     ],
     "deny": []
+  },
+  "skills": {
+    "frontend": {
+      "description": "Skills React/TypeScript/Vite pour le frontend",
+      "tools": [
+        "react-component: Créer/modifier des composants React fonctionnels TSX",
+        "react-hooks: Implémenter des hooks personnalisés (useState, useEffect, useCallback, useMemo, useContext)",
+        "react-router: Configurer le routing avec React Router DOM 7 (routes, navigation, params, loaders)",
+        "typescript-types: Définir interfaces, types, generics, unions, DTOs TypeScript",
+        "vite-config: Configuration Vite (plugins, proxy API, env variables, build options)",
+        "css-styling: Styles CSS, responsive design, Flexbox, Grid, media queries",
+        "fetch-api: Appels HTTP fetch, gestion async/await, error handling, AbortController",
+        "form-handling: Formulaires React (controlled components, validation, file upload multipart)",
+        "state-management: Gestion d'état React (Context API, useReducer, lifting state)",
+        "eslint-config: Configuration ESLint 9 flat config, rules React/TypeScript",
+        "lucide-icons: Intégration icônes Lucide React dans les composants",
+        "error-boundary: Gestion des erreurs React (ErrorBoundary, fallback UI, try/catch)",
+        "performance: Optimisation React (React.memo, useMemo, useCallback, lazy loading, Suspense)",
+        "testing-frontend: Tests unitaires composants React (vitest, testing-library)",
+        "accessibility: Accessibilité web (ARIA, semantic HTML, keyboard navigation)",
+        "responsive-design: Design adaptatif mobile/tablet/desktop"
+      ]
+    },
+    "backend": {
+      "description": "Skills Kotlin/Spring Boot pour le backend",
+      "tools": [
+        "spring-controller: Créer/modifier des REST controllers Spring Boot (@RestController, @RequestMapping)",
+        "spring-service: Services Spring (@Service, injection de dépendances, logique métier)",
+        "spring-repository: Repositories JPA (Spring Data, @Repository, custom queries JPQL/SQL)",
+        "spring-entity: Entités JPA (@Entity, @Table, relations, mappings Hibernate)",
+        "spring-dto: Data classes Kotlin pour DTOs, mappers entity/DTO",
+        "spring-validation: Validation (@Valid, @NotNull, @Size, custom validators)",
+        "spring-config: Configuration Spring (application.yml, @Configuration, @Bean, profiles)",
+        "spring-security: Sécurité Spring (CORS, authentication, authorization)",
+        "spring-webflux: Client HTTP réactif WebFlux (WebClient pour Claude API, Sage 1000)",
+        "spring-actuator: Monitoring Actuator (health, metrics, info endpoints)",
+        "spring-exception: Gestion d'exceptions (@ControllerAdvice, @ExceptionHandler, error responses)",
+        "flyway-migration: Migrations Flyway (scripts SQL V1__, V2__, rollback)",
+        "kotlin-idioms: Kotlin idiomatique (data class, sealed class, extension functions, coroutines)",
+        "gradle-build: Configuration Gradle Kotlin DSL (dependencies, plugins, tasks)",
+        "junit-testing: Tests JUnit 5 + Kotlin Test (@Test, @SpringBootTest, MockMvc, assertions)",
+        "h2-testing: Base H2 in-memory pour tests d'intégration",
+        "jackson-json: Sérialisation JSON Jackson (ObjectMapper, annotations, Kotlin module)",
+        "multipart-upload: Gestion upload fichiers multipart (MultipartFile, stockage, validation)"
+      ]
+    },
+    "database": {
+      "description": "Skills PostgreSQL et gestion de données",
+      "tools": [
+        "postgresql-query: Requêtes SQL PostgreSQL (SELECT, JOIN, aggregate, window functions)",
+        "postgresql-schema: Schéma PostgreSQL (CREATE TABLE, ALTER, INDEX, CONSTRAINT)",
+        "postgresql-admin: Administration PostgreSQL (psql, pg_dump, pg_restore, monitoring)",
+        "flyway-versioning: Versionning DB Flyway (migrations V1__, V2__, baseline, repair)",
+        "jpa-query: Requêtes JPA (JPQL, Criteria API, native queries, pagination, sorting)",
+        "jpa-relations: Relations JPA (@OneToMany, @ManyToOne, @ManyToMany, fetch strategies)"
+      ]
+    },
+    "ocr-pdf": {
+      "description": "Skills OCR et traitement de documents PDF",
+      "tools": [
+        "tika-extraction: Extraction texte avec Apache Tika (PDF, images, scans)",
+        "tabula-tables: Extraction de tableaux PDF avec Tabula-java",
+        "pdfbox-manipulation: Manipulation PDF avec Apache PDFBox",
+        "regex-extraction: Extraction par regex (ICE, IF, montants, dates, TVA marocaine)",
+        "invoice-parsing: Parsing de factures marocaines (en-tête, lignes, totaux, TVA)"
+      ]
+    },
+    "ai-claude": {
+      "description": "Skills intégration IA Claude API (Anthropic)",
+      "tools": [
+        "claude-api-call: Appels Claude API via WebClient (messages, system prompts, structured output)",
+        "claude-prompting: Conception de prompts Claude (system, user, few-shot, contexte marocain)",
+        "claude-structured: Extraction structurée IA (JSON schema, données factures, validation)",
+        "claude-error-handling: Gestion erreurs Claude API (retry, rate limits, timeouts, fallback)",
+        "ai-merge-strategy: Stratégie de fusion regex + IA (priorisation, comblement des lacunes)"
+      ]
+    },
+    "erp-sage": {
+      "description": "Skills intégration ERP Sage 1000",
+      "tools": [
+        "sage-api-integration: Intégration REST Sage 1000 Objets Métiers (authentification Bearer, endpoints)",
+        "sage-ecritures-achat: Écritures d'achat Sage (/api/objets-metiers/ecritures-achat)",
+        "sage-mapping: Mapping données facture OCR vers structure Sage 1000",
+        "sage-authentication: Authentification Sage 1000 (Bearer token, refresh, gestion session)",
+        "sage-error-handling: Gestion erreurs Sage API (codes retour, validation métier, retry)",
+        "sage-tiers: Gestion des tiers/fournisseurs Sage (recherche, création, mise à jour)",
+        "sage-comptabilite: Plan comptable Sage (comptes, journaux, pièces comptables)",
+        "sage-tva: Gestion TVA marocaine dans Sage (taux, codes TVA, déclaration)"
+      ]
+    },
+    "devops": {
+      "description": "Skills Docker, CI/CD et déploiement",
+      "tools": [
+        "dockerfile: Écriture Dockerfile multi-stage (build, runtime, Alpine)",
+        "docker-compose: Configuration docker-compose.yml (services, volumes, networks, env)",
+        "nginx-config: Configuration Nginx (reverse proxy, SPA routing, CORS headers)",
+        "github-actions: Workflows CI/CD GitHub Actions (build, test, deploy)",
+        "railway-deploy: Déploiement Railway (railway.json, variables d'environnement)",
+        "heroku-deploy: Déploiement Heroku (Procfile, buildpacks, config vars)",
+        "env-management: Gestion variables d'environnement (.env, Docker secrets, Spring profiles)"
+      ]
+    },
+    "moroccan-fiscal": {
+      "description": "Skills spécifiques au contexte fiscal marocain",
+      "tools": [
+        "tva-marocaine: Calcul TVA marocaine (0%, 7%, 10%, 14%, 20%, exonéré)",
+        "identifiants-fiscaux: Validation ICE (15 chiffres), IF, RC, Patente, CNSS",
+        "rib-bancaire: Validation RIB bancaire marocain (24 chiffres)",
+        "modes-paiement: Modes de paiement (Virement, Chèque, Espèces, Traite, Effet, LCN)",
+        "facture-marocaine: Structure facture marocaine (en-tête, fournisseur, lignes, totaux, timbre)"
+      ]
+    }
   }
 }
