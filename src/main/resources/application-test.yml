@@ -23,3 +23,6 @@ sage1000:
   api-key: test-key
   timeout: 5s
   company-code: TEST
+
+storage:
+  upload-dir: /tmp/ocrsage-test-uploads
