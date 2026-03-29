@@ -46,7 +46,7 @@ data class ExtractedInvoiceData(
 
 @JsonIgnoreProperties(ignoreUnknown = true)
 data class ExtractedLineItem(
-    @JsonProperty("line_number") val lineNumber: Int = 0,
+    @JsonProperty("line_number") val lineNumber: Int? = 0,
     @JsonProperty("description") val description: String? = null,
     @JsonProperty("quantity") val quantity: BigDecimal? = null,
     @JsonProperty("unit") val unit: String? = null,

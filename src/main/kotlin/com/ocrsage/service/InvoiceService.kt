@@ -201,7 +201,7 @@ class InvoiceService(
         for ((index, line) in lineItemsSource.withIndex()) {
             invoice.lineItems.add(InvoiceLineItem(
                 invoice = invoice,
-                lineNumber = line.lineNumber.takeIf { it > 0 } ?: (index + 1),
+                lineNumber = line.lineNumber?.takeIf { it > 0 } ?: (index + 1),
                 description = line.description,
                 quantity = line.quantity,
                 unit = line.unit,
@@ -256,13 +256,13 @@ class InvoiceService(
         val synced = invoiceRepository.countBySageSynced(true)
         val totalAmount = invoiceRepository.sumProcessedAmounts()
         val topSuppliers = invoiceRepository.countBySupplier(PageRequest.of(0, 10))
-            .associate { (it[0] as String) to (it[1] as Long) }
+            .associate { (it[0] as String) to (it[1] as Number).toLong() }
 
         return DashboardStats(
             totalInvoices = total,
             byStatus = byStatus.mapKeys { it.key.name },
             sageSynced = synced,
-            pendingSync = byStatus[InvoiceStatus.READY_FOR_SAGE] ?: 0,
+            pendingSync = byStatus[InvoiceStatus.READY_FOR_SAGE] ?: 0L,
             totalProcessedAmount = totalAmount,
             topSuppliers = topSuppliers
         )
