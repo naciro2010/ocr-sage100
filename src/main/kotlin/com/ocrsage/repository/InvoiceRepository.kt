@@ -16,7 +16,7 @@ interface InvoiceRepository : JpaRepository<Invoice, Long> {
 
     fun countBySageSynced(synced: Boolean): Long
 
-    @Query("SELECT COALESCE(SUM(i.amountTtc), 0) FROM Invoice i WHERE i.status = 'EXTRACTED' OR i.status = 'READY_FOR_SAGE' OR i.status = 'SAGE_SYNCED'")
+    @Query("SELECT COALESCE(SUM(i.amountTtc), 0) FROM Invoice i WHERE i.status = com.ocrsage.entity.InvoiceStatus.EXTRACTED OR i.status = com.ocrsage.entity.InvoiceStatus.READY_FOR_SAGE OR i.status = com.ocrsage.entity.InvoiceStatus.SAGE_SYNCED")
     fun sumProcessedAmounts(): BigDecimal
 
     @Query("SELECT i.supplierName, COUNT(i) FROM Invoice i WHERE i.supplierName IS NOT NULL GROUP BY i.supplierName ORDER BY COUNT(i) DESC")

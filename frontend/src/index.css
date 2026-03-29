@@ -441,6 +441,12 @@ body {
 }
 
 /* Utility */
+.mono {
+  font-family: ui-monospace, Consolas, monospace;
+  font-size: 13px;
+  letter-spacing: 0.5px;
+}
+
 .loading {
   text-align: center;
   padding: 48px;

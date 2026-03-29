@@ -25,9 +25,39 @@ class Invoice(
     @Column(name = "raw_text", columnDefinition = "TEXT")
     var rawText: String? = null,
 
+    // --- Supplier info ---
     @Column(name = "supplier_name")
     var supplierName: String? = null,
 
+    @Column(name = "supplier_ice")
+    var supplierIce: String? = null,
+
+    @Column(name = "supplier_if")
+    var supplierIf: String? = null,
+
+    @Column(name = "supplier_rc")
+    var supplierRc: String? = null,
+
+    @Column(name = "supplier_patente")
+    var supplierPatente: String? = null,
+
+    @Column(name = "supplier_cnss")
+    var supplierCnss: String? = null,
+
+    @Column(name = "supplier_address", columnDefinition = "TEXT")
+    var supplierAddress: String? = null,
+
+    @Column(name = "supplier_city")
+    var supplierCity: String? = null,
+
+    // --- Client info ---
+    @Column(name = "client_name")
+    var clientName: String? = null,
+
+    @Column(name = "client_ice")
+    var clientIce: String? = null,
+
+    // --- Invoice details ---
     @Column(name = "invoice_number")
     var invoiceNumber: String? = null,
 
@@ -37,15 +67,43 @@ class Invoice(
     @Column(name = "amount_ht", precision = 15, scale = 2)
     var amountHt: BigDecimal? = null,
 
+    @Column(name = "tva_rate", precision = 5, scale = 2)
+    var tvaRate: BigDecimal? = null,
+
     @Column(name = "amount_tva", precision = 15, scale = 2)
     var amountTva: BigDecimal? = null,
 
     @Column(name = "amount_ttc", precision = 15, scale = 2)
     var amountTtc: BigDecimal? = null,
 
+    @Column(name = "discount_amount", precision = 15, scale = 2)
+    var discountAmount: BigDecimal? = null,
+
+    @Column(name = "discount_percent", precision = 5, scale = 2)
+    var discountPercent: BigDecimal? = null,
+
     @Column(length = 10)
     var currency: String = "MAD",
 
+    // --- Payment ---
+    @Column(name = "payment_method")
+    var paymentMethod: String? = null,
+
+    @Column(name = "payment_due_date")
+    var paymentDueDate: LocalDate? = null,
+
+    @Column(name = "bank_name")
+    var bankName: String? = null,
+
+    @Column(name = "bank_rib")
+    var bankRib: String? = null,
+
+    // --- Line items ---
+    @OneToMany(mappedBy = "invoice", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OrderBy("lineNumber ASC")
+    var lineItems: MutableList<InvoiceLineItem> = mutableListOf(),
+
+    // --- Sage sync ---
     @Column(name = "sage_synced", nullable = false)
     var sageSynced: Boolean = false,
 

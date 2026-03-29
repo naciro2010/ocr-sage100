@@ -1,10 +1,15 @@
 spring:
   datasource:
-    url: jdbc:h2:mem:testdb
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1
     driver-class-name: org.h2.Driver
+    username: sa
+    password:
   jpa:
     hibernate:
       ddl-auto: create-drop
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.H2Dialect
   flyway:
     enabled: false
 
@@ -13,6 +18,11 @@ claude:
   model: claude-sonnet-4-6
   base-url: http://localhost:9999
 
-sage100:
+sage1000:
   base-url: http://localhost:9998
   api-key: test-key
+  timeout: 5s
+  company-code: TEST
+
+storage:
+  upload-dir: /tmp/ocrsage-test-uploads

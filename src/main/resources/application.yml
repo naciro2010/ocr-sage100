@@ -1,10 +1,10 @@
 spring:
   application:
-    name: ocr-sage100
+    name: ocr-sage1000
   datasource:
-    url: jdbc:postgresql://localhost:5432/ocrsage
-    username: ocrsage
-    password: ocrsage
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ocrsage}
+    username: ${DATABASE_USERNAME:ocrsage}
+    password: ${DATABASE_PASSWORD:ocrsage}
   jpa:
     hibernate:
       ddl-auto: validate
@@ -22,15 +22,16 @@ claude:
   model: claude-sonnet-4-6
   base-url: https://api.anthropic.com
 
-# Sage 100 configuration
-sage100:
-  base-url: ${SAGE100_BASE_URL:http://localhost:8443}
-  api-key: ${SAGE100_API_KEY:}
+# Sage 1000 configuration (Objets Métiers REST API)
+sage1000:
+  base-url: ${SAGE1000_BASE_URL:http://localhost:8443}
+  api-key: ${SAGE1000_API_KEY:}
   timeout: 30s
+  company-code: ${SAGE1000_COMPANY_CODE:DEFAULT}
 
 # File storage
 storage:
-  upload-dir: uploads
+  upload-dir: ${STORAGE_DIR:uploads}
 
 server:
-  port: 8080
+  port: ${PORT:8080}

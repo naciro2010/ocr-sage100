@@ -14,6 +14,9 @@ import {
   Banknote,
   AlertCircle,
   Loader2,
+  CreditCard,
+  MapPin,
+  ShieldCheck,
 } from 'lucide-react'
 
 export default function InvoiceDetail() {
@@ -59,6 +62,8 @@ export default function InvoiceDetail() {
       ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 })
       : '—'
 
+  const hasSupplierFiscal = invoice.supplierIce || invoice.supplierIf || invoice.supplierRc || invoice.supplierPatente
+
   return (
     <div>
       <div className="page-header">
@@ -77,7 +82,7 @@ export default function InvoiceDetail() {
               {syncing ? (
                 <><Loader2 size={16} className="spin" /> Sync en cours...</>
               ) : (
-                <><Send size={16} /> Synchroniser Sage 100</>
+                <><Send size={16} /> Synchroniser Sage 1000</>
               )}
             </button>
           )}
@@ -85,34 +90,17 @@ export default function InvoiceDetail() {
       </div>
 
       <div className="detail-grid">
+        {/* General info */}
         <div className="card">
-          <h2>Informations générales</h2>
+          <h2><FileText size={16} /> Informations générales</h2>
           <dl className="detail-list">
             <div className="detail-row">
-              <dt><FileText size={16} /> Fichier</dt>
+              <dt>Fichier</dt>
               <dd>{invoice.fileName}</dd>
             </div>
             <div className="detail-row">
               <dt>Statut</dt>
               <dd><StatusBadge status={invoice.status} /></dd>
-            </div>
-            <div className="detail-row">
-              <dt><Calendar size={16} /> Créée le</dt>
-              <dd>{new Date(invoice.createdAt).toLocaleString('fr-FR')}</dd>
-            </div>
-            <div className="detail-row">
-              <dt>Mise à jour</dt>
-              <dd>{new Date(invoice.updatedAt).toLocaleString('fr-FR')}</dd>
-            </div>
-          </dl>
-        </div>
-
-        <div className="card">
-          <h2>Données extraites</h2>
-          <dl className="detail-list">
-            <div className="detail-row">
-              <dt><Building2 size={16} /> Fournisseur</dt>
-              <dd>{invoice.supplierName || '—'}</dd>
             </div>
             <div className="detail-row">
               <dt><Hash size={16} /> N° Facture</dt>
@@ -127,11 +115,73 @@ export default function InvoiceDetail() {
               </dd>
             </div>
             <div className="detail-row">
-              <dt><Banknote size={16} /> Montant HT</dt>
+              <dt>Créée le</dt>
+              <dd>{new Date(invoice.createdAt).toLocaleString('fr-FR')}</dd>
+            </div>
+          </dl>
+        </div>
+
+        {/* Supplier info */}
+        <div className="card">
+          <h2><Building2 size={16} /> Fournisseur</h2>
+          <dl className="detail-list">
+            <div className="detail-row">
+              <dt>Raison sociale</dt>
+              <dd>{invoice.supplierName || '—'}</dd>
+            </div>
+            {invoice.supplierAddress && (
+              <div className="detail-row">
+                <dt><MapPin size={16} /> Adresse</dt>
+                <dd>{invoice.supplierAddress}{invoice.supplierCity ? `, ${invoice.supplierCity}` : ''}</dd>
+              </div>
+            )}
+            {hasSupplierFiscal && (
+              <>
+                {invoice.supplierIce && (
+                  <div className="detail-row">
+                    <dt><ShieldCheck size={16} /> ICE</dt>
+                    <dd className="mono">{invoice.supplierIce}</dd>
+                  </div>
+                )}
+                {invoice.supplierIf && (
+                  <div className="detail-row">
+                    <dt>IF</dt>
+                    <dd className="mono">{invoice.supplierIf}</dd>
+                  </div>
+                )}
+                {invoice.supplierRc && (
+                  <div className="detail-row">
+                    <dt>RC</dt>
+                    <dd className="mono">{invoice.supplierRc}</dd>
+                  </div>
+                )}
+                {invoice.supplierPatente && (
+                  <div className="detail-row">
+                    <dt>Patente</dt>
+                    <dd className="mono">{invoice.supplierPatente}</dd>
+                  </div>
+                )}
+              </>
+            )}
+          </dl>
+        </div>
+
+        {/* Amounts */}
+        <div className="card">
+          <h2><Banknote size={16} /> Montants</h2>
+          <dl className="detail-list">
+            <div className="detail-row">
+              <dt>Montant HT</dt>
               <dd>{fmt(invoice.amountHt)} {invoice.currency}</dd>
             </div>
+            {invoice.discountAmount != null && (
+              <div className="detail-row">
+                <dt>Remise{invoice.discountPercent != null ? ` (${invoice.discountPercent}%)` : ''}</dt>
+                <dd>-{fmt(invoice.discountAmount)} {invoice.currency}</dd>
+              </div>
+            )}
             <div className="detail-row">
-              <dt>TVA</dt>
+              <dt>TVA{invoice.tvaRate != null ? ` (${invoice.tvaRate}%)` : ''}</dt>
               <dd>{fmt(invoice.amountTva)} {invoice.currency}</dd>
             </div>
             <div className="detail-row highlight">
@@ -141,24 +191,99 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
+        {/* Payment info */}
         <div className="card">
-          <h2>Sage 100</h2>
+          <h2><CreditCard size={16} /> Paiement & Sage 1000</h2>
           <dl className="detail-list">
-            <div className="detail-row">
-              <dt>Synchronisé</dt>
-              <dd>{invoice.sageSynced ? 'Oui' : 'Non'}</dd>
-            </div>
-            {invoice.sageReference && (
+            {invoice.paymentMethod && (
               <div className="detail-row">
-                <dt>Référence Sage</dt>
-                <dd>{invoice.sageReference}</dd>
+                <dt>Mode de paiement</dt>
+                <dd>{invoice.paymentMethod}</dd>
               </div>
             )}
+            {invoice.paymentDueDate && (
+              <div className="detail-row">
+                <dt>Échéance</dt>
+                <dd>{new Date(invoice.paymentDueDate).toLocaleDateString('fr-FR')}</dd>
+              </div>
+            )}
+            {invoice.bankName && (
+              <div className="detail-row">
+                <dt>Banque</dt>
+                <dd>{invoice.bankName}</dd>
+              </div>
+            )}
+            {invoice.bankRib && (
+              <div className="detail-row">
+                <dt>RIB</dt>
+                <dd className="mono">{invoice.bankRib}</dd>
+              </div>
+            )}
+            <div className="detail-row">
+              <dt>Sage 1000</dt>
+              <dd>{invoice.sageSynced ? `Oui — ${invoice.sageReference}` : 'Non synchronisé'}</dd>
+            </div>
           </dl>
         </div>
 
+        {/* Client info */}
+        {(invoice.clientName || invoice.clientIce) && (
+          <div className="card">
+            <h2>Client (votre entreprise)</h2>
+            <dl className="detail-list">
+              {invoice.clientName && (
+                <div className="detail-row">
+                  <dt>Nom</dt>
+                  <dd>{invoice.clientName}</dd>
+                </div>
+              )}
+              {invoice.clientIce && (
+                <div className="detail-row">
+                  <dt>ICE</dt>
+                  <dd className="mono">{invoice.clientIce}</dd>
+                </div>
+              )}
+            </dl>
+          </div>
+        )}
+
+        {/* Line items */}
+        {invoice.lineItems.length > 0 && (
+          <div className="card" style={{ gridColumn: '1 / -1' }}>
+            <h2>Lignes de facture ({invoice.lineItems.length})</h2>
+            <table className="invoice-table">
+              <thead>
+                <tr>
+                  <th>#</th>
+                  <th>Description</th>
+                  <th>Qté</th>
+                  <th>Unité</th>
+                  <th>P.U. HT</th>
+                  <th>TVA %</th>
+                  <th>Total HT</th>
+                  <th>Total TTC</th>
+                </tr>
+              </thead>
+              <tbody>
+                {invoice.lineItems.map(line => (
+                  <tr key={line.id}>
+                    <td>{line.lineNumber}</td>
+                    <td>{line.description || '—'}</td>
+                    <td className="cell-amount">{line.quantity ?? '—'}</td>
+                    <td>{line.unit || '—'}</td>
+                    <td className="cell-amount">{fmt(line.unitPriceHt)}</td>
+                    <td className="cell-amount">{line.tvaRate != null ? `${line.tvaRate}%` : '—'}</td>
+                    <td className="cell-amount">{fmt(line.totalHt)}</td>
+                    <td className="cell-amount">{fmt(line.totalTtc)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+
         {invoice.errorMessage && (
-          <div className="card error-card">
+          <div className="card error-card" style={{ gridColumn: '1 / -1' }}>
             <h2><AlertCircle size={18} /> Erreur</h2>
             <p>{invoice.errorMessage}</p>
           </div>
