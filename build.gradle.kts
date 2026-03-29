@@ -40,7 +40,9 @@ dependencies {
     implementation("org.apache.tika:tika-parsers-standard-package:3.0.0")
 
     // Tabula (table extraction from PDFs)
-    implementation("technology.tabula:tabula:1.0.5")
+    implementation("technology.tabula:tabula:1.0.5") {
+        exclude(group = "org.slf4j", module = "slf4j-simple")
+    }
 
     // HTTP client for Claude API & Sage 1000
     implementation("org.springframework.boot:spring-boot-starter-webflux")
