@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service
 import technology.tabula.ObjectExtractor
 import technology.tabula.extractors.SpreadsheetExtractionAlgorithm
 import technology.tabula.extractors.BasicExtractionAlgorithm
+import org.apache.pdfbox.Loader
 import org.apache.pdfbox.pdmodel.PDDocument
 import java.math.BigDecimal
 import java.nio.file.Path
@@ -40,7 +41,7 @@ class TableExtractionService {
         }
 
         return try {
-            PDDocument.load(filePath.toFile()).use { document ->
+            Loader.loadPDF(filePath.toFile()).use { document ->
                 val extractor = ObjectExtractor(document)
                 val allItems = mutableListOf<ExtractedLineItem>()
 
