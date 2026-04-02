@@ -1,6 +1,7 @@
 import type { Invoice, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, ErpSettings } from './types'
 
-const BASE = '/api/invoices'
+const API_URL = import.meta.env.VITE_API_URL || ''
+const BASE = `${API_URL}/api/invoices`
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
@@ -46,7 +47,7 @@ async function handleBlobResponse(res: Response): Promise<Blob> {
 }
 
 export async function exportCsv(ids: number[]): Promise<Blob> {
-  const res = await fetch(`/api/export/csv`, {
+  const res = await fetch(`${API_URL}/api/export/csv`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids }),
@@ -55,7 +56,7 @@ export async function exportCsv(ids: number[]): Promise<Blob> {
 }
 
 export async function exportJson(ids: number[]): Promise<Blob> {
-  const res = await fetch(`/api/export/json`, {
+  const res = await fetch(`${API_URL}/api/export/json`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ ids }),
@@ -64,12 +65,12 @@ export async function exportJson(ids: number[]): Promise<Blob> {
 }
 
 export async function exportUbl(id: number): Promise<Blob> {
-  const res = await fetch(`/api/export/ubl/${id}`)
+  const res = await fetch(`${API_URL}/api/export/ubl/${id}`)
   return handleBlobResponse(res)
 }
 
 export async function exportEdi(id: number): Promise<Blob> {
-  const res = await fetch(`/api/export/edi/${id}`)
+  const res = await fetch(`${API_URL}/api/export/edi/${id}`)
   return handleBlobResponse(res)
 }
 
@@ -95,7 +96,7 @@ export async function validateInvoice(id: number): Promise<ValidationResult> {
 }
 
 export async function saveErpSettings(settings: ErpSettings): Promise<void> {
-  const res = await fetch('/api/settings/erp', {
+  const res = await fetch(`${API_URL}/api/settings/erp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
@@ -107,7 +108,7 @@ export async function saveErpSettings(settings: ErpSettings): Promise<void> {
 }
 
 export async function testErpConnection(erpType: string): Promise<{ success: boolean; message: string }> {
-  const res = await fetch('/api/settings/erp/test', {
+  const res = await fetch(`${API_URL}/api/settings/erp/test`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify({ erpType }),
