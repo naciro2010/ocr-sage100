@@ -94,8 +94,5 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build backend image
-        run: docker build -t ocr-sage100-backend .
-
-      - name: Build frontend image
-        run: docker build -t ocr-sage100-frontend ./frontend
+      - name: Build image
+        run: docker build -t ocr-sage100 .
