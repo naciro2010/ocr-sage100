@@ -46,24 +46,30 @@ async function handleBlobResponse(res: Response): Promise<Blob> {
 }
 
 export async function exportCsv(ids: number[]): Promise<Blob> {
-  const params = ids.map(id => `ids=${id}`).join('&')
-  const res = await fetch(`${BASE}/export/csv?${params}`)
+  const res = await fetch(`/api/export/csv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
   return handleBlobResponse(res)
 }
 
 export async function exportJson(ids: number[]): Promise<Blob> {
-  const params = ids.map(id => `ids=${id}`).join('&')
-  const res = await fetch(`${BASE}/export/json?${params}`)
+  const res = await fetch(`/api/export/json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
   return handleBlobResponse(res)
 }
 
 export async function exportUbl(id: number): Promise<Blob> {
-  const res = await fetch(`${BASE}/${id}/export/ubl`)
+  const res = await fetch(`/api/export/ubl/${id}`)
   return handleBlobResponse(res)
 }
 
 export async function exportEdi(id: number): Promise<Blob> {
-  const res = await fetch(`${BASE}/${id}/export/edi`)
+  const res = await fetch(`/api/export/edi/${id}`)
   return handleBlobResponse(res)
 }
 
