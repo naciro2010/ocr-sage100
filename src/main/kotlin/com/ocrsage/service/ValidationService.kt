@@ -164,7 +164,7 @@ class ValidationService {
             val part1 = (bankCity % 97) * ((1_000_000_000_000_000_000L % 97).toInt()) % 97
             val part2 = (account % 97) * (100 % 97) % 97
             val total = (part1 + part2 + key) % 97
-            total == 0
+            total == 0L
         } catch (e: Exception) {
             // If numeric parsing fails, the RIB format is wrong
             false
