@@ -1,13 +1,14 @@
 package com.ocrsage.config
 
+import org.springframework.boot.web.servlet.error.ErrorController
 import org.springframework.stereotype.Controller
 import org.springframework.web.bind.annotation.GetMapping
 
 @Controller
-class SpaForwardController {
+class SpaForwardController : ErrorController {
 
-    @GetMapping("/{path:^(?!api|actuator).*$}/**")
-    fun forward(): String {
+    @GetMapping("/error")
+    fun handleError(): String {
         return "forward:/index.html"
     }
 }
