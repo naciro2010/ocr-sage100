@@ -18,11 +18,30 @@ claude:
   model: claude-sonnet-4-6
   base-url: http://localhost:9999
 
+erp:
+  active: SAGE_1000
+
 sage1000:
   base-url: http://localhost:9998
   api-key: test-key
   timeout: 5s
   company-code: TEST
+
+sagex3:
+  base-url: http://localhost:9997
+  client-id: test-client
+  client-secret: test-secret
+  folder: TEST
+  pool-alias: test
+  token-url: http://localhost:9997/auth/oauth/token
+
+sage50:
+  base-url: http://localhost:9996
+  username: test
+  password: test
+  company-file: TEST.SAI
+  journal-code: ACH
+  fiscal-year: 2024
 
 storage:
   upload-dir: /tmp/ocrsage-test-uploads

@@ -76,3 +76,48 @@ export interface DashboardStats {
   totalProcessedAmount: number
   topSuppliers: Record<string, number>
 }
+
+export interface BatchResult {
+  totalFiles: number
+  successful: number
+  failed: number
+  results: BatchItemResult[]
+}
+
+export interface BatchItemResult {
+  fileName: string
+  success: boolean
+  invoiceId?: number
+  error?: string
+}
+
+export interface BatchSyncResult {
+  totalInvoices: number
+  synced: number
+  failed: number
+  results: BatchSyncItemResult[]
+}
+
+export interface BatchSyncItemResult {
+  invoiceId: number
+  success: boolean
+  sageReference?: string
+  error?: string
+}
+
+export interface ValidationResult {
+  valid: boolean
+  errors: ValidationMessage[]
+  warnings: ValidationMessage[]
+}
+
+export interface ValidationMessage {
+  field: string
+  message: string
+  severity: 'ERROR' | 'WARNING' | 'INFO'
+}
+
+export interface ErpSettings {
+  erpType: string
+  configured: boolean
+}

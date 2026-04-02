@@ -27,7 +27,7 @@ class InvoiceService(
     private val regexExtractionService: RegexExtractionService,
     private val tableExtractionService: TableExtractionService,
     private val aiExtractionService: AiExtractionService,
-    private val sage1000Service: Sage1000Service,
+    private val erpConnectorFactory: ErpConnectorFactory,
     @Value("\${storage.upload-dir}") private val uploadDir: String,
     @Value("\${claude.api-key:}") private val claudeApiKey: String
 ) {
@@ -235,7 +235,7 @@ class InvoiceService(
             throw IllegalStateException("Invoice ${invoice.id} is not ready for Sage sync (status: ${invoice.status})")
         }
 
-        val result = sage1000Service.syncInvoice(invoice)
+        val result = erpConnectorFactory.syncInvoice(invoice)
         if (result.success) {
             invoice.sageSynced = true
             invoice.sageSyncDate = LocalDateTime.now()

@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Upload, FileText } from 'lucide-react'
+import { BarChart3, Upload, FileText, Files, Download, Settings } from 'lucide-react'
 
 export default function Layout() {
   return (
@@ -20,8 +20,23 @@ export default function Layout() {
             </NavLink>
           </li>
           <li>
+            <NavLink to="/batch-upload">
+              <Files size={18} /> Batch Upload
+            </NavLink>
+          </li>
+          <li>
             <NavLink to="/invoices">
               <FileText size={18} /> Factures
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/export">
+              <Download size={18} /> Export
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/settings">
+              <Settings size={18} /> Configuration
             </NavLink>
           </li>
         </ul>
