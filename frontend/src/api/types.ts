@@ -81,6 +81,7 @@ export interface BatchResult {
   totalFiles: number
   successful: number
   failed: number
+  processingTimeMs?: number
   results: BatchItemResult[]
 }
 
@@ -88,6 +89,7 @@ export interface BatchItemResult {
   fileName: string
   success: boolean
   invoiceId?: number
+  status?: string
   error?: string
 }
 
@@ -95,6 +97,7 @@ export interface BatchSyncResult {
   totalInvoices: number
   synced: number
   failed: number
+  erpType?: string
   results: BatchSyncItemResult[]
 }
 
