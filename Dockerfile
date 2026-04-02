@@ -10,6 +10,7 @@ FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=build /app/build/libs/*.jar app.jar
+COPY entrypoint.sh ./
 USER appuser
 EXPOSE 8080
-ENTRYPOINT ["java", "-jar", "app.jar"]
+ENTRYPOINT ["./entrypoint.sh"]
