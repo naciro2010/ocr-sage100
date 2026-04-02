@@ -32,7 +32,7 @@ class ValidationService {
         val valid = issues.none { it.severity == ValidationSeverity.ERROR }
         log.info("Invoice {} validation: valid={}, issues={}", invoice.id, valid, issues.size)
 
-        return ValidationResult(
+        return ValidationResult.fromIssues(
             invoiceId = invoice.id,
             valid = valid,
             issues = issues
@@ -407,14 +407,26 @@ class ValidationService {
 // --- Result data classes ---
 
 data class ValidationResult(
-    val invoiceId: Long?,
     val valid: Boolean,
-    val issues: List<ValidationIssue>
+    val errors: List<ValidationMessage>,
+    val warnings: List<ValidationMessage>
 ) {
-    val errorCount: Int get() = issues.count { it.severity == ValidationSeverity.ERROR }
-    val warningCount: Int get() = issues.count { it.severity == ValidationSeverity.WARNING }
-    val infoCount: Int get() = issues.count { it.severity == ValidationSeverity.INFO }
+    companion object {
+        fun fromIssues(invoiceId: Long?, valid: Boolean, issues: List<ValidationIssue>): ValidationResult {
+            val errors = issues.filter { it.severity == ValidationSeverity.ERROR }
+                .map { ValidationMessage(field = it.field, message = it.message, severity = it.severity.name) }
+            val warnings = issues.filter { it.severity != ValidationSeverity.ERROR }
+                .map { ValidationMessage(field = it.field, message = it.message, severity = it.severity.name) }
+            return ValidationResult(valid = valid, errors = errors, warnings = warnings)
+        }
+    }
 }
+
+data class ValidationMessage(
+    val field: String,
+    val message: String,
+    val severity: String
+)
 
 data class ValidationIssue(
     val field: String,

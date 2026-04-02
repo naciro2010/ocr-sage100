@@ -91,8 +91,8 @@ class BatchProcessingService(
 
         return BatchResult(
             totalFiles = files.size,
-            successCount = successCount,
-            failureCount = failureCount,
+            successful = successCount,
+            failed = failureCount,
             processingTimeMs = elapsed,
             results = results
         )
@@ -172,8 +172,8 @@ class BatchProcessingService(
 
         return BatchSyncResult(
             totalInvoices = invoiceIds.size,
-            successCount = successCount,
-            failureCount = failureCount,
+            synced = successCount,
+            failed = failureCount,
             erpType = erpType,
             results = results
         )
@@ -191,8 +191,8 @@ class BatchProcessingService(
 
 data class BatchResult(
     val totalFiles: Int,
-    val successCount: Int,
-    val failureCount: Int,
+    val successful: Int,
+    val failed: Int,
     val processingTimeMs: Long,
     val results: List<BatchItemResult>
 )
@@ -207,8 +207,8 @@ data class BatchItemResult(
 
 data class BatchSyncResult(
     val totalInvoices: Int,
-    val successCount: Int,
-    val failureCount: Int,
+    val synced: Int,
+    val failed: Int,
     val erpType: String,
     val results: List<BatchSyncItemResult>
 )

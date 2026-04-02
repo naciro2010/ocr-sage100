@@ -10,35 +10,30 @@ import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 
 @RestController
-@RequestMapping("/api/invoices")
+@RequestMapping("/api/export")
 class ExportController(
-    private val exportService: ExportService,
-    private val batchProcessingService: BatchProcessingService,
-    private val validationService: ValidationService,
-    private val invoiceRepository: InvoiceRepository
+    private val exportService: ExportService
 ) {
 
-    // --- Export endpoints ---
-
-    @GetMapping("/export/csv")
-    fun exportCsv(@RequestParam ids: List<Long>): ResponseEntity<ByteArray> {
-        val data = exportService.exportToCsv(ids)
+    @PostMapping("/csv")
+    fun exportCsv(@RequestBody request: ExportRequest): ResponseEntity<ByteArray> {
+        val data = exportService.exportToCsv(request.ids)
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"factures_export.csv\"")
             .header(HttpHeaders.CONTENT_TYPE, "text/csv; charset=UTF-8")
             .body(data)
     }
 
-    @GetMapping("/export/json")
-    fun exportJson(@RequestParam ids: List<Long>): ResponseEntity<ByteArray> {
-        val data = exportService.exportToJson(ids)
+    @PostMapping("/json")
+    fun exportJson(@RequestBody request: ExportRequest): ResponseEntity<ByteArray> {
+        val data = exportService.exportToJson(request.ids)
         return ResponseEntity.ok()
             .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"factures_export.json\"")
             .contentType(MediaType.APPLICATION_JSON)
             .body(data)
     }
 
-    @GetMapping("/{id}/export/ubl")
+    @GetMapping("/ubl/{id}")
     fun exportUbl(@PathVariable id: Long): ResponseEntity<ByteArray> {
         val data = exportService.exportToUblXml(id)
         return ResponseEntity.ok()
@@ -47,7 +42,7 @@ class ExportController(
             .body(data)
     }
 
-    @GetMapping("/{id}/export/edi")
+    @GetMapping("/edi/{id}")
     fun exportEdi(@PathVariable id: Long): ResponseEntity<ByteArray> {
         val data = exportService.exportToEdiFactur(id)
         return ResponseEntity.ok()
@@ -55,8 +50,17 @@ class ExportController(
             .header(HttpHeaders.CONTENT_TYPE, "application/edifact")
             .body(data)
     }
+}
 
-    // --- Batch endpoints ---
+data class ExportRequest(val ids: List<Long>)
+
+@RestController
+@RequestMapping("/api/invoices")
+class BatchController(
+    private val batchProcessingService: BatchProcessingService,
+    private val validationService: ValidationService,
+    private val invoiceRepository: InvoiceRepository
+) {
 
     @PostMapping("/batch", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @ResponseStatus(HttpStatus.OK)
@@ -67,16 +71,14 @@ class ExportController(
 
     @PostMapping("/batch-sync")
     fun batchSync(@RequestBody request: BatchSyncRequest): BatchSyncResult {
-        require(request.invoiceIds.isNotEmpty()) { "At least one invoice ID must be provided" }
-        return batchProcessingService.batchSyncToSage(request.invoiceIds, request.erpType)
+        require(request.ids.isNotEmpty()) { "At least one invoice ID must be provided" }
+        return batchProcessingService.batchSyncToSage(request.ids, request.erpType)
     }
 
     @GetMapping("/batch/queue")
     fun getProcessingQueue(): List<QueueItem> {
         return batchProcessingService.getProcessingQueue()
     }
-
-    // --- Validation endpoint ---
 
     @GetMapping("/{id}/validate")
     fun validateInvoice(@PathVariable id: Long): ValidationResult {
@@ -87,6 +89,6 @@ class ExportController(
 }
 
 data class BatchSyncRequest(
-    val invoiceIds: List<Long>,
-    val erpType: String = "sage1000"
+    val ids: List<Long>,
+    val erpType: String = "SAGE_1000"
 )
