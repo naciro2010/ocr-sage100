@@ -1,18 +1,18 @@
 import { useEffect, useState } from 'react'
 import { getDashboard } from '../api/client'
 import type { DashboardStats } from '../api/types'
-import { BarChart3, RefreshCw, AlertCircle } from 'lucide-react'
+import { BarChart3, RefreshCw, AlertCircle, FileText, CheckCircle2, Clock, Banknote } from 'lucide-react'
 
 const STATUS_LABELS: Record<string, string> = {
-  UPLOADED: 'Uploadée',
+  UPLOADED: 'Uploadee',
   OCR_IN_PROGRESS: 'OCR en cours',
-  OCR_COMPLETED: 'OCR terminé',
+  OCR_COMPLETED: 'OCR termine',
   AI_EXTRACTION_IN_PROGRESS: 'Extraction IA',
   EXTRACTED: 'Extraite',
-  VALIDATION_FAILED: 'Validation échouée',
-  READY_FOR_SAGE: 'Prête Sage',
-  SAGE_SYNCED: 'Synchronisée',
-  SAGE_SYNC_FAILED: 'Sync échouée',
+  VALIDATION_FAILED: 'Validation echouee',
+  READY_FOR_SAGE: 'Prete Sage',
+  SAGE_SYNCED: 'Synchronisee',
+  SAGE_SYNC_FAILED: 'Sync echouee',
   ERROR: 'Erreur',
 }
 
@@ -55,30 +55,34 @@ export default function Dashboard() {
       <div className="page-header">
         <h1><BarChart3 size={24} /> Tableau de bord</h1>
         <button className="btn btn-secondary" onClick={load}>
-          <RefreshCw size={16} /> Rafraîchir
+          <RefreshCw size={16} /> Rafraichir
         </button>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card">
+          <div className="stat-icon purple"><FileText size={20} /></div>
           <div className="stat-value">{stats.totalInvoices}</div>
           <div className="stat-label">Total factures</div>
         </div>
         <div className="stat-card">
+          <div className="stat-icon green"><CheckCircle2 size={20} /></div>
           <div className="stat-value">{stats.sageSynced}</div>
-          <div className="stat-label">Synchronisées Sage</div>
+          <div className="stat-label">Synchronisees Sage</div>
         </div>
         <div className="stat-card">
+          <div className="stat-icon amber"><Clock size={20} /></div>
           <div className="stat-value">{stats.pendingSync}</div>
           <div className="stat-label">En attente de sync</div>
         </div>
         <div className="stat-card">
+          <div className="stat-icon blue"><Banknote size={20} /></div>
           <div className="stat-value">
             {stats.totalProcessedAmount.toLocaleString('fr-FR', {
               minimumFractionDigits: 2,
             })}
           </div>
-          <div className="stat-label">Montant total traité (MAD)</div>
+          <div className="stat-label">Montant total (MAD)</div>
         </div>
       </div>
 

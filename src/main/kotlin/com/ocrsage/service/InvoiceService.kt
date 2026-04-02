@@ -16,6 +16,7 @@ import org.springframework.data.domain.Sort
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
+import jakarta.annotation.PostConstruct
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
@@ -35,6 +36,19 @@ class InvoiceService(
     private val log = LoggerFactory.getLogger(javaClass)
 
     private val aiEnabled: Boolean get() = claudeApiKey.isNotBlank()
+
+    @PostConstruct
+    fun init() {
+        val uploadPath = Path.of(uploadDir)
+        try {
+            Files.createDirectories(uploadPath)
+            log.info("Upload directory ready: {}", uploadPath.toAbsolutePath())
+        } catch (e: Exception) {
+            log.error("Cannot create upload directory '{}': {}. Check file system permissions.", uploadPath.toAbsolutePath(), e.message)
+            throw IllegalStateException("Upload directory '${uploadPath.toAbsolutePath()}' is not writable. " +
+                "Ensure the directory exists and the application has write permissions.", e)
+        }
+    }
 
     @Transactional
     fun uploadAndProcess(file: MultipartFile): InvoiceResponse {
@@ -214,12 +228,14 @@ class InvoiceService(
         }
     }
 
+    @Transactional(readOnly = true)
     fun getInvoice(id: Long): InvoiceResponse {
         val invoice = invoiceRepository.findById(id)
             .orElseThrow { NoSuchElementException("Invoice not found: $id") }
         return InvoiceResponse.from(invoice)
     }
 
+    @Transactional(readOnly = true)
     fun listInvoices(pageable: Pageable): Page<InvoiceResponse> {
         return invoiceRepository.findAll(
             PageRequest.of(pageable.pageNumber, pageable.pageSize, Sort.by(Sort.Direction.DESC, "createdAt"))
@@ -250,6 +266,7 @@ class InvoiceService(
         return InvoiceResponse.from(invoice)
     }
 
+    @Transactional(readOnly = true)
     fun getDashboardStats(): DashboardStats {
         val total = invoiceRepository.count()
         val byStatus = InvoiceStatus.entries.associateWith { invoiceRepository.countByStatus(it) }

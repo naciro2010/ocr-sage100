@@ -11,6 +11,9 @@ WORKDIR /app
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=build /app/build/libs/*.jar app.jar
 COPY entrypoint.sh ./
+RUN chmod +x entrypoint.sh && \
+    mkdir -p /app/uploads && \
+    chown -R appuser:appgroup /app/uploads
 USER appuser
 EXPOSE 8080
 ENTRYPOINT ["./entrypoint.sh"]

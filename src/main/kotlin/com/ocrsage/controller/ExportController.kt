@@ -6,6 +6,7 @@ import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
 import org.springframework.http.ResponseEntity
+import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 
@@ -81,6 +82,7 @@ class BatchController(
     }
 
     @GetMapping("/{id}/validate")
+    @Transactional(readOnly = true)
     fun validateInvoice(@PathVariable id: Long): ValidationResult {
         val invoice = invoiceRepository.findById(id)
             .orElseThrow { NoSuchElementException("Invoice not found: $id") }

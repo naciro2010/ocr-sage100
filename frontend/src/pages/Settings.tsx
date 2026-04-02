@@ -4,9 +4,9 @@ import type { ErpSettings } from '../api/types'
 import { Settings as SettingsIcon, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 const ERP_OPTIONS = [
-  { value: 'SAGE_1000', label: 'Sage 1000' },
-  { value: 'SAGE_X3', label: 'Sage X3' },
-  { value: 'SAGE_50', label: 'Sage 50' },
+  { value: 'SAGE_1000', label: 'Sage 1000', desc: 'Objets Metiers REST API' },
+  { value: 'SAGE_X3', label: 'Sage X3', desc: 'Syracuse OData Web Services' },
+  { value: 'SAGE_50', label: 'Sage 50', desc: 'REST Bridge / SDK' },
 ]
 
 export default function Settings() {
@@ -30,36 +30,21 @@ export default function Settings() {
   }, [])
 
   const handleSave = async () => {
-    setSaving(true)
-    setSaveResult(null)
+    setSaving(true); setSaveResult(null)
     try {
       await saveErpSettings({ erpType, configured: true })
       setConfigured(true)
       setSaveResult({ success: true, message: 'Configuration sauvegardee avec succes.' })
     } catch (e: unknown) {
-      setSaveResult({
-        success: false,
-        message: e instanceof Error ? e.message : 'Erreur inconnue',
-      })
-    } finally {
-      setSaving(false)
-    }
+      setSaveResult({ success: false, message: e instanceof Error ? e.message : 'Erreur inconnue' })
+    } finally { setSaving(false) }
   }
 
   const handleTest = async () => {
-    setTesting(true)
-    setTestResult(null)
-    try {
-      const result = await testErpConnection(erpType)
-      setTestResult(result)
-    } catch (e: unknown) {
-      setTestResult({
-        success: false,
-        message: e instanceof Error ? e.message : 'Erreur de connexion',
-      })
-    } finally {
-      setTesting(false)
-    }
+    setTesting(true); setTestResult(null)
+    try { setTestResult(await testErpConnection(erpType)) }
+    catch (e: unknown) { setTestResult({ success: false, message: e instanceof Error ? e.message : 'Erreur de connexion' }) }
+    finally { setTesting(false) }
   }
 
   return (
@@ -70,11 +55,11 @@ export default function Settings() {
 
       <div className="card">
         <h2>Statut actuel</h2>
-        <div className="status-item" style={{ marginBottom: '1rem' }}>
+        <div className="status-item">
           {configured ? (
             <>
               <CheckCircle size={18} color="#059669" />
-              <span>ERP configure : {ERP_OPTIONS.find(o => o.value === erpType)?.label || erpType}</span>
+              <span>ERP configure : <strong>{ERP_OPTIONS.find(o => o.value === erpType)?.label || erpType}</strong></span>
             </>
           ) : (
             <>
@@ -85,22 +70,13 @@ export default function Settings() {
         </div>
       </div>
 
-      <div className="card" style={{ marginTop: '1rem' }}>
+      <div className="card">
         <h2>Selectionner l'ERP</h2>
-        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.75rem', margin: '1rem 0' }}>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: '10px', margin: '8px 0 24px' }}>
           {ERP_OPTIONS.map(option => (
             <label
               key={option.value}
-              style={{
-                display: 'flex',
-                alignItems: 'center',
-                gap: '0.5rem',
-                padding: '0.75rem 1rem',
-                border: erpType === option.value ? '2px solid #3b82f6' : '2px solid #e5e7eb',
-                borderRadius: '8px',
-                cursor: 'pointer',
-                backgroundColor: erpType === option.value ? '#eff6ff' : 'transparent',
-              }}
+              className={`radio-card ${erpType === option.value ? 'selected' : ''}`}
             >
               <input
                 type="radio"
@@ -109,46 +85,31 @@ export default function Settings() {
                 checked={erpType === option.value}
                 onChange={e => setErpType(e.target.value)}
               />
-              {option.label}
+              <div>
+                <div className="fw-700">{option.label}</div>
+                <div className="text-sm text-muted">{option.desc}</div>
+              </div>
             </label>
           ))}
         </div>
 
-        <div style={{ display: 'flex', gap: '0.75rem', marginTop: '1.5rem' }}>
-          <button
-            className="btn btn-primary"
-            disabled={saving}
-            onClick={handleSave}
-          >
-            {saving ? (
-              <><Loader2 size={16} className="spin" /> Sauvegarde...</>
-            ) : (
-              <><SettingsIcon size={16} /> Sauvegarder</>
-            )}
+        <div className="flex-gap">
+          <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+            {saving ? <><Loader2 size={16} className="spin" /> Sauvegarde...</> : <><SettingsIcon size={16} /> Sauvegarder</>}
           </button>
-
-          <button
-            className="btn btn-secondary"
-            disabled={testing}
-            onClick={handleTest}
-          >
-            {testing ? (
-              <><Loader2 size={16} className="spin" /> Test en cours...</>
-            ) : (
-              <><Plug size={16} /> Tester la connexion</>
-            )}
+          <button className="btn btn-secondary" disabled={testing} onClick={handleTest}>
+            {testing ? <><Loader2 size={16} className="spin" /> Test en cours...</> : <><Plug size={16} /> Tester la connexion</>}
           </button>
         </div>
 
         {saveResult && (
-          <div className={`result-banner ${saveResult.success ? 'success' : 'error'}`} style={{ marginTop: '1rem' }}>
+          <div className={`result-banner ${saveResult.success ? 'success' : 'error'} mt-2`}>
             {saveResult.success ? <CheckCircle size={18} /> : <XCircle size={18} />}
             <span>{saveResult.message}</span>
           </div>
         )}
-
         {testResult && (
-          <div className={`result-banner ${testResult.success ? 'success' : 'error'}`} style={{ marginTop: '1rem' }}>
+          <div className={`result-banner ${testResult.success ? 'success' : 'error'} mt-2`}>
             {testResult.success ? <CheckCircle size={18} /> : <XCircle size={18} />}
             <span>{testResult.message}</span>
           </div>

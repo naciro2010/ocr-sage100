@@ -58,7 +58,8 @@ class RegexExtractionService {
 
     // --- Invoice number ---
     private val invoiceNumberPatterns = listOf(
-        Regex("""(?:Facture|Fact\.?|Invoice|N°\s*Facture|N°\s*Fact)\s*(?:N°|n°|#|:)?\s*[:.]?\s*([A-Za-z0-9\-/]+)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Facture|Fact\.?|Invoice|N°\s*Facture|N°\s*Fact)[ \t]*(?:N°|n°|#|:)[ \t]*[:.]?[ \t]*([A-Za-z0-9\-/]+)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Facture|Fact\.?|Invoice)[ \t]+([A-Z0-9][\w\-/]*\d[\w\-/]*)""", RegexOption.IGNORE_CASE),
         Regex("""(?:N°|Numéro)\s*[:.]?\s*([A-Za-z0-9\-/]+\d+)""", RegexOption.IGNORE_CASE)
     )
 
@@ -136,7 +137,7 @@ class RegexExtractionService {
 
     // --- Currency ---
     private val currencyPattern = Regex(
-        """(MAD|DH|DHs?|Dirhams?|EUR|€|USD|\$)""",
+        """\b(MAD|DH|DHs|Dirhams?|EUR|USD)\b|([€$])""",
         RegexOption.IGNORE_CASE
     )
 
@@ -286,7 +287,9 @@ class RegexExtractionService {
     }
 
     private fun detectCurrency(text: String): String {
-        val match = currencyPattern.find(text)?.groupValues?.get(1)?.uppercase() ?: return "MAD"
+        val result = currencyPattern.find(text) ?: return "MAD"
+        val match = (result.groupValues[1].ifEmpty { result.groupValues[2] }).uppercase()
+        if (match.isEmpty()) return "MAD"
         return when {
             match in listOf("DH", "DHS", "DIRHAM", "DIRHAMS") -> "MAD"
             match in listOf("€", "EUR") -> "EUR"
