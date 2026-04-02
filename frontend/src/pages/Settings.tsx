@@ -1,6 +1,5 @@
 import { useState, useEffect } from 'react'
 import { saveErpSettings, testErpConnection } from '../api/client'
-import type { ErpSettings } from '../api/types'
 import { Settings as SettingsIcon, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-react'
 
 const ERP_OPTIONS = [
@@ -20,10 +19,18 @@ export default function Settings() {
   useEffect(() => {
     fetch('/api/settings/erp')
       .then(res => res.ok ? res.json() : null)
-      .then((data: ErpSettings | null) => {
+      .then((data: { activeType?: string; availableTypes?: string[]; erpType?: string; configured?: boolean } | null) => {
         if (data) {
-          setErpType(data.erpType)
-          setConfigured(data.configured)
+          const type = data.activeType || data.erpType
+          if (type) {
+            // activeType from backend is class name like "Sage1000Service", map to ERP_OPTIONS value
+            const mapped = ERP_OPTIONS.find(o =>
+              type.toUpperCase().includes(o.value.replace('_', '')) ||
+              type.toUpperCase().replace('_', '') === o.value.replace('_', '')
+            )
+            setErpType(mapped?.value || type)
+          }
+          setConfigured(data.configured ?? (data.activeType != null))
         }
       })
       .catch(() => {})
