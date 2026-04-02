@@ -10,10 +10,16 @@ class SettingsController(
     private val erpConnectorFactory: ErpConnectorFactory
 ) {
 
+    @GetMapping("/erp")
+    fun getErpSettings(): ErpSettingsResponse {
+        return ErpSettingsResponse(
+            activeType = erpConnectorFactory.getConnector().javaClass.simpleName,
+            availableTypes = erpConnectorFactory.availableTypes().map { it.name }
+        )
+    }
+
     @PostMapping("/erp")
     fun saveErpSettings(@RequestBody settings: ErpSettingsRequest) {
-        // ERP type is configured via environment variable / application.yml
-        // This endpoint validates the type is supported
         ErpType.valueOf(settings.erpType.uppercase().replace("-", "_"))
     }
 
@@ -30,14 +36,6 @@ class SettingsController(
         } catch (e: Exception) {
             ErpTestResponse(success = false, message = "Erreur: ${e.message}")
         }
-    }
-
-    @GetMapping("/erp")
-    fun getErpSettings(): ErpSettingsResponse {
-        return ErpSettingsResponse(
-            activeType = erpConnectorFactory.getConnector().javaClass.simpleName,
-            availableTypes = erpConnectorFactory.availableTypes().map { it.name }
-        )
     }
 }
 

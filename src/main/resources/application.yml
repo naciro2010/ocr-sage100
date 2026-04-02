@@ -55,10 +55,6 @@ sage50:
 storage:
   upload-dir: ${STORAGE_DIR:uploads}
 
-# CORS
-cors:
-  allowed-origins: ${CORS_ALLOWED_ORIGINS:*}
-
 # Actuator
 management:
   endpoints:
