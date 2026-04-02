@@ -1,0 +1,40 @@
+SOCIETE ATLAS DISTRIBUTION SARL
+Zone Industrielle, Lot 45, Ain Sebaa
+Casablanca, Maroc
+Tel: 05 22 35 67 89
+
+ICE: 001234567000078
+I.F.: 12345678
+R.C.: 123456
+Patente: 45678901
+CNSS: 7890123
+
+----------------------------------------------
+                 FACTURE
+----------------------------------------------
+
+Facture N°: FA-2024/0157
+Date Facture: 15/03/2024
+
+Client: ENTREPRISE MAGHREB SERVICES SA
+ICE Client: 009876543000012
+
+----------------------------------------------
+Désignation          | Qté | Unité | P.U. HT  | Taux TVA | Total HT
+----------------------------------------------
+Papier A4 80g        |  50 | Rame  |   45,00  |   20%    | 2 250,00
+Cartouche Toner HP   |  10 | Pcs   |  350,00  |   20%    | 3 500,00
+Classeurs A4         | 100 | Pcs   |   12,50  |   20%    | 1 250,00
+----------------------------------------------
+
+Montant HT:     7 000,00 MAD
+TVA 20%:        1 400,00 MAD
+Montant TTC:    8 400,00 MAD
+
+Mode de paiement: Virement
+Banque: Attijariwafa Bank
+RIB: 007780001234567890120097
+
+Date d'echeance: 15/04/2024
+
+Merci pour votre confiance.

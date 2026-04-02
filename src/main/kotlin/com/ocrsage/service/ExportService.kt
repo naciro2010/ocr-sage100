@@ -7,6 +7,7 @@ import com.ocrsage.entity.Invoice
 import com.ocrsage.repository.InvoiceRepository
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
+import org.springframework.transaction.annotation.Transactional
 import java.io.ByteArrayOutputStream
 import java.io.OutputStreamWriter
 import java.nio.charset.StandardCharsets
@@ -30,6 +31,7 @@ class ExportService(
     /**
      * Export invoices to CSV with French headers, semicolon separator, UTF-8 BOM.
      */
+    @Transactional(readOnly = true)
     fun exportToCsv(invoiceIds: List<Long>): ByteArray {
         val invoices = fetchInvoices(invoiceIds)
         log.info("Exporting {} invoices to CSV", invoices.size)
@@ -86,6 +88,7 @@ class ExportService(
     /**
      * Export invoices to pretty-printed JSON.
      */
+    @Transactional(readOnly = true)
     fun exportToJson(invoiceIds: List<Long>): ByteArray {
         val invoices = fetchInvoices(invoiceIds)
         log.info("Exporting {} invoices to JSON", invoices.size)
@@ -151,6 +154,7 @@ class ExportService(
     /**
      * Export a single invoice to UBL 2.1 XML format (universal e-invoicing standard).
      */
+    @Transactional(readOnly = true)
     fun exportToUblXml(invoiceId: Long): ByteArray {
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
@@ -292,6 +296,7 @@ class ExportService(
     /**
      * Export a single invoice to simplified EDI INVOIC D96A format.
      */
+    @Transactional(readOnly = true)
     fun exportToEdiFactur(invoiceId: Long): ByteArray {
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
