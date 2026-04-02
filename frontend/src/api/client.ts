@@ -1,4 +1,4 @@
-import type { Invoice, Page, DashboardStats } from './types'
+import type { Invoice, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, ErpSettings } from './types'
 
 const BASE = '/api/invoices'
 
@@ -34,5 +34,83 @@ export async function syncToSage(id: number): Promise<Invoice> {
 
 export async function getDashboard(): Promise<DashboardStats> {
   const res = await fetch(`${BASE}/dashboard`)
+  return handleResponse(res)
+}
+
+async function handleBlobResponse(res: Response): Promise<Blob> {
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new Error(body.message || `HTTP ${res.status}`)
+  }
+  return res.blob()
+}
+
+export async function exportCsv(ids: number[]): Promise<Blob> {
+  const res = await fetch(`/api/export/csv`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  return handleBlobResponse(res)
+}
+
+export async function exportJson(ids: number[]): Promise<Blob> {
+  const res = await fetch(`/api/export/json`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids }),
+  })
+  return handleBlobResponse(res)
+}
+
+export async function exportUbl(id: number): Promise<Blob> {
+  const res = await fetch(`/api/export/ubl/${id}`)
+  return handleBlobResponse(res)
+}
+
+export async function exportEdi(id: number): Promise<Blob> {
+  const res = await fetch(`/api/export/edi/${id}`)
+  return handleBlobResponse(res)
+}
+
+export async function batchUpload(files: File[]): Promise<BatchResult> {
+  const form = new FormData()
+  files.forEach(f => form.append('files', f))
+  const res = await fetch(`${BASE}/batch`, { method: 'POST', body: form })
+  return handleResponse(res)
+}
+
+export async function batchSync(ids: number[], erpType: string): Promise<BatchSyncResult> {
+  const res = await fetch(`${BASE}/batch-sync`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, erpType }),
+  })
+  return handleResponse(res)
+}
+
+export async function validateInvoice(id: number): Promise<ValidationResult> {
+  const res = await fetch(`${BASE}/${id}/validate`)
+  return handleResponse(res)
+}
+
+export async function saveErpSettings(settings: ErpSettings): Promise<void> {
+  const res = await fetch('/api/settings/erp', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  if (!res.ok) {
+    const body = await res.json().catch(() => ({ message: res.statusText }))
+    throw new Error(body.message || `HTTP ${res.status}`)
+  }
+}
+
+export async function testErpConnection(erpType: string): Promise<{ success: boolean; message: string }> {
+  const res = await fetch('/api/settings/erp/test', {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ erpType }),
+  })
   return handleResponse(res)
 }

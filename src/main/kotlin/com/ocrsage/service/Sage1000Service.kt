@@ -18,7 +18,7 @@ class Sage1000Service(
     @Value("\${sage1000.api-key}") private val apiKey: String,
     @Value("\${sage1000.timeout}") private val timeout: Duration,
     @Value("\${sage1000.company-code}") private val companyCode: String
-) {
+) : ErpConnector {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -30,7 +30,7 @@ class Sage1000Service(
             .build()
     }
 
-    fun syncInvoice(invoice: Invoice): SageSyncResult {
+    override fun syncInvoice(invoice: Invoice): SageSyncResult {
         log.info("Syncing invoice {} to Sage 1000 (company: {})", invoice.invoiceNumber, companyCode)
 
         // Sage 1000 Objets Métiers - Écriture comptable achat
@@ -92,6 +92,23 @@ class Sage1000Service(
         } catch (e: Exception) {
             log.error("Failed to sync invoice {} to Sage 1000: {}", invoice.invoiceNumber, e.message)
             SageSyncResult(success = false, error = e.message)
+        }
+    }
+
+    override fun testConnection(): Boolean {
+        return try {
+            val response = webClient.get()
+                .uri("/api/objets-metiers/ping")
+                .retrieve()
+                .bodyToMono(Map::class.java)
+                .timeout(timeout)
+                .block()
+
+            log.info("Sage 1000 connection test successful for company: {}", companyCode)
+            response != null
+        } catch (e: Exception) {
+            log.error("Sage 1000 connection test failed: {}", e.message)
+            false
         }
     }
 }
