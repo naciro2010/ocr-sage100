@@ -116,6 +116,16 @@ class Invoice(
     @Column(name = "error_message", columnDefinition = "TEXT")
     var errorMessage: String? = null,
 
+    // --- OCR metadata ---
+    @Column(name = "ocr_engine")
+    var ocrEngine: String? = null,
+
+    @Column(name = "ocr_confidence")
+    var ocrConfidence: Double? = null,
+
+    @Column(name = "ocr_page_count")
+    var ocrPageCount: Int? = null,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 

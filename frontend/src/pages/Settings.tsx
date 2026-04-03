@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { saveErpSettings, testErpConnection } from '../api/client'
-import { Settings as SettingsIcon, Plug, CheckCircle, XCircle, Loader2 } from 'lucide-react'
+import { Settings as SettingsIcon, Plug, CheckCircle, XCircle, Loader2, ScanLine, Cpu } from 'lucide-react'
 
 const ERP_OPTIONS = [
   { value: 'SAGE_1000', label: 'Sage 1000', desc: 'Objets Metiers REST API' },
@@ -57,7 +57,42 @@ export default function Settings() {
   return (
     <div>
       <div className="page-header">
-        <h1><SettingsIcon size={24} /> Configuration ERP</h1>
+        <h1><SettingsIcon size={24} /> Configuration</h1>
+      </div>
+
+      {/* OCR Configuration */}
+      <div className="card">
+        <h2><ScanLine size={16} /> Pipeline OCR</h2>
+        <div className="status-list">
+          <div className="status-item">
+            <Cpu size={18} color="#3b82f6" />
+            <span>
+              <strong>Moteur principal :</strong> Apache Tika 3.0 (PDF natifs)
+            </span>
+          </div>
+          <div className="status-item">
+            <Cpu size={18} color="#6366f1" />
+            <span>
+              <strong>Moteur secondaire :</strong> Tesseract OCR via Tess4J (scans/images)
+            </span>
+          </div>
+          <div className="status-item">
+            <CheckCircle size={18} color="#059669" />
+            <span><strong>Langues :</strong> Francais (fra) + Arabe (ara)</span>
+          </div>
+          <div className="status-item">
+            <CheckCircle size={18} color="#059669" />
+            <span><strong>Preprocessing :</strong> Deskew, Binarisation Sauvola, Debruitage Gaussien, Auto-scale</span>
+          </div>
+          <div className="status-item">
+            <CheckCircle size={18} color="#059669" />
+            <span><strong>Configuration :</strong> OEM 1 (LSTM), PSM 6, 300 DPI</span>
+          </div>
+        </div>
+        <div className="mt-2" style={{ padding: '12px 14px', background: '#f0f9ff', borderRadius: '8px', fontSize: '13px', color: '#1e40af' }}>
+          <strong>Cascade intelligente :</strong> Tika extrait le texte natif. Si insuffisant (&lt;20 mots),
+          Tesseract prend le relai avec preprocessing d'image pour les documents scannes.
+        </div>
       </div>
 
       <div className="card">

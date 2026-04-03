@@ -2,7 +2,7 @@ import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
 import { listInvoices } from '../api/client'
 import type { Invoice, Page } from '../api/types'
-import { FileText, ChevronLeft, ChevronRight, RefreshCw } from 'lucide-react'
+import { FileText, ChevronLeft, ChevronRight, RefreshCw, ScanLine } from 'lucide-react'
 import StatusBadge from '../components/StatusBadge'
 
 export default function InvoiceList() {
@@ -38,6 +38,7 @@ export default function InvoiceList() {
               <th>Fournisseur</th>
               <th>N° Facture</th>
               <th>Montant TTC</th>
+              <th><ScanLine size={12} /> OCR</th>
               <th>Statut</th>
               <th>Date</th>
             </tr>
@@ -56,13 +57,20 @@ export default function InvoiceList() {
                     ? `${inv.amountTtc.toLocaleString('fr-FR', { minimumFractionDigits: 2 })} ${inv.currency}`
                     : '—'}
                 </td>
+                <td>
+                  <span className={`ocr-engine-badge ${(inv.ocrEngine || 'tika').toLowerCase()}`}>
+                    {inv.ocrEngine === 'TESSERACT' ? 'Tesseract'
+                      : inv.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika+Tess'
+                      : 'Tika'}
+                  </span>
+                </td>
                 <td><StatusBadge status={inv.status} /></td>
                 <td>{new Date(inv.createdAt).toLocaleDateString('fr-FR')}</td>
               </tr>
             ))}
             {data?.content.length === 0 && (
               <tr>
-                <td colSpan={7} className="empty-text">
+                <td colSpan={8} className="empty-text">
                   Aucune facture. Commencez par en uploader une !
                 </td>
               </tr>

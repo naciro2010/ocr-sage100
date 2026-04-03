@@ -17,6 +17,9 @@ import {
   CreditCard,
   MapPin,
   ShieldCheck,
+  ScanLine,
+  Cpu,
+  Layers,
 } from 'lucide-react'
 
 export default function InvoiceDetail() {
@@ -117,6 +120,63 @@ export default function InvoiceDetail() {
             <div className="detail-row">
               <dt>Créée le</dt>
               <dd>{new Date(invoice.createdAt).toLocaleString('fr-FR')}</dd>
+            </div>
+          </dl>
+        </div>
+
+        {/* OCR Processing info */}
+        <div className="card">
+          <h2><ScanLine size={16} /> Traitement OCR</h2>
+          <dl className="detail-list">
+            <div className="detail-row">
+              <dt><Cpu size={16} /> Moteur OCR</dt>
+              <dd>
+                <span className={`ocr-engine-badge ${(invoice.ocrEngine || 'TIKA').toLowerCase()}`}>
+                  {invoice.ocrEngine === 'TESSERACT' ? 'Tesseract + Preprocessing'
+                    : invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika + Tesseract'
+                    : 'Apache Tika'}
+                </span>
+              </dd>
+            </div>
+            {invoice.ocrPageCount != null && (
+              <div className="detail-row">
+                <dt><Layers size={16} /> Pages traitees</dt>
+                <dd>{invoice.ocrPageCount} page{invoice.ocrPageCount > 1 ? 's' : ''}</dd>
+              </div>
+            )}
+            {invoice.ocrConfidence != null && invoice.ocrConfidence > 0 && (
+              <div className="detail-row">
+                <dt>Confiance OCR</dt>
+                <dd>
+                  <div className="confidence-bar">
+                    <div
+                      className="confidence-fill"
+                      style={{
+                        width: `${Math.min(100, invoice.ocrConfidence)}%`,
+                        background: invoice.ocrConfidence >= 70 ? 'var(--success)'
+                          : invoice.ocrConfidence >= 40 ? 'var(--warning)'
+                          : 'var(--danger)',
+                      }}
+                    />
+                  </div>
+                  <span className="confidence-value">{invoice.ocrConfidence.toFixed(0)}%</span>
+                </dd>
+              </div>
+            )}
+            <div className="detail-row">
+              <dt>Preprocessing</dt>
+              <dd>
+                {invoice.ocrEngine === 'TESSERACT' || invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? (
+                  <div className="preprocessing-tags">
+                    <span className="preprocess-tag">Deskew</span>
+                    <span className="preprocess-tag">Binarisation</span>
+                    <span className="preprocess-tag">Debruitage</span>
+                    <span className="preprocess-tag">Auto-scale</span>
+                  </div>
+                ) : (
+                  <span className="text-muted">Non applique (PDF natif)</span>
+                )}
+              </dd>
             </div>
           </dl>
         </div>

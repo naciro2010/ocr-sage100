@@ -72,6 +72,9 @@ class InvoiceService(
                 Files.newInputStream(filePath), fileName, filePath
             )
             invoice.rawText = ocrResult.text
+            invoice.ocrEngine = ocrResult.engine.name
+            invoice.ocrConfidence = ocrResult.confidence.takeIf { it >= 0 }
+            invoice.ocrPageCount = ocrResult.pageCount
             invoice.status = InvoiceStatus.OCR_COMPLETED
             invoiceRepository.save(invoice)
             log.info("OCR completed for invoice {} (engine={}, {} chars, {} pages)",

@@ -47,6 +47,11 @@ data class InvoiceResponse(
     // Line items
     val lineItems: List<LineItemResponse>,
 
+    // OCR metadata
+    val ocrEngine: String?,
+    val ocrConfidence: Double?,
+    val ocrPageCount: Int?,
+
     // Sage
     val sageSynced: Boolean,
     val sageReference: String?,
@@ -83,6 +88,9 @@ data class InvoiceResponse(
             bankName = invoice.bankName,
             bankRib = invoice.bankRib,
             lineItems = invoice.lineItems.map { LineItemResponse.from(it) },
+            ocrEngine = invoice.ocrEngine,
+            ocrConfidence = invoice.ocrConfidence,
+            ocrPageCount = invoice.ocrPageCount,
             sageSynced = invoice.sageSynced,
             sageReference = invoice.sageReference,
             errorMessage = invoice.errorMessage,
