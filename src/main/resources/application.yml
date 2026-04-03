@@ -51,6 +51,22 @@ sage50:
   journal-code: ${SAGE50_JOURNAL_CODE:ACH}
   fiscal-year: ${SAGE50_FISCAL_YEAR:2024}
 
+# OCR configuration
+ocr:
+  tesseract:
+    data-path: ${TESSDATA_PREFIX:/usr/share/tesseract-ocr/5/tessdata}
+    languages: ${OCR_LANGUAGES:fra+ara}
+    dpi: ${OCR_DPI:300}
+    oem: ${OCR_OEM:1}
+    psm: ${OCR_PSM:6}
+  preprocessing:
+    enabled: ${OCR_PREPROCESSING:true}
+    deskew: true
+    binarize: true
+    denoise: true
+    scale-dpi: ${OCR_SCALE_DPI:300}
+  confidence-threshold: ${OCR_CONFIDENCE_THRESHOLD:30}
+
 # File storage
 storage:
   upload-dir: ${STORAGE_DIR:uploads}

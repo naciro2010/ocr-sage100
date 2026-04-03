@@ -8,6 +8,21 @@ RUN ./gradlew bootJar --no-daemon
 
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
+
+# Install Tesseract OCR with French and Arabic language packs
+RUN apk add --no-cache \
+    tesseract-ocr \
+    tesseract-ocr-data-fra \
+    tesseract-ocr-data-ara \
+    # Native libs required by Tess4J (JNA)
+    leptonica-dev \
+    # Fonts for PDF rendering
+    fontconfig \
+    ttf-dejavu
+
+# Set tessdata path for Tess4J
+ENV TESSDATA_PREFIX=/usr/share/tessdata
+
 RUN addgroup -S appgroup && adduser -S appuser -G appgroup
 COPY --from=build /app/build/libs/*.jar app.jar
 COPY entrypoint.sh ./
