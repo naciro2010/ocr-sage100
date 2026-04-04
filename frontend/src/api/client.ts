@@ -1,4 +1,4 @@
-import type { Invoice, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, ErpSettings } from './types'
+import type { Invoice, InvoiceUpdateRequest, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, ErpSettings } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/invoices`
@@ -25,6 +25,15 @@ export async function listInvoices(page = 0, size = 20): Promise<Page<Invoice>> 
 
 export async function getInvoice(id: number): Promise<Invoice> {
   const res = await fetch(`${BASE}/${id}`)
+  return handleResponse(res)
+}
+
+export async function updateInvoice(id: number, data: InvoiceUpdateRequest): Promise<Invoice> {
+  const res = await fetch(`${BASE}/${id}`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
   return handleResponse(res)
 }
 

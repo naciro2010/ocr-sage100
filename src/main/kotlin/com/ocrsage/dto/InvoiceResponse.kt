@@ -10,6 +10,7 @@ data class InvoiceResponse(
     val id: Long?,
     val fileName: String,
     val status: String,
+    val rawText: String?,
 
     // Supplier
     val supplierName: String?,
@@ -64,6 +65,7 @@ data class InvoiceResponse(
             id = invoice.id,
             fileName = invoice.fileName,
             status = invoice.status.name,
+            rawText = invoice.rawText,
             supplierName = invoice.supplierName,
             supplierIce = invoice.supplierIce,
             supplierIf = invoice.supplierIf,
