@@ -3,8 +3,6 @@ WORKDIR /app
 COPY package*.json ./
 RUN npm ci
 COPY . .
-# VITE_API_URL = public URL of your backend service
-# Example: https://your-backend.up.railway.app
 ARG VITE_API_URL
 ENV VITE_API_URL=$VITE_API_URL
 RUN npm run build
@@ -12,5 +10,10 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template
+
 ENV PORT=80
+# Railway: set BACKEND_URL to private networking URL
+# Example: http://ocr-sage100.railway.internal:8080
+ENV BACKEND_URL=http://app:8080
+
 CMD ["nginx", "-g", "daemon off;"]
