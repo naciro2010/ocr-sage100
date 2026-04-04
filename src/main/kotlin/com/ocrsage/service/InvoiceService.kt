@@ -63,15 +63,22 @@ class InvoiceService(
         invoiceRepository.save(invoice)
         log.info("Invoice uploaded: {} (id={})", invoice.fileName, invoice.id)
 
-        // Step 1: OCR text extraction (Tika)
+        // Step 1: OCR text extraction (Tika + Tesseract avec preprocessing)
         try {
             invoice.status = InvoiceStatus.OCR_IN_PROGRESS
             invoiceRepository.save(invoice)
 
-            val rawText = ocrService.extractText(Files.newInputStream(filePath), fileName)
-            invoice.rawText = rawText
+            val ocrResult = ocrService.extractWithDetails(
+                Files.newInputStream(filePath), fileName, filePath
+            )
+            invoice.rawText = ocrResult.text
+            invoice.ocrEngine = ocrResult.engine.name
+            invoice.ocrConfidence = ocrResult.confidence.takeIf { it >= 0 }
+            invoice.ocrPageCount = ocrResult.pageCount
             invoice.status = InvoiceStatus.OCR_COMPLETED
             invoiceRepository.save(invoice)
+            log.info("OCR completed for invoice {} (engine={}, {} chars, {} pages)",
+                invoice.id, ocrResult.engine, ocrResult.text.length, ocrResult.pageCount)
         } catch (e: Exception) {
             log.error("OCR failed for invoice {}: {}", invoice.id, e.message)
             invoice.status = InvoiceStatus.ERROR

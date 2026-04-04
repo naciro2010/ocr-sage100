@@ -39,6 +39,9 @@ dependencies {
     implementation("org.apache.tika:tika-core:3.0.0")
     implementation("org.apache.tika:tika-parsers-standard-package:3.0.0")
 
+    // Tesseract OCR via Tess4J (scanned documents)
+    implementation("net.sourceforge.tess4j:tess4j:5.13.0")
+
     // Tabula (table extraction from PDFs)
     implementation("technology.tabula:tabula:1.0.5") {
         exclude(group = "org.slf4j", module = "slf4j-simple")

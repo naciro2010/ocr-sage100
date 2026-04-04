@@ -39,6 +39,11 @@ export interface Invoice {
   // Line items
   lineItems: LineItem[]
 
+  // OCR metadata
+  ocrEngine: string | null
+  ocrConfidence: number | null
+  ocrPageCount: number | null
+
   // Sage
   sageSynced: boolean
   sageReference: string | null
