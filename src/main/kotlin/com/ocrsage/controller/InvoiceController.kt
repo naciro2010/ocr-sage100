@@ -2,6 +2,7 @@ package com.ocrsage.controller
 
 import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.InvoiceResponse
+import com.ocrsage.dto.InvoiceUpdateRequest
 import com.ocrsage.service.InvoiceService
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
@@ -29,6 +30,11 @@ class InvoiceController(private val invoiceService: InvoiceService) {
     @GetMapping("/{id}")
     fun get(@PathVariable id: Long): InvoiceResponse {
         return invoiceService.getInvoice(id)
+    }
+
+    @PutMapping("/{id}")
+    fun update(@PathVariable id: Long, @RequestBody update: InvoiceUpdateRequest): InvoiceResponse {
+        return invoiceService.updateInvoice(id, update)
     }
 
     @PostMapping("/{id}/sync")

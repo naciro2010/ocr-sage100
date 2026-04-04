@@ -1,7 +1,7 @@
 import { useEffect, useState } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getInvoice, syncToSage } from '../api/client'
-import type { Invoice } from '../api/types'
+import { getInvoice, syncToSage, updateInvoice } from '../api/client'
+import type { Invoice, InvoiceUpdateRequest } from '../api/types'
 import StatusBadge from '../components/StatusBadge'
 import {
   ArrowLeft,
@@ -9,17 +9,18 @@ import {
   Send,
   FileText,
   Building2,
-  Calendar,
-  Hash,
   Banknote,
   AlertCircle,
   Loader2,
   CreditCard,
-  MapPin,
-  ShieldCheck,
   ScanLine,
   Cpu,
   Layers,
+  Pencil,
+  Save,
+  X,
+  Eye,
+  CheckCircle,
 } from 'lucide-react'
 
 export default function InvoiceDetail() {
@@ -27,12 +28,45 @@ export default function InvoiceDetail() {
   const [invoice, setInvoice] = useState<Invoice | null>(null)
   const [error, setError] = useState('')
   const [syncing, setSyncing] = useState(false)
+  const [editing, setEditing] = useState(false)
+  const [saving, setSaving] = useState(false)
+  const [saveMsg, setSaveMsg] = useState<{ ok: boolean; text: string } | null>(null)
+  const [showRawText, setShowRawText] = useState(false)
+  const [form, setForm] = useState<InvoiceUpdateRequest>({})
 
   const load = () => {
     if (!id) return
     getInvoice(Number(id))
-      .then(setInvoice)
+      .then(inv => { setInvoice(inv); initForm(inv) })
       .catch(e => setError(e.message))
+  }
+
+  const initForm = (inv: Invoice) => {
+    setForm({
+      supplierName: inv.supplierName || '',
+      supplierIce: inv.supplierIce || '',
+      supplierIf: inv.supplierIf || '',
+      supplierRc: inv.supplierRc || '',
+      supplierPatente: inv.supplierPatente || '',
+      supplierCnss: inv.supplierCnss || '',
+      supplierAddress: inv.supplierAddress || '',
+      supplierCity: inv.supplierCity || '',
+      clientName: inv.clientName || '',
+      clientIce: inv.clientIce || '',
+      invoiceNumber: inv.invoiceNumber || '',
+      invoiceDate: inv.invoiceDate || '',
+      amountHt: inv.amountHt ?? undefined,
+      tvaRate: inv.tvaRate ?? undefined,
+      amountTva: inv.amountTva ?? undefined,
+      amountTtc: inv.amountTtc ?? undefined,
+      discountAmount: inv.discountAmount ?? undefined,
+      discountPercent: inv.discountPercent ?? undefined,
+      currency: inv.currency || 'MAD',
+      paymentMethod: inv.paymentMethod || '',
+      paymentDueDate: inv.paymentDueDate || '',
+      bankName: inv.bankName || '',
+      bankRib: inv.bankRib || '',
+    })
   }
 
   useEffect(load, [id])
@@ -50,6 +84,30 @@ export default function InvoiceDetail() {
     }
   }
 
+  const handleSave = async () => {
+    if (!id) return
+    setSaving(true); setSaveMsg(null)
+    try {
+      const updated = await updateInvoice(Number(id), form)
+      setInvoice(updated); initForm(updated)
+      setEditing(false)
+      setSaveMsg({ ok: true, text: 'Facture mise a jour avec succes !' })
+    } catch (e: unknown) {
+      setSaveMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur de sauvegarde' })
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  const handleCancel = () => {
+    if (invoice) initForm(invoice)
+    setEditing(false); setSaveMsg(null)
+  }
+
+  const setField = (key: keyof InvoiceUpdateRequest, value: string | number | undefined) => {
+    setForm(prev => ({ ...prev, [key]: value }))
+  }
+
   if (error) {
     return (
       <div className="card error-card">
@@ -65,7 +123,30 @@ export default function InvoiceDetail() {
       ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 })
       : '—'
 
-  const hasSupplierFiscal = invoice.supplierIce || invoice.supplierIf || invoice.supplierRc || invoice.supplierPatente
+  // Edit field helper
+  const EditField = ({ label, field, type = 'text', mono = false }: {
+    label: string; field: keyof InvoiceUpdateRequest; type?: string; mono?: boolean
+  }) => {
+    const val = form[field]
+    return editing ? (
+      <div className="detail-row">
+        <dt>{label}</dt>
+        <dd>
+          <input
+            type={type}
+            className="form-input form-input-sm"
+            value={val ?? ''}
+            onChange={e => setField(field, type === 'number' ? (e.target.value ? Number(e.target.value) : undefined) : e.target.value)}
+          />
+        </dd>
+      </div>
+    ) : (
+      <div className="detail-row">
+        <dt>{label}</dt>
+        <dd className={mono ? 'mono' : ''}>{val != null && val !== '' ? String(val) : '—'}</dd>
+      </div>
+    )
+  }
 
   return (
     <div>
@@ -77,25 +158,74 @@ export default function InvoiceDetail() {
           Facture #{invoice.id}
         </h1>
         <div className="header-actions">
-          <button className="btn btn-secondary" onClick={load}>
-            <RefreshCw size={16} /> Rafraîchir
-          </button>
-          {invoice.status === 'READY_FOR_SAGE' && (
-            <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-              {syncing ? (
-                <><Loader2 size={16} className="spin" /> Sync en cours...</>
-              ) : (
-                <><Send size={16} /> Synchroniser Sage 1000</>
+          {!editing ? (
+            <>
+              <button className="btn btn-secondary" onClick={load}>
+                <RefreshCw size={16} /> Rafraichir
+              </button>
+              <button className="btn btn-primary" onClick={() => setEditing(true)}>
+                <Pencil size={16} /> Corriger
+              </button>
+              {invoice.rawText && (
+                <button className="btn btn-secondary" onClick={() => setShowRawText(!showRawText)}>
+                  <Eye size={16} /> {showRawText ? 'Masquer texte OCR' : 'Voir texte OCR'}
+                </button>
               )}
-            </button>
+              {invoice.status === 'READY_FOR_SAGE' && (
+                <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
+                  {syncing ? (
+                    <><Loader2 size={16} className="spin" /> Sync en cours...</>
+                  ) : (
+                    <><Send size={16} /> Synchroniser Sage</>
+                  )}
+                </button>
+              )}
+            </>
+          ) : (
+            <>
+              <button className="btn btn-secondary" onClick={handleCancel}>
+                <X size={16} /> Annuler
+              </button>
+              <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
+                {saving ? (
+                  <><Loader2 size={16} className="spin" /> Sauvegarde...</>
+                ) : (
+                  <><Save size={16} /> Sauvegarder</>
+                )}
+              </button>
+            </>
           )}
         </div>
       </div>
 
+      {saveMsg && (
+        <div className={`result-banner ${saveMsg.ok ? 'success' : 'error'} mb-3`}>
+          {saveMsg.ok ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+          <span>{saveMsg.text}</span>
+        </div>
+      )}
+
+      {editing && (
+        <div className="card" style={{ background: '#fffbeb', borderColor: '#fbbf24' }}>
+          <p style={{ fontSize: '13px', color: '#92400e', fontWeight: 600, margin: 0 }}>
+            <Pencil size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
+            Mode correction — modifiez les champs puis cliquez "Sauvegarder". La validation sera re-executee automatiquement.
+          </p>
+        </div>
+      )}
+
+      {/* Raw OCR text */}
+      {showRawText && invoice.rawText && (
+        <div className="card" style={{ gridColumn: '1 / -1' }}>
+          <h2><FileText size={16} /> Texte OCR brut</h2>
+          <pre className="raw-text-box">{invoice.rawText}</pre>
+        </div>
+      )}
+
       <div className="detail-grid">
         {/* General info */}
         <div className="card">
-          <h2><FileText size={16} /> Informations générales</h2>
+          <h2><FileText size={16} /> Informations generales</h2>
           <dl className="detail-list">
             <div className="detail-row">
               <dt>Fichier</dt>
@@ -105,20 +235,10 @@ export default function InvoiceDetail() {
               <dt>Statut</dt>
               <dd><StatusBadge status={invoice.status} /></dd>
             </div>
+            <EditField label="N° Facture" field="invoiceNumber" />
+            <EditField label="Date facture" field="invoiceDate" type="date" />
             <div className="detail-row">
-              <dt><Hash size={16} /> N° Facture</dt>
-              <dd>{invoice.invoiceNumber || '—'}</dd>
-            </div>
-            <div className="detail-row">
-              <dt><Calendar size={16} /> Date facture</dt>
-              <dd>
-                {invoice.invoiceDate
-                  ? new Date(invoice.invoiceDate).toLocaleDateString('fr-FR')
-                  : '—'}
-              </dd>
-            </div>
-            <div className="detail-row">
-              <dt>Créée le</dt>
+              <dt>Creee le</dt>
               <dd>{new Date(invoice.createdAt).toLocaleString('fr-FR')}</dd>
             </div>
           </dl>
@@ -185,44 +305,14 @@ export default function InvoiceDetail() {
         <div className="card">
           <h2><Building2 size={16} /> Fournisseur</h2>
           <dl className="detail-list">
-            <div className="detail-row">
-              <dt>Raison sociale</dt>
-              <dd>{invoice.supplierName || '—'}</dd>
-            </div>
-            {invoice.supplierAddress && (
-              <div className="detail-row">
-                <dt><MapPin size={16} /> Adresse</dt>
-                <dd>{invoice.supplierAddress}{invoice.supplierCity ? `, ${invoice.supplierCity}` : ''}</dd>
-              </div>
-            )}
-            {hasSupplierFiscal && (
-              <>
-                {invoice.supplierIce && (
-                  <div className="detail-row">
-                    <dt><ShieldCheck size={16} /> ICE</dt>
-                    <dd className="mono">{invoice.supplierIce}</dd>
-                  </div>
-                )}
-                {invoice.supplierIf && (
-                  <div className="detail-row">
-                    <dt>IF</dt>
-                    <dd className="mono">{invoice.supplierIf}</dd>
-                  </div>
-                )}
-                {invoice.supplierRc && (
-                  <div className="detail-row">
-                    <dt>RC</dt>
-                    <dd className="mono">{invoice.supplierRc}</dd>
-                  </div>
-                )}
-                {invoice.supplierPatente && (
-                  <div className="detail-row">
-                    <dt>Patente</dt>
-                    <dd className="mono">{invoice.supplierPatente}</dd>
-                  </div>
-                )}
-              </>
-            )}
+            <EditField label="Raison sociale" field="supplierName" />
+            <EditField label="Adresse" field="supplierAddress" />
+            <EditField label="Ville" field="supplierCity" />
+            <EditField label="ICE" field="supplierIce" mono />
+            <EditField label="IF" field="supplierIf" mono />
+            <EditField label="RC" field="supplierRc" mono />
+            <EditField label="Patente" field="supplierPatente" mono />
+            <EditField label="CNSS" field="supplierCnss" mono />
           </dl>
         </div>
 
@@ -230,82 +320,46 @@ export default function InvoiceDetail() {
         <div className="card">
           <h2><Banknote size={16} /> Montants</h2>
           <dl className="detail-list">
-            <div className="detail-row">
-              <dt>Montant HT</dt>
-              <dd>{fmt(invoice.amountHt)} {invoice.currency}</dd>
-            </div>
-            {invoice.discountAmount != null && (
-              <div className="detail-row">
-                <dt>Remise{invoice.discountPercent != null ? ` (${invoice.discountPercent}%)` : ''}</dt>
-                <dd>-{fmt(invoice.discountAmount)} {invoice.currency}</dd>
+            <EditField label="Montant HT" field="amountHt" type="number" />
+            <EditField label="Remise %" field="discountPercent" type="number" />
+            <EditField label="Remise montant" field="discountAmount" type="number" />
+            <EditField label="Taux TVA %" field="tvaRate" type="number" />
+            <EditField label="Montant TVA" field="amountTva" type="number" />
+            {editing ? (
+              <EditField label="Montant TTC" field="amountTtc" type="number" />
+            ) : (
+              <div className="detail-row highlight">
+                <dt>Montant TTC</dt>
+                <dd>{fmt(invoice.amountTtc)} {invoice.currency}</dd>
               </div>
             )}
-            <div className="detail-row">
-              <dt>TVA{invoice.tvaRate != null ? ` (${invoice.tvaRate}%)` : ''}</dt>
-              <dd>{fmt(invoice.amountTva)} {invoice.currency}</dd>
-            </div>
-            <div className="detail-row highlight">
-              <dt>Montant TTC</dt>
-              <dd>{fmt(invoice.amountTtc)} {invoice.currency}</dd>
-            </div>
+            <EditField label="Devise" field="currency" />
           </dl>
         </div>
 
         {/* Payment info */}
         <div className="card">
-          <h2><CreditCard size={16} /> Paiement & Sage 1000</h2>
+          <h2><CreditCard size={16} /> Paiement</h2>
           <dl className="detail-list">
-            {invoice.paymentMethod && (
-              <div className="detail-row">
-                <dt>Mode de paiement</dt>
-                <dd>{invoice.paymentMethod}</dd>
-              </div>
-            )}
-            {invoice.paymentDueDate && (
-              <div className="detail-row">
-                <dt>Échéance</dt>
-                <dd>{new Date(invoice.paymentDueDate).toLocaleDateString('fr-FR')}</dd>
-              </div>
-            )}
-            {invoice.bankName && (
-              <div className="detail-row">
-                <dt>Banque</dt>
-                <dd>{invoice.bankName}</dd>
-              </div>
-            )}
-            {invoice.bankRib && (
-              <div className="detail-row">
-                <dt>RIB</dt>
-                <dd className="mono">{invoice.bankRib}</dd>
-              </div>
-            )}
+            <EditField label="Mode de paiement" field="paymentMethod" />
+            <EditField label="Echeance" field="paymentDueDate" type="date" />
+            <EditField label="Banque" field="bankName" />
+            <EditField label="RIB" field="bankRib" mono />
             <div className="detail-row">
-              <dt>Sage 1000</dt>
-              <dd>{invoice.sageSynced ? `Oui — ${invoice.sageReference}` : 'Non synchronisé'}</dd>
+              <dt>Sage</dt>
+              <dd>{invoice.sageSynced ? `Oui — ${invoice.sageReference}` : 'Non synchronise'}</dd>
             </div>
           </dl>
         </div>
 
         {/* Client info */}
-        {(invoice.clientName || invoice.clientIce) && (
-          <div className="card">
-            <h2>Client (votre entreprise)</h2>
-            <dl className="detail-list">
-              {invoice.clientName && (
-                <div className="detail-row">
-                  <dt>Nom</dt>
-                  <dd>{invoice.clientName}</dd>
-                </div>
-              )}
-              {invoice.clientIce && (
-                <div className="detail-row">
-                  <dt>ICE</dt>
-                  <dd className="mono">{invoice.clientIce}</dd>
-                </div>
-              )}
-            </dl>
-          </div>
-        )}
+        <div className="card">
+          <h2><Building2 size={16} /> Client (votre entreprise)</h2>
+          <dl className="detail-list">
+            <EditField label="Nom" field="clientName" />
+            <EditField label="ICE" field="clientIce" mono />
+          </dl>
+        </div>
 
         {/* Line items */}
         {invoice.lineItems.length > 0 && (
@@ -316,8 +370,8 @@ export default function InvoiceDetail() {
                 <tr>
                   <th>#</th>
                   <th>Description</th>
-                  <th>Qté</th>
-                  <th>Unité</th>
+                  <th>Qte</th>
+                  <th>Unite</th>
                   <th>P.U. HT</th>
                   <th>TVA %</th>
                   <th>Total HT</th>

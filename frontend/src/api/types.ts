@@ -2,6 +2,7 @@ export interface Invoice {
   id: number
   fileName: string
   status: string
+  rawText: string | null
 
   // Supplier
   supplierName: string | null
@@ -123,6 +124,32 @@ export interface ValidationMessage {
   field: string
   message: string
   severity: 'ERROR' | 'WARNING' | 'INFO'
+}
+
+export interface InvoiceUpdateRequest {
+  supplierName?: string
+  supplierIce?: string
+  supplierIf?: string
+  supplierRc?: string
+  supplierPatente?: string
+  supplierCnss?: string
+  supplierAddress?: string
+  supplierCity?: string
+  clientName?: string
+  clientIce?: string
+  invoiceNumber?: string
+  invoiceDate?: string
+  amountHt?: number
+  tvaRate?: number
+  amountTva?: number
+  amountTtc?: number
+  discountAmount?: number
+  discountPercent?: number
+  currency?: string
+  paymentMethod?: string
+  paymentDueDate?: string
+  bankName?: string
+  bankRib?: string
 }
 
 export interface ErpSettings {

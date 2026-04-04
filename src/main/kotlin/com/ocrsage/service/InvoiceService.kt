@@ -3,6 +3,7 @@ package com.ocrsage.service
 import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.ExtractedInvoiceData
 import com.ocrsage.dto.InvoiceResponse
+import com.ocrsage.dto.InvoiceUpdateRequest
 import com.ocrsage.entity.Invoice
 import com.ocrsage.entity.InvoiceLineItem
 import com.ocrsage.entity.InvoiceStatus
@@ -98,19 +99,8 @@ class InvoiceService(
             // Phase B: Tabula table extraction for line items (PDF only)
             val tabulaItems = tableExtractionService.extractLineItems(Path.of(invoice.filePath))
 
-            // Phase C: If regex got sparse results and AI is configured, enrich with AI
-            val finalData = if (aiEnabled && isExtractionSparse(regexData)) {
-                log.info("Regex extraction sparse, enriching with AI for invoice {}", invoice.id)
-                try {
-                    val aiData = aiExtractionService.extractInvoiceData(invoice.rawText!!)
-                    mergeExtractions(regexData, aiData)
-                } catch (e: Exception) {
-                    log.warn("AI enrichment failed, using regex-only results: {}", e.message)
-                    regexData
-                }
-            } else {
-                regexData
-            }
+            // Phase C: Use regex extraction directly (no AI dependency)
+            val finalData = regexData
 
             applyExtraction(invoice, finalData, tabulaItems)
             invoice.status = InvoiceStatus.EXTRACTED
@@ -239,6 +229,55 @@ class InvoiceService(
     fun getInvoice(id: Long): InvoiceResponse {
         val invoice = invoiceRepository.findById(id)
             .orElseThrow { NoSuchElementException("Invoice not found: $id") }
+        return InvoiceResponse.from(invoice)
+    }
+
+    @Transactional
+    fun updateInvoice(id: Long, update: InvoiceUpdateRequest): InvoiceResponse {
+        val invoice = invoiceRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Invoice not found: $id") }
+
+        // Apply all non-null fields from the update request
+        update.supplierName?.let { invoice.supplierName = it.ifBlank { null } }
+        update.supplierIce?.let { invoice.supplierIce = it.ifBlank { null } }
+        update.supplierIf?.let { invoice.supplierIf = it.ifBlank { null } }
+        update.supplierRc?.let { invoice.supplierRc = it.ifBlank { null } }
+        update.supplierPatente?.let { invoice.supplierPatente = it.ifBlank { null } }
+        update.supplierCnss?.let { invoice.supplierCnss = it.ifBlank { null } }
+        update.supplierAddress?.let { invoice.supplierAddress = it.ifBlank { null } }
+        update.supplierCity?.let { invoice.supplierCity = it.ifBlank { null } }
+        update.clientName?.let { invoice.clientName = it.ifBlank { null } }
+        update.clientIce?.let { invoice.clientIce = it.ifBlank { null } }
+        update.invoiceNumber?.let { invoice.invoiceNumber = it.ifBlank { null } }
+        update.invoiceDate?.let { invoice.invoiceDate = it }
+        update.amountHt?.let { invoice.amountHt = it }
+        update.tvaRate?.let { invoice.tvaRate = it }
+        update.amountTva?.let { invoice.amountTva = it }
+        update.amountTtc?.let { invoice.amountTtc = it }
+        update.discountAmount?.let { invoice.discountAmount = it }
+        update.discountPercent?.let { invoice.discountPercent = it }
+        update.currency?.let { if (it.isNotBlank()) invoice.currency = it }
+        update.paymentMethod?.let { invoice.paymentMethod = it.ifBlank { null } }
+        update.paymentDueDate?.let { invoice.paymentDueDate = it }
+        update.bankName?.let { invoice.bankName = it.ifBlank { null } }
+        update.bankRib?.let { invoice.bankRib = it.ifBlank { null } }
+
+        // Re-validate after correction
+        if (invoice.supplierName != null && invoice.amountTtc != null && invoice.invoiceNumber != null) {
+            invoice.status = InvoiceStatus.READY_FOR_SAGE
+            invoice.errorMessage = null
+        } else {
+            invoice.status = InvoiceStatus.VALIDATION_FAILED
+            invoice.errorMessage = buildString {
+                append("Champs manquants :")
+                if (invoice.supplierName == null) append(" fournisseur")
+                if (invoice.invoiceNumber == null) append(" n°facture")
+                if (invoice.amountTtc == null) append(" montant TTC")
+            }
+        }
+
+        invoiceRepository.save(invoice)
+        log.info("Invoice {} updated manually", id)
         return InvoiceResponse.from(invoice)
     }
 
