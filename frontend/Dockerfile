@@ -12,9 +12,10 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template
 
 ENV PORT=80
-# Set BACKEND_URL to point to your backend service
-# Railway: use private networking URL (e.g. http://backend.railway.internal:8080)
-# Docker Compose: use service name (e.g. http://app:8080)
+# IMPORTANT: Set BACKEND_URL on Railway to point to your backend service.
+# Use the backend's PUBLIC url (not private networking) if IPv6 issues persist.
+# Example: BACKEND_URL=https://your-backend-service.up.railway.app
+# Or private: BACKEND_URL=http://ocr-sage100.railway.internal:PORT
 ENV BACKEND_URL=http://app:8080
 
 CMD ["nginx", "-g", "daemon off;"]
