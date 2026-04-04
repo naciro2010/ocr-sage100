@@ -10,5 +10,11 @@ RUN npm run build
 FROM nginx:alpine
 COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template
+
 ENV PORT=80
+# Set BACKEND_URL to point to your backend service
+# Railway: use private networking URL (e.g. http://backend.railway.internal:8080)
+# Docker Compose: use service name (e.g. http://app:8080)
+ENV BACKEND_URL=http://app:8080
+
 CMD ["nginx", "-g", "daemon off;"]
