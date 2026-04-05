@@ -12,10 +12,8 @@ COPY --from=build /app/dist /usr/share/nginx/html
 COPY default.conf.template /etc/nginx/templates/default.conf.template
 
 ENV PORT=80
-# IMPORTANT: Set BACKEND_URL on Railway to point to your backend service.
-# Use the backend's PUBLIC url (not private networking) if IPv6 issues persist.
-# Example: BACKEND_URL=https://your-backend-service.up.railway.app
-# Or private: BACKEND_URL=http://ocr-sage100.railway.internal:PORT
+# Railway: set BACKEND_URL to private networking URL
+# Example: http://ocr-sage100.railway.internal:8080
 ENV BACKEND_URL=http://app:8080
 
 CMD ["nginx", "-g", "daemon off;"]
