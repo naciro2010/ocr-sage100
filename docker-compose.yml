@@ -15,12 +15,27 @@ services:
       timeout: 5s
       retries: 5
 
+  ocr:
+    build: ocr-service
+    ports:
+      - "8000:8000"
+    environment:
+      OCR_DPI: 300
+      OCR_LANG: fr
+    healthcheck:
+      test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
+
   app:
     build: .
     environment:
       DATABASE_URL: jdbc:postgresql://db:5432/ocrsage
       DATABASE_USERNAME: ocrsage
       DATABASE_PASSWORD: ocrsage
+      PADDLE_OCR_URL: http://ocr:8000
       STORAGE_DIR: /app/uploads
       PORT: 8080
     ports:
@@ -29,6 +44,8 @@ services:
       - uploads:/app/uploads
     depends_on:
       db:
+        condition: service_healthy
+      ocr:
         condition: service_healthy
 
   frontend:

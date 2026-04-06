@@ -18,6 +18,12 @@ claude:
   model: claude-sonnet-4-6
   base-url: http://localhost:9999
 
+ocr:
+  paddle:
+    base-url: ""
+    timeout: 5
+    lang: fr
+
 erp:
   active: SAGE_1000
 

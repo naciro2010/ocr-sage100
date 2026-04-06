@@ -53,6 +53,10 @@ sage50:
 
 # OCR configuration
 ocr:
+  paddle:
+    base-url: ${PADDLE_OCR_URL:}
+    timeout: ${PADDLE_OCR_TIMEOUT:120}
+    lang: ${PADDLE_OCR_LANG:fr}
   tesseract:
     data-path: ${TESSDATA_PREFIX:/usr/share/tesseract-ocr/5/tessdata}
     languages: ${OCR_LANGUAGES:fra+ara}

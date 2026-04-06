@@ -1,15 +1,42 @@
 import type { Invoice, InvoiceUpdateRequest, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, AiSettingsResponse, ErpSettingsResponse } from './types'
 
-const API_URL = import.meta.env.VITE_API_URL || ''
+/**
+ * API_URL resolution:
+ * - VITE_API_URL set (ex: "https://backend.railway.app") → appels directs cross-origin
+ * - VITE_API_URL vide → appels relatifs ("/api/..."), proxy par Nginx ou Vite dev server
+ */
+const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 const BASE = `${API_URL}/api/invoices`
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(body.message || `HTTP ${res.status}`)
+    let message: string
+    try {
+      const body = await res.json()
+      message = body.message || body.error || `HTTP ${res.status}`
+    } catch {
+      message = `HTTP ${res.status} ${res.statusText}`
+    }
+    throw new Error(message)
   }
   return res.json()
 }
+
+async function handleBlobResponse(res: Response): Promise<Blob> {
+  if (!res.ok) {
+    let message: string
+    try {
+      const body = await res.json()
+      message = body.message || `HTTP ${res.status}`
+    } catch {
+      message = `HTTP ${res.status} ${res.statusText}`
+    }
+    throw new Error(message)
+  }
+  return res.blob()
+}
+
+// --- Invoices ---
 
 export async function uploadInvoice(file: File): Promise<Invoice> {
   const form = new FormData()
@@ -47,13 +74,7 @@ export async function getDashboard(): Promise<DashboardStats> {
   return handleResponse(res)
 }
 
-async function handleBlobResponse(res: Response): Promise<Blob> {
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(body.message || `HTTP ${res.status}`)
-  }
-  return res.blob()
-}
+// --- Export ---
 
 export async function exportCsv(ids: number[]): Promise<Blob> {
   const res = await fetch(`${API_URL}/api/export/csv`, {
@@ -83,6 +104,8 @@ export async function exportEdi(id: number): Promise<Blob> {
   return handleBlobResponse(res)
 }
 
+// --- Batch ---
+
 export async function batchUpload(files: File[]): Promise<BatchResult> {
   const form = new FormData()
   files.forEach(f => form.append('files', f))
@@ -102,6 +125,12 @@ export async function batchSync(ids: number[], erpType: string): Promise<BatchSy
 export async function validateInvoice(id: number): Promise<ValidationResult> {
   const res = await fetch(`${BASE}/${id}/validate`)
   return handleResponse(res)
+}
+
+// --- File preview ---
+
+export function getInvoiceFileUrl(id: number): string {
+  return `${API_URL}/api/invoices/${id}/file`
 }
 
 // --- AI Settings ---
