@@ -1,22 +1,22 @@
 const STATUS_CONFIG: Record<string, { label: string; color: string }> = {
-  UPLOADED: { label: 'Uploadée', color: '#6b7280' },
-  OCR_IN_PROGRESS: { label: 'OCR en cours', color: '#f59e0b' },
-  OCR_COMPLETED: { label: 'OCR terminé', color: '#3b82f6' },
-  AI_EXTRACTION_IN_PROGRESS: { label: 'Extraction IA', color: '#f59e0b' },
-  EXTRACTED: { label: 'Extraite', color: '#8b5cf6' },
-  VALIDATION_FAILED: { label: 'Validation échouée', color: '#ef4444' },
-  READY_FOR_SAGE: { label: 'Prête Sage', color: '#10b981' },
-  SAGE_SYNCED: { label: 'Synchronisée', color: '#059669' },
-  SAGE_SYNC_FAILED: { label: 'Sync échouée', color: '#ef4444' },
-  ERROR: { label: 'Erreur', color: '#dc2626' },
+  UPLOADED: { label: 'Uploadee', color: '#7a7a7a' },
+  OCR_IN_PROGRESS: { label: 'OCR en cours', color: '#d4940a' },
+  OCR_COMPLETED: { label: 'OCR termine', color: '#4a6fa5' },
+  AI_EXTRACTION_IN_PROGRESS: { label: 'Extraction IA', color: '#d4940a' },
+  EXTRACTED: { label: 'Extraite', color: '#7c5cbf' },
+  VALIDATION_FAILED: { label: 'Validation echouee', color: '#d94f4f' },
+  READY_FOR_SAGE: { label: 'Prete Sage', color: '#10a37f' },
+  SAGE_SYNCED: { label: 'Synchronisee', color: '#0d8c6c' },
+  SAGE_SYNC_FAILED: { label: 'Sync echouee', color: '#d94f4f' },
+  ERROR: { label: 'Erreur', color: '#c04040' },
 }
 
 export default function StatusBadge({ status }: { status: string }) {
-  const config = STATUS_CONFIG[status] || { label: status, color: '#6b7280' }
+  const config = STATUS_CONFIG[status] || { label: status, color: '#7a7a7a' }
   return (
     <span
       className="status-badge"
-      style={{ backgroundColor: config.color + '20', color: config.color, borderColor: config.color }}
+      style={{ backgroundColor: config.color + '14', color: config.color, borderColor: config.color + '40' }}
     >
       {config.label}
     </span>

@@ -4,7 +4,6 @@ export interface Invoice {
   status: string
   rawText: string | null
 
-  // Supplier
   supplierName: string | null
   supplierIce: string | null
   supplierIf: string | null
@@ -14,15 +13,12 @@ export interface Invoice {
   supplierAddress: string | null
   supplierCity: string | null
 
-  // Client
   clientName: string | null
   clientIce: string | null
 
-  // Invoice
   invoiceNumber: string | null
   invoiceDate: string | null
 
-  // Amounts
   amountHt: number | null
   tvaRate: number | null
   amountTva: number | null
@@ -31,21 +27,18 @@ export interface Invoice {
   discountPercent: number | null
   currency: string
 
-  // Payment
   paymentMethod: string | null
   paymentDueDate: string | null
   bankName: string | null
   bankRib: string | null
 
-  // Line items
   lineItems: LineItem[]
 
-  // OCR metadata
   ocrEngine: string | null
   ocrConfidence: number | null
   ocrPageCount: number | null
+  aiUsed: boolean
 
-  // Sage
   sageSynced: boolean
   sageReference: string | null
   errorMessage: string | null
@@ -155,4 +148,41 @@ export interface InvoiceUpdateRequest {
 export interface ErpSettings {
   erpType: string
   configured: boolean
+}
+
+export interface AiSettingsResponse {
+  enabled: boolean
+  apiKey: string
+  apiKeyConfigured: boolean
+  model: string
+  baseUrl: string
+}
+
+export interface ErpSettingsResponse {
+  activeType: string
+  availableTypes: string[]
+  sage1000: {
+    baseUrl: string
+    apiKey: string
+    apiKeyConfigured: boolean
+    companyCode: string
+    timeout: string
+  }
+  sageX3: {
+    baseUrl: string
+    clientId: string
+    clientSecret: string
+    clientSecretConfigured: boolean
+    folder: string
+    poolAlias: string
+  }
+  sage50: {
+    baseUrl: string
+    username: string
+    password: string
+    passwordConfigured: boolean
+    companyFile: string
+    journalCode: string
+    fiscalYear: string
+  }
 }

@@ -30,13 +30,11 @@ class InvoiceService(
     private val tableExtractionService: TableExtractionService,
     private val aiExtractionService: AiExtractionService,
     private val erpConnectorFactory: ErpConnectorFactory,
-    @Value("\${storage.upload-dir}") private val uploadDir: String,
-    @Value("\${claude.api-key:}") private val claudeApiKey: String
+    private val appSettingsService: AppSettingsService,
+    @Value("\${storage.upload-dir}") private val uploadDir: String
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
-
-    private val aiEnabled: Boolean get() = claudeApiKey.isNotBlank()
 
     @PostConstruct
     fun init() {
@@ -99,8 +97,20 @@ class InvoiceService(
             // Phase B: Tabula table extraction for line items (PDF only)
             val tabulaItems = tableExtractionService.extractLineItems(Path.of(invoice.filePath))
 
-            // Phase C: Use regex extraction directly (no AI dependency)
-            val finalData = regexData
+            // Phase C: AI extraction if enabled and regex result is sparse
+            val finalData = if (aiExtractionService.isAvailable() && isExtractionSparse(regexData)) {
+                try {
+                    log.info("Regex extraction sparse for invoice {}, using AI enrichment", invoice.id)
+                    val aiData = aiExtractionService.extractInvoiceData(invoice.rawText!!)
+                    invoice.aiUsed = true
+                    mergeExtractions(regexData, aiData)
+                } catch (e: Exception) {
+                    log.warn("AI extraction failed for invoice {}, falling back to regex: {}", invoice.id, e.message)
+                    regexData
+                }
+            } else {
+                regexData
+            }
 
             applyExtraction(invoice, finalData, tabulaItems)
             invoice.status = InvoiceStatus.EXTRACTED

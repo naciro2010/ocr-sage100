@@ -7,9 +7,9 @@ export default function Layout() {
       <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="sidebar-logo"><Zap size={18} /></div>
+            <div className="sidebar-logo"><Zap size={16} /></div>
             <div className="sidebar-title">
-              <h2>OCR Sage 100</h2>
+              <h2>OCR Sage</h2>
               <span>Traitement factures</span>
             </div>
           </div>
@@ -19,32 +19,32 @@ export default function Layout() {
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>
-              <BarChart3 size={18} /> <span>Dashboard</span>
+              <BarChart3 size={17} /> <span>Dashboard</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/upload">
-              <Upload size={18} /> <span>Upload</span>
+              <Upload size={17} /> <span>Upload</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/batch-upload">
-              <Files size={18} /> <span>Batch Upload</span>
+              <Files size={17} /> <span>Batch Upload</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/invoices">
-              <FileText size={18} /> <span>Factures</span>
+              <FileText size={17} /> <span>Factures</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/export">
-              <Download size={18} /> <span>Export</span>
+              <Download size={17} /> <span>Export</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/settings">
-              <Settings size={18} /> <span>Configuration</span>
+              <Settings size={17} /> <span>Configuration</span>
             </NavLink>
           </li>
         </ul>

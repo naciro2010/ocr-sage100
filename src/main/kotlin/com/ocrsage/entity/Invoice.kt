@@ -126,6 +126,9 @@ class Invoice(
     @Column(name = "ocr_page_count")
     var ocrPageCount: Int? = null,
 
+    @Column(name = "ai_used")
+    var aiUsed: Boolean = false,
+
     @Column(name = "created_at", nullable = false, updatable = false)
     var createdAt: LocalDateTime = LocalDateTime.now(),
 
