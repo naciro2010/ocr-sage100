@@ -88,7 +88,7 @@ class InvoiceService(
 
         // Step 2: Structured extraction
         try {
-            invoice.status = InvoiceStatus.AI_EXTRACTION_IN_PROGRESS
+            invoice.status = InvoiceStatus.EXTRACTED
             invoiceRepository.save(invoice)
 
             // Phase A: Regex extraction (deterministic, no AI)
