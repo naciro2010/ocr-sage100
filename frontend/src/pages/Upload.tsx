@@ -97,15 +97,15 @@ export default function Upload() {
             </div>
             <div className="ocr-step pending">
               <ScanLine size={14} />
-              <span>1. Extraction texte (Tika)</span>
+              <span>1. Extraction texte natif (Tika)</span>
             </div>
             <div className="ocr-step pending">
               <Cpu size={14} />
-              <span>2. OCR Tesseract + Preprocessing (si scan)</span>
+              <span>2. OCR deep learning (PaddleOCR / Tesseract)</span>
             </div>
             <div className="ocr-step pending">
               <Brain size={14} />
-              <span>3. Extraction structuree (Regex + IA)</span>
+              <span>3. Extraction structuree (Regex + IA optionnelle)</span>
             </div>
             <div className="ocr-step pending">
               <ShieldCheck size={14} />

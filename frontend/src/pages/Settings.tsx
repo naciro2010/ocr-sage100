@@ -486,32 +486,41 @@ export default function Settings() {
           <span className="config-status configured"><CheckCircle size={12} /> Operationnel</span>
         </div>
 
-        <div className="status-list">
-          <div className="status-item">
-            <Cpu size={16} color="var(--primary)" />
-            <span><strong>Moteur principal :</strong> Apache Tika 3.0 (PDF natifs)</span>
+        <div className="ocr-engines-grid">
+          <div className="ocr-engine-card">
+            <div className="ocr-engine-header">
+              <span className="ocr-engine-badge tika" style={{ fontSize: 12, padding: '4px 10px' }}>Tika</span>
+              <span className="config-status configured"><CheckCircle size={11} /> Actif</span>
+            </div>
+            <div className="ocr-engine-name">Apache Tika 3.0</div>
+            <div className="ocr-engine-desc">Extraction texte natif pour PDF numeriques. Instantane, premiere etape du pipeline.</div>
+            <div className="ocr-engine-meta">Priorite 1 &middot; Texte embarque</div>
           </div>
-          <div className="status-item">
-            <Cpu size={16} color="var(--accent)" />
-            <span><strong>Moteur secondaire :</strong> Tesseract OCR via Tess4J (scans/images)</span>
+
+          <div className="ocr-engine-card">
+            <div className="ocr-engine-header">
+              <span className="ocr-engine-badge paddleocr" style={{ fontSize: 12, padding: '4px 10px' }}>PaddleOCR</span>
+              <span className="config-status configured"><CheckCircle size={11} /> Actif</span>
+            </div>
+            <div className="ocr-engine-name">PaddleOCR 3.4 (Baidu)</div>
+            <div className="ocr-engine-desc">OCR deep learning via microservice Python. Meilleure precision sur factures scannees.</div>
+            <div className="ocr-engine-meta">Priorite 2 &middot; Francais + Arabe &middot; 300 DPI</div>
           </div>
-          <div className="status-item">
-            <CheckCircle size={16} color="var(--primary)" />
-            <span><strong>Langues :</strong> Francais (fra) + Arabe (ara)</span>
-          </div>
-          <div className="status-item">
-            <CheckCircle size={16} color="var(--primary)" />
-            <span><strong>Preprocessing :</strong> Deskew, Binarisation Sauvola, Debruitage Gaussien, Auto-scale</span>
-          </div>
-          <div className="status-item">
-            <CheckCircle size={16} color="var(--primary)" />
-            <span><strong>Configuration :</strong> OEM 1 (LSTM), PSM 6, 300 DPI</span>
+
+          <div className="ocr-engine-card">
+            <div className="ocr-engine-header">
+              <span className="ocr-engine-badge tesseract" style={{ fontSize: 12, padding: '4px 10px' }}>Tesseract</span>
+              <span className="config-status configured"><CheckCircle size={11} /> Fallback</span>
+            </div>
+            <div className="ocr-engine-name">Tesseract 5 via Tess4J</div>
+            <div className="ocr-engine-desc">OCR local en fallback si PaddleOCR indisponible. Multi-PSM avec preprocessing.</div>
+            <div className="ocr-engine-meta">Priorite 3 &middot; Deskew, Sauvola, Denoise</div>
           </div>
         </div>
 
         <div style={{ marginTop: 14, padding: '10px 14px', background: 'var(--bg)', borderRadius: 'var(--radius-sm)', fontSize: 12, color: 'var(--text-secondary)', lineHeight: 1.6 }}>
           <strong>Cascade intelligente :</strong> Tika extrait le texte natif. Si insuffisant (&lt;20 mots),
-          Tesseract prend le relai avec preprocessing d'image.
+          PaddleOCR prend le relai. Si PaddleOCR indisponible, Tesseract sert de fallback avec preprocessing d'image.
           {aiEnabled && ' L\'IA enrichit ensuite les donnees si l\'extraction regex est incomplete.'}
         </div>
       </div>
