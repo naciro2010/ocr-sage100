@@ -127,6 +127,12 @@ export async function validateInvoice(id: number): Promise<ValidationResult> {
   return handleResponse(res)
 }
 
+// --- File preview ---
+
+export function getInvoiceFileUrl(id: number): string {
+  return `${API_URL}/api/invoices/${id}/file`
+}
+
 // --- AI Settings ---
 
 export async function getAiSettings(): Promise<AiSettingsResponse> {

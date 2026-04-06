@@ -242,6 +242,13 @@ class InvoiceService(
         return InvoiceResponse.from(invoice)
     }
 
+    @Transactional(readOnly = true)
+    fun getInvoiceFile(id: Long): Pair<String, String> {
+        val invoice = invoiceRepository.findById(id)
+            .orElseThrow { NoSuchElementException("Invoice not found: $id") }
+        return Pair(invoice.filePath, invoice.fileName)
+    }
+
     @Transactional
     fun updateInvoice(id: Long, update: InvoiceUpdateRequest): InvoiceResponse {
         val invoice = invoiceRepository.findById(id)
