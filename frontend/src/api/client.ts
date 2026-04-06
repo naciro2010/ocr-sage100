@@ -1,4 +1,4 @@
-import type { Invoice, InvoiceUpdateRequest, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, ErpSettings } from './types'
+import type { Invoice, InvoiceUpdateRequest, Page, DashboardStats, BatchResult, BatchSyncResult, ValidationResult, AiSettingsResponse, ErpSettingsResponse } from './types'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/invoices`
@@ -104,16 +104,41 @@ export async function validateInvoice(id: number): Promise<ValidationResult> {
   return handleResponse(res)
 }
 
-export async function saveErpSettings(settings: ErpSettings): Promise<void> {
+// --- AI Settings ---
+
+export async function getAiSettings(): Promise<AiSettingsResponse> {
+  const res = await fetch(`${API_URL}/api/settings/ai`)
+  return handleResponse(res)
+}
+
+export async function saveAiSettings(settings: {
+  enabled: boolean
+  apiKey?: string
+  model?: string
+  baseUrl?: string
+}): Promise<AiSettingsResponse> {
+  const res = await fetch(`${API_URL}/api/settings/ai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(settings),
+  })
+  return handleResponse(res)
+}
+
+// --- ERP Settings ---
+
+export async function getErpSettings(): Promise<ErpSettingsResponse> {
+  const res = await fetch(`${API_URL}/api/settings/erp`)
+  return handleResponse(res)
+}
+
+export async function saveErpSettings(settings: Record<string, unknown>): Promise<ErpSettingsResponse> {
   const res = await fetch(`${API_URL}/api/settings/erp`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
     body: JSON.stringify(settings),
   })
-  if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(body.message || `HTTP ${res.status}`)
-  }
+  return handleResponse(res)
 }
 
 export async function testErpConnection(erpType: string): Promise<{ success: boolean; message: string }> {

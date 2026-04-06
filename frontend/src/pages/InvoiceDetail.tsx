@@ -4,23 +4,9 @@ import { getInvoice, syncToSage, updateInvoice } from '../api/client'
 import type { Invoice, InvoiceUpdateRequest } from '../api/types'
 import StatusBadge from '../components/StatusBadge'
 import {
-  ArrowLeft,
-  RefreshCw,
-  Send,
-  FileText,
-  Building2,
-  Banknote,
-  AlertCircle,
-  Loader2,
-  CreditCard,
-  ScanLine,
-  Cpu,
-  Layers,
-  Pencil,
-  Save,
-  X,
-  Eye,
-  CheckCircle,
+  ArrowLeft, RefreshCw, Send, FileText, Building2, Banknote,
+  AlertCircle, Loader2, CreditCard, ScanLine, Cpu, Layers,
+  Pencil, Save, X, Eye, CheckCircle, Brain
 } from 'lucide-react'
 
 export default function InvoiceDetail() {
@@ -79,9 +65,7 @@ export default function InvoiceDetail() {
       setInvoice(updated)
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : 'Sync failed')
-    } finally {
-      setSyncing(false)
-    }
+    } finally { setSyncing(false) }
   }
 
   const handleSave = async () => {
@@ -91,12 +75,10 @@ export default function InvoiceDetail() {
       const updated = await updateInvoice(Number(id), form)
       setInvoice(updated); initForm(updated)
       setEditing(false)
-      setSaveMsg({ ok: true, text: 'Facture mise a jour avec succes !' })
+      setSaveMsg({ ok: true, text: 'Facture mise a jour.' })
     } catch (e: unknown) {
       setSaveMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur de sauvegarde' })
-    } finally {
-      setSaving(false)
-    }
+    } finally { setSaving(false) }
   }
 
   const handleCancel = () => {
@@ -111,7 +93,7 @@ export default function InvoiceDetail() {
   if (error) {
     return (
       <div className="card error-card">
-        <AlertCircle size={20} /> {error}
+        <AlertCircle size={18} /> {error}
       </div>
     )
   }
@@ -119,11 +101,8 @@ export default function InvoiceDetail() {
   if (!invoice) return <div className="loading">Chargement...</div>
 
   const fmt = (n: number | null) =>
-    n != null
-      ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 })
-      : '—'
+    n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '—'
 
-  // Edit field helper
   const EditField = ({ label, field, type = 'text', mono = false }: {
     label: string; field: keyof InvoiceUpdateRequest; type?: string; mono?: boolean
   }) => {
@@ -134,7 +113,7 @@ export default function InvoiceDetail() {
         <dd>
           <input
             type={type}
-            className="form-input form-input-sm"
+            className={`form-input form-input-sm${mono ? ' mono-input' : ''}`}
             value={val ?? ''}
             onChange={e => setField(field, type === 'number' ? (e.target.value ? Number(e.target.value) : undefined) : e.target.value)}
           />
@@ -152,46 +131,36 @@ export default function InvoiceDetail() {
     <div>
       <div className="page-header">
         <h1>
-          <Link to="/invoices" className="back-link">
-            <ArrowLeft size={20} />
-          </Link>
+          <Link to="/invoices" className="back-link"><ArrowLeft size={18} /></Link>
           Facture #{invoice.id}
         </h1>
         <div className="header-actions">
           {!editing ? (
             <>
               <button className="btn btn-secondary" onClick={load}>
-                <RefreshCw size={16} /> Rafraichir
+                <RefreshCw size={14} /> Rafraichir
               </button>
               <button className="btn btn-primary" onClick={() => setEditing(true)}>
-                <Pencil size={16} /> Corriger
+                <Pencil size={14} /> Corriger
               </button>
               {invoice.rawText && (
                 <button className="btn btn-secondary" onClick={() => setShowRawText(!showRawText)}>
-                  <Eye size={16} /> {showRawText ? 'Masquer texte OCR' : 'Voir texte OCR'}
+                  <Eye size={14} /> {showRawText ? 'Masquer OCR' : 'Texte OCR'}
                 </button>
               )}
               {invoice.status === 'READY_FOR_SAGE' && (
                 <button className="btn btn-primary" onClick={handleSync} disabled={syncing}>
-                  {syncing ? (
-                    <><Loader2 size={16} className="spin" /> Sync en cours...</>
-                  ) : (
-                    <><Send size={16} /> Synchroniser Sage</>
-                  )}
+                  {syncing ? <><Loader2 size={14} className="spin" /> Sync...</> : <><Send size={14} /> Synchroniser Sage</>}
                 </button>
               )}
             </>
           ) : (
             <>
               <button className="btn btn-secondary" onClick={handleCancel}>
-                <X size={16} /> Annuler
+                <X size={14} /> Annuler
               </button>
               <button className="btn btn-primary" onClick={handleSave} disabled={saving}>
-                {saving ? (
-                  <><Loader2 size={16} className="spin" /> Sauvegarde...</>
-                ) : (
-                  <><Save size={16} /> Sauvegarder</>
-                )}
+                {saving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Save size={14} /> Sauvegarder</>}
               </button>
             </>
           )}
@@ -200,32 +169,30 @@ export default function InvoiceDetail() {
 
       {saveMsg && (
         <div className={`result-banner ${saveMsg.ok ? 'success' : 'error'} mb-3`}>
-          {saveMsg.ok ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+          {saveMsg.ok ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
           <span>{saveMsg.text}</span>
         </div>
       )}
 
       {editing && (
-        <div className="card" style={{ background: '#fffbeb', borderColor: '#fbbf24' }}>
-          <p style={{ fontSize: '13px', color: '#92400e', fontWeight: 600, margin: 0 }}>
-            <Pencil size={14} style={{ verticalAlign: 'middle', marginRight: 6 }} />
-            Mode correction — modifiez les champs puis cliquez "Sauvegarder". La validation sera re-executee automatiquement.
+        <div className="card" style={{ background: 'var(--warning-light)', borderColor: '#e5c87a' }}>
+          <p style={{ fontSize: 12, color: '#7a5c0a', fontWeight: 600, margin: 0 }}>
+            <Pencil size={12} style={{ verticalAlign: -1, marginRight: 6 }} />
+            Mode correction — modifiez les champs puis cliquez "Sauvegarder". La validation sera re-executee.
           </p>
         </div>
       )}
 
-      {/* Raw OCR text */}
       {showRawText && invoice.rawText && (
         <div className="card" style={{ gridColumn: '1 / -1' }}>
-          <h2><FileText size={16} /> Texte OCR brut</h2>
+          <h2><FileText size={14} /> Texte OCR brut</h2>
           <pre className="raw-text-box">{invoice.rawText}</pre>
         </div>
       )}
 
       <div className="detail-grid">
-        {/* General info */}
         <div className="card">
-          <h2><FileText size={16} /> Informations generales</h2>
+          <h2><FileText size={14} /> Informations generales</h2>
           <dl className="detail-list">
             <div className="detail-row">
               <dt>Fichier</dt>
@@ -235,7 +202,7 @@ export default function InvoiceDetail() {
               <dt>Statut</dt>
               <dd><StatusBadge status={invoice.status} /></dd>
             </div>
-            <EditField label="N° Facture" field="invoiceNumber" />
+            <EditField label="N. Facture" field="invoiceNumber" />
             <EditField label="Date facture" field="invoiceDate" type="date" />
             <div className="detail-row">
               <dt>Creee le</dt>
@@ -244,29 +211,31 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
-        {/* OCR Processing info */}
         <div className="card">
-          <h2><ScanLine size={16} /> Traitement OCR</h2>
+          <h2><ScanLine size={14} /> Traitement OCR</h2>
           <dl className="detail-list">
             <div className="detail-row">
-              <dt><Cpu size={16} /> Moteur OCR</dt>
-              <dd>
+              <dt><Cpu size={14} /> Moteur</dt>
+              <dd style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <span className={`ocr-engine-badge ${(invoice.ocrEngine || 'TIKA').toLowerCase()}`}>
-                  {invoice.ocrEngine === 'TESSERACT' ? 'Tesseract + Preprocessing'
-                    : invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika + Tesseract'
-                    : 'Apache Tika'}
+                  {invoice.ocrEngine === 'TESSERACT' ? 'Tesseract'
+                    : invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika+Tesseract'
+                    : 'Tika'}
                 </span>
+                {invoice.aiUsed && (
+                  <span className="ai-badge"><Brain size={10} /> IA</span>
+                )}
               </dd>
             </div>
             {invoice.ocrPageCount != null && (
               <div className="detail-row">
-                <dt><Layers size={16} /> Pages traitees</dt>
+                <dt><Layers size={14} /> Pages</dt>
                 <dd>{invoice.ocrPageCount} page{invoice.ocrPageCount > 1 ? 's' : ''}</dd>
               </div>
             )}
             {invoice.ocrConfidence != null && invoice.ocrConfidence > 0 && (
               <div className="detail-row">
-                <dt>Confiance OCR</dt>
+                <dt>Confiance</dt>
                 <dd>
                   <div className="confidence-bar">
                     <div
@@ -274,8 +243,7 @@ export default function InvoiceDetail() {
                       style={{
                         width: `${Math.min(100, invoice.ocrConfidence)}%`,
                         background: invoice.ocrConfidence >= 70 ? 'var(--success)'
-                          : invoice.ocrConfidence >= 40 ? 'var(--warning)'
-                          : 'var(--danger)',
+                          : invoice.ocrConfidence >= 40 ? 'var(--warning)' : 'var(--danger)',
                       }}
                     />
                   </div>
@@ -301,9 +269,8 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
-        {/* Supplier info */}
         <div className="card">
-          <h2><Building2 size={16} /> Fournisseur</h2>
+          <h2><Building2 size={14} /> Fournisseur</h2>
           <dl className="detail-list">
             <EditField label="Raison sociale" field="supplierName" />
             <EditField label="Adresse" field="supplierAddress" />
@@ -316,9 +283,8 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
-        {/* Amounts */}
         <div className="card">
-          <h2><Banknote size={16} /> Montants</h2>
+          <h2><Banknote size={14} /> Montants</h2>
           <dl className="detail-list">
             <EditField label="Montant HT" field="amountHt" type="number" />
             <EditField label="Remise %" field="discountPercent" type="number" />
@@ -337,9 +303,8 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
-        {/* Payment info */}
         <div className="card">
-          <h2><CreditCard size={16} /> Paiement</h2>
+          <h2><CreditCard size={14} /> Paiement</h2>
           <dl className="detail-list">
             <EditField label="Mode de paiement" field="paymentMethod" />
             <EditField label="Echeance" field="paymentDueDate" type="date" />
@@ -352,16 +317,14 @@ export default function InvoiceDetail() {
           </dl>
         </div>
 
-        {/* Client info */}
         <div className="card">
-          <h2><Building2 size={16} /> Client (votre entreprise)</h2>
+          <h2><Building2 size={14} /> Client</h2>
           <dl className="detail-list">
             <EditField label="Nom" field="clientName" />
             <EditField label="ICE" field="clientIce" mono />
           </dl>
         </div>
 
-        {/* Line items */}
         {invoice.lineItems.length > 0 && (
           <div className="card" style={{ gridColumn: '1 / -1' }}>
             <h2>Lignes de facture ({invoice.lineItems.length})</h2>
@@ -398,7 +361,7 @@ export default function InvoiceDetail() {
 
         {invoice.errorMessage && (
           <div className="card error-card" style={{ gridColumn: '1 / -1' }}>
-            <h2><AlertCircle size={18} /> Erreur</h2>
+            <h2><AlertCircle size={16} /> Erreur</h2>
             <p>{invoice.errorMessage}</p>
           </div>
         )}

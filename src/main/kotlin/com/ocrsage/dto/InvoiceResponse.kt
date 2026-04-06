@@ -52,6 +52,7 @@ data class InvoiceResponse(
     val ocrEngine: String?,
     val ocrConfidence: Double?,
     val ocrPageCount: Int?,
+    val aiUsed: Boolean,
 
     // Sage
     val sageSynced: Boolean,
@@ -93,6 +94,7 @@ data class InvoiceResponse(
             ocrEngine = invoice.ocrEngine,
             ocrConfidence = invoice.ocrConfidence,
             ocrPageCount = invoice.ocrPageCount,
+            aiUsed = invoice.aiUsed,
             sageSynced = invoice.sageSynced,
             sageReference = invoice.sageReference,
             errorMessage = invoice.errorMessage,

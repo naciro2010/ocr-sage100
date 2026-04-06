@@ -1,7 +1,7 @@
 import { useState } from 'react'
 import { exportCsv, exportJson, exportUbl, exportEdi, batchSync } from '../api/client'
 import type { BatchSyncResult } from '../api/types'
-import { Download, FileSpreadsheet, FileJson, FileCode, Loader2, CheckCircle, XCircle, Send } from 'lucide-react'
+import { Download, FileSpreadsheet, FileJson, FileCode, Loader2, CheckCircle, XCircle, Send, Building2 } from 'lucide-react'
 
 function downloadBlob(blob: Blob, filename: string) {
   const url = URL.createObjectURL(blob)
@@ -35,63 +35,63 @@ export default function Export() {
 
   const handleExportCsv = async () => {
     const ids = parseIds(idsInput)
-    if (ids.length === 0) { setError('Saisissez au moins un ID de facture.'); return }
+    if (ids.length === 0) { setError('Saisissez au moins un ID.'); return }
     setError(''); setExporting('csv')
     try { downloadBlob(await exportCsv(ids), 'factures.csv') }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur export CSV') }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
     finally { setExporting(null) }
   }
 
   const handleExportJson = async () => {
     const ids = parseIds(idsInput)
-    if (ids.length === 0) { setError('Saisissez au moins un ID de facture.'); return }
+    if (ids.length === 0) { setError('Saisissez au moins un ID.'); return }
     setError(''); setExporting('json')
     try { downloadBlob(await exportJson(ids), 'factures.json') }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur export JSON') }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
     finally { setExporting(null) }
   }
 
   const handleExportUbl = async () => {
     const id = parseInt(singleId.trim(), 10)
-    if (isNaN(id)) { setError('Saisissez un ID de facture valide.'); return }
+    if (isNaN(id)) { setError('Saisissez un ID valide.'); return }
     setError(''); setExporting('ubl')
     try { downloadBlob(await exportUbl(id), `facture-${id}.xml`) }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur export UBL') }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
     finally { setExporting(null) }
   }
 
   const handleExportEdi = async () => {
     const id = parseInt(singleId.trim(), 10)
-    if (isNaN(id)) { setError('Saisissez un ID de facture valide.'); return }
+    if (isNaN(id)) { setError('Saisissez un ID valide.'); return }
     setError(''); setExporting('edi')
     try { downloadBlob(await exportEdi(id), `facture-${id}.edi`) }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur export EDI') }
+    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
     finally { setExporting(null) }
   }
 
   const handleBatchSync = async () => {
     const ids = parseIds(syncIdsInput)
-    if (ids.length === 0) { setSyncError('Saisissez au moins un ID de facture.'); return }
+    if (ids.length === 0) { setSyncError('Saisissez au moins un ID.'); return }
     setSyncError(''); setSyncResult(null); setSyncing(true)
     try { setSyncResult(await batchSync(ids, syncErp)) }
-    catch (e: unknown) { setSyncError(e instanceof Error ? e.message : 'Erreur de synchronisation') }
+    catch (e: unknown) { setSyncError(e instanceof Error ? e.message : 'Erreur') }
     finally { setSyncing(false) }
   }
 
   return (
     <div>
       <div className="page-header">
-        <h1><Download size={24} /> Export</h1>
+        <h1><Download size={22} /> Export</h1>
       </div>
 
       {error && (
         <div className="result-banner error mb-3">
-          <XCircle size={18} /> <span>{error}</span>
+          <XCircle size={16} /> <span>{error}</span>
         </div>
       )}
 
       <div className="card">
-        <h2><FileSpreadsheet size={16} /> Export par lot (CSV / JSON)</h2>
+        <h2><FileSpreadsheet size={14} /> Export par lot (CSV / JSON)</h2>
         <div className="form-group">
           <label className="form-label">IDs des factures</label>
           <input
@@ -104,16 +104,16 @@ export default function Export() {
         </div>
         <div className="flex-gap">
           <button className="btn btn-primary" disabled={exporting !== null} onClick={handleExportCsv}>
-            {exporting === 'csv' ? <Loader2 size={16} className="spin" /> : <FileSpreadsheet size={16} />} CSV
+            {exporting === 'csv' ? <Loader2 size={14} className="spin" /> : <FileSpreadsheet size={14} />} CSV
           </button>
           <button className="btn btn-primary" disabled={exporting !== null} onClick={handleExportJson}>
-            {exporting === 'json' ? <Loader2 size={16} className="spin" /> : <FileJson size={16} />} JSON
+            {exporting === 'json' ? <Loader2 size={14} className="spin" /> : <FileJson size={14} />} JSON
           </button>
         </div>
       </div>
 
       <div className="card">
-        <h2><FileCode size={16} /> Export unitaire (UBL XML / EDI)</h2>
+        <h2><FileCode size={14} /> Export unitaire (UBL XML / EDI)</h2>
         <div className="form-group">
           <label className="form-label">ID de la facture</label>
           <input
@@ -126,16 +126,16 @@ export default function Export() {
         </div>
         <div className="flex-gap">
           <button className="btn btn-secondary" disabled={exporting !== null} onClick={handleExportUbl}>
-            {exporting === 'ubl' ? <Loader2 size={16} className="spin" /> : <FileCode size={16} />} UBL XML
+            {exporting === 'ubl' ? <Loader2 size={14} className="spin" /> : <FileCode size={14} />} UBL XML
           </button>
           <button className="btn btn-secondary" disabled={exporting !== null} onClick={handleExportEdi}>
-            {exporting === 'edi' ? <Loader2 size={16} className="spin" /> : <FileCode size={16} />} EDI
+            {exporting === 'edi' ? <Loader2 size={14} className="spin" /> : <FileCode size={14} />} EDI
           </button>
         </div>
       </div>
 
       <div className="card">
-        <h2><Send size={16} /> Synchronisation par lot</h2>
+        <h2><Send size={14} /> Synchronisation par lot</h2>
         <div className="form-group">
           <label className="form-label">IDs des factures</label>
           <input
@@ -148,24 +148,30 @@ export default function Export() {
         </div>
         <div className="form-group">
           <label className="form-label">ERP cible</label>
-          <select className="form-select" value={syncErp} onChange={e => setSyncErp(e.target.value)}>
+          <div className="erp-tabs">
             {ERP_OPTIONS.map(o => (
-              <option key={o.value} value={o.value}>{o.label}</option>
+              <button
+                key={o.value}
+                className={`erp-tab ${syncErp === o.value ? 'active' : ''}`}
+                onClick={() => setSyncErp(o.value)}
+              >
+                <Building2 size={13} /> {o.label}
+              </button>
             ))}
-          </select>
+          </div>
         </div>
         <button className="btn btn-primary" disabled={syncing} onClick={handleBatchSync}>
-          {syncing ? <><Loader2 size={16} className="spin" /> Synchronisation...</> : <><Send size={16} /> Synchroniser</>}
+          {syncing ? <><Loader2 size={14} className="spin" /> Synchronisation...</> : <><Send size={14} /> Synchroniser</>}
         </button>
 
         {syncError && (
-          <div className="result-banner error mt-2"><XCircle size={18} /> <span>{syncError}</span></div>
+          <div className="result-banner error mt-2"><XCircle size={16} /> <span>{syncError}</span></div>
         )}
 
         {syncResult && (
           <div className="mt-2">
             <div className="result-banner success mb-2">
-              <CheckCircle size={18} />
+              <CheckCircle size={16} />
               <span>
                 {syncResult.synced}/{syncResult.totalInvoices} factures synchronisees
                 {syncResult.failed > 0 && ` (${syncResult.failed} echouee${syncResult.failed > 1 ? 's' : ''})`}
@@ -184,8 +190,8 @@ export default function Export() {
                 {syncResult.results.map(r => (
                   <tr key={r.invoiceId}>
                     <td>#{r.invoiceId}</td>
-                    <td>{r.success ? <CheckCircle size={16} color="#059669" /> : <XCircle size={16} color="#ef4444" />}</td>
-                    <td>{r.sageReference || '—'}</td>
+                    <td>{r.success ? <CheckCircle size={14} color="#10a37f" /> : <XCircle size={14} color="#d94f4f" />}</td>
+                    <td className="mono">{r.sageReference || '—'}</td>
                     <td>{r.error || '—'}</td>
                   </tr>
                 ))}

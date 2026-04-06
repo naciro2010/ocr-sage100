@@ -17,11 +17,9 @@ export default function BatchUpload() {
   const [result, setResult] = useState<BatchResult | null>(null)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const ACCEPTED_TYPES = ['application/pdf', 'image/png', 'image/jpeg', 'image/tiff']
-
   const addFiles = (newFiles: FileList | File[]) => {
     const entries: FileEntry[] = Array.from(newFiles)
-      .filter(f => ACCEPTED_TYPES.includes(f.type) || /\.(pdf|png|jpe?g|tiff?)$/i.test(f.name))
+      .filter(f => /\.(pdf|png|jpe?g|tiff?)$/i.test(f.name))
       .map(file => ({ file, status: 'pending' as const }))
     setFiles(prev => [...prev, ...entries])
     setResult(null)
@@ -59,24 +57,22 @@ export default function BatchUpload() {
         status: 'error' as const,
         error: e instanceof Error ? e.message : 'Erreur inconnue',
       })))
-    } finally {
-      setUploading(false)
-    }
+    } finally { setUploading(false) }
   }
 
   const statusIcon = (status: FileEntry['status']) => {
     switch (status) {
-      case 'pending': return <Files size={16} color="#6b7280" />
-      case 'uploading': return <Loader2 size={16} className="spin" color="#f59e0b" />
-      case 'success': return <CheckCircle size={16} color="#059669" />
-      case 'error': return <XCircle size={16} color="#ef4444" />
+      case 'pending': return <Files size={14} color="#7a7a7a" />
+      case 'uploading': return <Loader2 size={14} className="spin" color="#d4940a" />
+      case 'success': return <CheckCircle size={14} color="#10a37f" />
+      case 'error': return <XCircle size={14} color="#d94f4f" />
     }
   }
 
   return (
     <div>
       <div className="page-header">
-        <h1><Files size={24} /> Batch Upload</h1>
+        <h1><Files size={22} /> Batch Upload</h1>
       </div>
 
       <div className="card">
@@ -95,15 +91,15 @@ export default function BatchUpload() {
             hidden
             onChange={e => { if (e.target.files?.length) addFiles(e.target.files); e.target.value = '' }}
           />
-          <Upload size={48} className="drop-icon" />
-          <p className="drop-text">Glissez-deposez vos fichiers ici ou cliquez pour selectionner</p>
+          <Upload size={40} className="drop-icon" />
+          <p className="drop-text">Glissez-deposez vos fichiers ou cliquez pour selectionner</p>
           <p className="drop-hint">PDF, PNG, JPG, TIFF — plusieurs fichiers acceptes</p>
         </div>
 
         {files.length > 0 && (
           <>
             <div className="mt-3">
-              <h3 className="mb-2" style={{ fontSize: '15px', fontWeight: 700 }}>
+              <h3 style={{ fontSize: 14, fontWeight: 700, marginBottom: 12 }}>
                 {files.length} fichier{files.length > 1 ? 's' : ''} selectionne{files.length > 1 ? 's' : ''}
               </h3>
               <table className="invoice-table">
@@ -113,7 +109,7 @@ export default function BatchUpload() {
                     <th>Fichier</th>
                     <th>Taille</th>
                     <th>Resultat</th>
-                    <th style={{ width: 60 }}></th>
+                    <th style={{ width: 50 }}></th>
                   </tr>
                 </thead>
                 <tbody>
@@ -121,13 +117,13 @@ export default function BatchUpload() {
                     <tr key={idx}>
                       <td>{statusIcon(entry.status)}</td>
                       <td className="cell-filename">{entry.file.name}</td>
-                      <td>{(entry.file.size / 1024).toFixed(1)} Ko</td>
+                      <td className="cell-amount">{(entry.file.size / 1024).toFixed(1)} Ko</td>
                       <td>
                         {entry.status === 'success' && entry.invoiceId && (
-                          <span style={{ color: '#059669', fontWeight: 600 }}>Facture #{entry.invoiceId}</span>
+                          <span style={{ color: '#10a37f', fontWeight: 600 }}>Facture #{entry.invoiceId}</span>
                         )}
                         {entry.status === 'error' && entry.error && (
-                          <span style={{ color: '#ef4444' }}>{entry.error}</span>
+                          <span style={{ color: '#d94f4f', fontSize: 12 }}>{entry.error}</span>
                         )}
                         {(entry.status === 'pending' || entry.status === 'uploading') && <span className="text-muted">—</span>}
                       </td>
@@ -135,7 +131,7 @@ export default function BatchUpload() {
                         {entry.status === 'pending' && (
                           <button
                             className="btn btn-secondary"
-                            style={{ padding: '4px 8px', fontSize: '12px' }}
+                            style={{ padding: '4px 6px', fontSize: 11 }}
                             onClick={e => { e.stopPropagation(); removeFile(idx) }}
                           >
                             <Trash2 size={12} />
@@ -154,11 +150,11 @@ export default function BatchUpload() {
                 disabled={uploading || files.every(f => f.status === 'success')}
                 onClick={handleUpload}
               >
-                {uploading ? <><Loader2 size={16} className="spin" /> Traitement en cours...</> : <><Upload size={16} /> Envoyer tous les fichiers</>}
+                {uploading ? <><Loader2 size={14} className="spin" /> Traitement...</> : <><Upload size={14} /> Envoyer tous les fichiers</>}
               </button>
               {!uploading && (
                 <button className="btn btn-secondary" onClick={() => { setFiles([]); setResult(null) }}>
-                  <Trash2 size={16} /> Tout effacer
+                  <Trash2 size={14} /> Tout effacer
                 </button>
               )}
             </div>
@@ -166,8 +162,8 @@ export default function BatchUpload() {
         )}
 
         {result && (
-          <div className={`result-banner ${result.failed === 0 ? 'success' : result.successful === 0 ? 'error' : 'success'} mt-2`}>
-            {result.failed === 0 ? <CheckCircle size={18} /> : <XCircle size={18} />}
+          <div className={`result-banner ${result.failed === 0 ? 'success' : 'error'} mt-2`}>
+            {result.failed === 0 ? <CheckCircle size={16} /> : <XCircle size={16} />}
             <span>
               {result.successful}/{result.totalFiles} fichier{result.totalFiles > 1 ? 's' : ''} traite{result.totalFiles > 1 ? 's' : ''}
               {result.failed > 0 && ` — ${result.failed} echoue${result.failed > 1 ? 's' : ''}`}

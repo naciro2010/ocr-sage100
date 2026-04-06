@@ -17,16 +17,16 @@ const STATUS_LABELS: Record<string, string> = {
 }
 
 const STATUS_COLORS: Record<string, string> = {
-  UPLOADED: '#6b7280',
-  OCR_IN_PROGRESS: '#f59e0b',
-  OCR_COMPLETED: '#3b82f6',
-  AI_EXTRACTION_IN_PROGRESS: '#f59e0b',
-  EXTRACTED: '#8b5cf6',
-  VALIDATION_FAILED: '#ef4444',
-  READY_FOR_SAGE: '#10b981',
-  SAGE_SYNCED: '#059669',
-  SAGE_SYNC_FAILED: '#ef4444',
-  ERROR: '#dc2626',
+  UPLOADED: '#7a7a7a',
+  OCR_IN_PROGRESS: '#d4940a',
+  OCR_COMPLETED: '#4a6fa5',
+  AI_EXTRACTION_IN_PROGRESS: '#d4940a',
+  EXTRACTED: '#7c5cbf',
+  VALIDATION_FAILED: '#d94f4f',
+  READY_FOR_SAGE: '#10a37f',
+  SAGE_SYNCED: '#0d8c6c',
+  SAGE_SYNC_FAILED: '#d94f4f',
+  ERROR: '#c04040',
 }
 
 export default function Dashboard() {
@@ -42,7 +42,7 @@ export default function Dashboard() {
   if (error) {
     return (
       <div className="card error-card">
-        <AlertCircle size={20} />
+        <AlertCircle size={18} />
         <span>Erreur : {error}</span>
       </div>
     )
@@ -53,34 +53,32 @@ export default function Dashboard() {
   return (
     <div>
       <div className="page-header">
-        <h1><BarChart3 size={24} /> Tableau de bord</h1>
+        <h1><BarChart3 size={22} /> Tableau de bord</h1>
         <button className="btn btn-secondary" onClick={load}>
-          <RefreshCw size={16} /> Rafraichir
+          <RefreshCw size={14} /> Rafraichir
         </button>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon purple"><FileText size={20} /></div>
+          <div className="stat-icon purple"><FileText size={18} /></div>
           <div className="stat-value">{stats.totalInvoices}</div>
           <div className="stat-label">Total factures</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon green"><CheckCircle2 size={20} /></div>
+          <div className="stat-icon green"><CheckCircle2 size={18} /></div>
           <div className="stat-value">{stats.sageSynced}</div>
           <div className="stat-label">Synchronisees Sage</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon amber"><Clock size={20} /></div>
+          <div className="stat-icon amber"><Clock size={18} /></div>
           <div className="stat-value">{stats.pendingSync}</div>
           <div className="stat-label">En attente de sync</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon blue"><Banknote size={20} /></div>
+          <div className="stat-icon blue"><Banknote size={18} /></div>
           <div className="stat-value">
-            {stats.totalProcessedAmount.toLocaleString('fr-FR', {
-              minimumFractionDigits: 2,
-            })}
+            {stats.totalProcessedAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
           </div>
           <div className="stat-label">Montant total (MAD)</div>
         </div>
@@ -94,10 +92,7 @@ export default function Dashboard() {
               .filter(([, count]) => count > 0)
               .map(([status, count]) => (
                 <div key={status} className="status-item">
-                  <span
-                    className="status-dot"
-                    style={{ backgroundColor: STATUS_COLORS[status] || '#6b7280' }}
-                  />
+                  <span className="status-dot" style={{ backgroundColor: STATUS_COLORS[status] || '#7a7a7a' }} />
                   <span className="status-name">{STATUS_LABELS[status] || status}</span>
                   <span className="status-count">{count}</span>
                 </div>

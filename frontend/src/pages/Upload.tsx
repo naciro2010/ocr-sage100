@@ -31,9 +31,10 @@ export default function Upload() {
       const engineLabel = invoice.ocrEngine === 'TESSERACT' ? 'Tesseract + Preprocessing'
         : invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika + Tesseract'
         : 'Tika'
+      const aiLabel = invoice.aiUsed ? ' + IA Claude' : ''
       setResult({
         success: true,
-        message: `Facture traitee ! Moteur OCR : ${engineLabel} | Statut : ${invoice.status}`,
+        message: `Facture traitee. Moteur : ${engineLabel}${aiLabel} | Statut : ${invoice.status}`,
       })
       setTimeout(() => navigate(`/invoices/${invoice.id}`), 1500)
     } catch (e: unknown) {
@@ -49,7 +50,7 @@ export default function Upload() {
   return (
     <div>
       <div className="page-header">
-        <h1><UploadIcon size={24} /> Upload de facture</h1>
+        <h1><UploadIcon size={22} /> Upload de facture</h1>
       </div>
 
       <div className="card">
@@ -69,59 +70,45 @@ export default function Upload() {
           />
           {file ? (
             <>
-              <FileUp size={48} className="drop-icon" />
+              <FileUp size={40} className="drop-icon" />
               <p className="drop-filename">{file.name}</p>
               <p className="drop-size">{(file.size / 1024).toFixed(1)} Ko</p>
             </>
           ) : (
             <>
-              <UploadIcon size={48} className="drop-icon" />
-              <p className="drop-text">
-                Glissez-déposez un fichier ici ou cliquez pour sélectionner
-              </p>
+              <UploadIcon size={40} className="drop-icon" />
+              <p className="drop-text">Glissez-deposez un fichier ou cliquez pour selectionner</p>
               <p className="drop-hint">PDF, PNG, JPG, TIFF — max 50 Mo</p>
             </>
           )}
         </div>
 
         <div className="upload-actions">
-          <button
-            className="btn btn-primary"
-            disabled={!file || uploading}
-            onClick={handleSubmit}
-          >
-            {uploading ? (
-              <>
-                <Loader2 size={16} className="spin" /> Traitement en cours...
-              </>
-            ) : (
-              <>
-                <FileUp size={16} /> Envoyer et traiter
-              </>
-            )}
+          <button className="btn btn-primary" disabled={!file || uploading} onClick={handleSubmit}>
+            {uploading ? <><Loader2 size={14} className="spin" /> Traitement en cours...</> : <><FileUp size={14} /> Envoyer et traiter</>}
           </button>
         </div>
 
         {uploading && (
           <div className="ocr-steps-container">
             <div className="ocr-step active">
-              <Loader2 size={16} className="spin" />
+              <Loader2 size={14} className="spin" />
               <span>Pipeline OCR en cours...</span>
             </div>
             <div className="ocr-step pending">
-              <ScanLine size={16} />
+              <ScanLine size={14} />
               <span>1. Extraction texte (Tika)</span>
             </div>
             <div className="ocr-step pending">
-              <Cpu size={16} />
+              <Cpu size={14} />
               <span>2. OCR Tesseract + Preprocessing (si scan)</span>
             </div>
             <div className="ocr-step pending">
-              <Brain size={16} />
+              <Brain size={14} />
               <span>3. Extraction structuree (Regex + IA)</span>
             </div>
             <div className="ocr-step pending">
-              <ShieldCheck size={16} />
+              <ShieldCheck size={14} />
               <span>4. Validation metier marocaine</span>
             </div>
           </div>
@@ -129,7 +116,7 @@ export default function Upload() {
 
         {result && (
           <div className={`result-banner ${result.success ? 'success' : 'error'}`}>
-            {result.success ? <CheckCircle size={18} /> : <AlertCircle size={18} />}
+            {result.success ? <CheckCircle size={16} /> : <AlertCircle size={16} />}
             <span>{result.message}</span>
           </div>
         )}
