@@ -973,6 +973,12 @@ body {
   text-transform: uppercase;
 }
 
+.ocr-engine-badge.paddleocr {
+  background: #e8f7f2;
+  color: #0d7a5f;
+  border: 1px solid #b5e6d8;
+}
+
 .ocr-engine-badge.tesseract,
 .ocr-engine-badge.tika_plus_tesseract {
   background: #eef2f7;

@@ -218,7 +218,8 @@ export default function InvoiceDetail() {
               <dt><Cpu size={14} /> Moteur</dt>
               <dd style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
                 <span className={`ocr-engine-badge ${(invoice.ocrEngine || 'TIKA').toLowerCase()}`}>
-                  {invoice.ocrEngine === 'TESSERACT' ? 'Tesseract'
+                  {invoice.ocrEngine === 'PADDLEOCR' ? 'PaddleOCR'
+                    : invoice.ocrEngine === 'TESSERACT' ? 'Tesseract'
                     : invoice.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika+Tesseract'
                     : 'Tika'}
                 </span>

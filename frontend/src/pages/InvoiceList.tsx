@@ -58,7 +58,8 @@ export default function InvoiceList() {
                 <td>
                   <span style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
                     <span className={`ocr-engine-badge ${(inv.ocrEngine || 'tika').toLowerCase()}`}>
-                      {inv.ocrEngine === 'TESSERACT' ? 'Tesseract'
+                      {inv.ocrEngine === 'PADDLEOCR' ? 'PaddleOCR'
+                        : inv.ocrEngine === 'TESSERACT' ? 'Tesseract'
                         : inv.ocrEngine === 'TIKA_PLUS_TESSERACT' ? 'Tika+Tess'
                         : 'Tika'}
                     </span>
