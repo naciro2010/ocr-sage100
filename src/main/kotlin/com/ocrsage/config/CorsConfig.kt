@@ -13,9 +13,10 @@ class CorsConfig {
         override fun addCorsMappings(registry: CorsRegistry) {
             registry.addMapping("/api/**")
                 .allowedOriginPatterns("*")
-                .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")
+                .allowedMethods("GET", "POST", "PUT", "DELETE", "PATCH", "OPTIONS")
                 .allowedHeaders("*")
-                .allowCredentials(true)
+                .exposedHeaders("Content-Disposition")
+                .allowCredentials(false)
                 .maxAge(3600)
         }
     }
