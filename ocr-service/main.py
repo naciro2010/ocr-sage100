@@ -23,10 +23,10 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
     if lang not in _ocr_instances:
         logger.info("Initializing PaddleOCR for lang=%s", lang)
         _ocr_instances[lang] = PaddleOCR(
-            use_angle_cls=True,
+            use_textline_orientation=True,
             lang=lang,
             show_log=False,
-            use_gpu=False,
+            device="cpu",
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
     return _ocr_instances[lang]
