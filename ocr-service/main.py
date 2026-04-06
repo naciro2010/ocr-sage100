@@ -1,8 +1,8 @@
 import io
 import os
 import time
-import tempfile
 import logging
+from contextlib import asynccontextmanager
 
 import fitz  # PyMuPDF
 import numpy as np
@@ -14,17 +14,12 @@ from paddleocr import PaddleOCR
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger("ocr-service")
 
-app = FastAPI(title="OCR Service", version="1.0.0")
-
-# PaddleOCR instances per language combo (lazy-loaded)
 _ocr_instances: dict[str, PaddleOCR] = {}
 
 DPI = int(os.getenv("OCR_DPI", "300"))
-LANG = os.getenv("OCR_LANG", "fr")  # PaddleOCR lang codes: fr, ar, en
 
 
 def get_ocr(lang: str = "fr") -> PaddleOCR:
-    """Get or create a PaddleOCR instance for the given language."""
     if lang not in _ocr_instances:
         logger.info("Initializing PaddleOCR for lang=%s", lang)
         _ocr_instances[lang] = PaddleOCR(
@@ -32,24 +27,25 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
             lang=lang,
             show_log=False,
             use_gpu=False,
-            enable_mkldnn=True,
-            cpu_threads=4,
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
     return _ocr_instances[lang]
 
 
-@app.on_event("startup")
-async def warmup():
-    """Pre-load French model on startup so first request is fast."""
+@asynccontextmanager
+async def lifespan(application: FastAPI):
     logger.info("Warming up PaddleOCR (fr)...")
     get_ocr("fr")
     logger.info("Warmup complete")
+    yield
+
+
+app = FastAPI(title="OCR Service", version="2.0.0", lifespan=lifespan)
 
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "engine": "paddleocr"}
+    return {"status": "ok", "engine": "paddleocr", "version": "3.4.0"}
 
 
 @app.post("/ocr")
@@ -57,16 +53,6 @@ async def ocr_file(
     file: UploadFile = File(...),
     lang: str = "fr",
 ):
-    """
-    Process a PDF or image file and return extracted text + structured results.
-
-    Returns:
-        - text: full concatenated text (reading order)
-        - pages: list of pages, each with lines containing text + confidence + bbox
-        - page_count: number of pages processed
-        - engine: "paddleocr"
-        - duration_ms: processing time
-    """
     if lang not in ("fr", "ar", "en", "latin"):
         lang = "fr"
 
@@ -83,10 +69,9 @@ async def ocr_file(
         logger.error("OCR failed for %s: %s", filename, str(e))
         raise HTTPException(status_code=500, detail=f"OCR failed: {str(e)}")
 
-    # Build full text from all pages
     full_text = "\n\n".join(page["text"] for page in pages_data)
-
     duration_ms = int((time.time() - start) * 1000)
+
     logger.info(
         "OCR complete: %s, %d pages, %d chars, %dms",
         filename, len(pages_data), len(full_text), duration_ms,
@@ -106,7 +91,6 @@ async def ocr_batch(
     files: list[UploadFile] = File(...),
     lang: str = "fr",
 ):
-    """Process multiple files in one request."""
     results = []
     for f in files:
         try:
@@ -135,13 +119,11 @@ async def ocr_batch(
 
 
 def ocr_pdf(content: bytes, lang: str) -> list[dict]:
-    """Render each PDF page to image, then OCR with PaddleOCR."""
     doc = fitz.open(stream=content, filetype="pdf")
     pages = []
 
     for page_num in range(len(doc)):
         page = doc[page_num]
-        # Render at configured DPI
         zoom = DPI / 72.0
         mat = fitz.Matrix(zoom, zoom)
         pix = page.get_pixmap(matrix=mat, colorspace=fitz.csRGB)
@@ -158,14 +140,12 @@ def ocr_pdf(content: bytes, lang: str) -> list[dict]:
 
 
 def ocr_image(content: bytes, lang: str) -> list[dict]:
-    """OCR a single image file."""
     img = Image.open(io.BytesIO(content)).convert("RGB")
     img_array = np.array(img)
     return [ocr_array(img_array, lang)]
 
 
 def ocr_array(img_array: np.ndarray, lang: str) -> dict:
-    """Run PaddleOCR on a numpy image array and return structured result."""
     ocr = get_ocr(lang)
     result = ocr.ocr(img_array, cls=True)
 
@@ -174,7 +154,7 @@ def ocr_array(img_array: np.ndarray, lang: str) -> dict:
 
     if result and result[0]:
         for line in result[0]:
-            bbox = line[0]  # [[x1,y1],[x2,y2],[x3,y3],[x4,y4]]
+            bbox = line[0]
             text = line[1][0]
             confidence = float(line[1][1])
 
@@ -187,7 +167,7 @@ def ocr_array(img_array: np.ndarray, lang: str) -> dict:
 
     page_text = "\n".join(text_parts)
     avg_confidence = (
-        sum(l["confidence"] for l in lines) / len(lines) if lines else 0.0
+        sum(ln["confidence"] for ln in lines) / len(lines) if lines else 0.0
     )
 
     return {

@@ -1,4 +1,4 @@
-FROM python:3.11-slim
+FROM python:3.12-slim
 
 WORKDIR /app
 
@@ -11,7 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 
-# Pre-download PaddleOCR French model at build time
+# Pre-download French model at build time
 RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='fr', show_log=False, use_gpu=False)"
 
 EXPOSE 8000
