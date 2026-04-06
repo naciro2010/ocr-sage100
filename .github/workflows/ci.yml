@@ -2,13 +2,13 @@ name: CI
 
 on:
   push:
-    branches: [main, claude/**]
+    branches: [main, feat/**, claude/**]
   pull_request:
     branches: [main]
 
 jobs:
   backend:
-    name: Backend (Kotlin/Spring Boot)
+    name: Backend Build & Test
     runs-on: ubuntu-latest
 
     services:
@@ -40,13 +40,16 @@ jobs:
         with:
           gradle-version: wrapper
 
-      - name: Build
-        run: ./gradlew build -x test --no-daemon
+      - name: Compile
+        run: ./gradlew compileKotlin compileTestKotlin --no-daemon
 
-      - name: Run tests
+      - name: Test
         run: ./gradlew test --no-daemon
         env:
           SPRING_PROFILES_ACTIVE: test
+
+      - name: Build JAR
+        run: ./gradlew bootJar --no-daemon
 
       - name: Upload test reports
         if: always()
@@ -57,7 +60,7 @@ jobs:
           retention-days: 7
 
   frontend:
-    name: Frontend (React/TypeScript)
+    name: Frontend Build & Lint
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -81,7 +84,6 @@ jobs:
 
       - name: Lint
         run: npx eslint . --max-warnings 0
-        continue-on-error: true
 
       - name: Build
         run: npm run build
@@ -94,5 +96,8 @@ jobs:
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build image
-        run: docker build -t ocr-sage100 .
+      - name: Build backend image
+        run: docker build -t ocr-sage100-backend .
+
+      - name: Build frontend image
+        run: docker build -t ocr-sage100-frontend frontend/
