@@ -11,9 +11,10 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 
-# Pre-download French model at build time
 ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='fr', show_log=False, device='cpu')"
+
+# Pre-download French model at build time
+RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='fr', device='cpu')"
 
 EXPOSE 8000
 

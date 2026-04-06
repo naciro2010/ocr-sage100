@@ -25,7 +25,6 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
         _ocr_instances[lang] = PaddleOCR(
             use_textline_orientation=True,
             lang=lang,
-            show_log=False,
             device="cpu",
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
