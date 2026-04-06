@@ -5,40 +5,31 @@ import com.ocrsage.dto.ExtractedLineItem
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
+import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.format.DateTimeFormatter
 import java.time.format.DateTimeParseException
 
-/**
- * Deterministic extraction of Moroccan invoice data using regex patterns.
- * No AI dependency — works offline, fast, and predictable.
- *
- * Handles:
- * - Moroccan fiscal IDs: ICE (15 digits), IF, RC, Patente, CNSS
- * - Moroccan TVA rates: 0%, 7%, 10%, 14%, 20%
- * - French and Arabic number/date formats
- * - Common Moroccan invoice layouts
- */
 @Service
 class RegexExtractionService {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
     // --- ICE: always 15 digits ---
-    private val icePattern = Regex(
-        """(?:I\.?C\.?E\.?\s*[:.]?\s*)(\d{15})""",
-        RegexOption.IGNORE_CASE
+    private val icePatterns = listOf(
+        Regex("""(?:I\.?C\.?E\.?\s*[:.]?\s*)(\d{15})""", RegexOption.IGNORE_CASE),
+        Regex("""(?:ICE|I\.C\.E)\D{0,5}(\d{15})""", RegexOption.IGNORE_CASE),
+        // ICE sans label mais 15 chiffres isoles sur une ligne
+        Regex("""^\s*(\d{15})\s*$""", RegexOption.MULTILINE)
     )
-    // Also match standalone 15-digit number near "ICE" keyword
-    private val iceStandalonePattern = Regex("""(?:ICE|I\.C\.E)\D{0,5}(\d{15})""", RegexOption.IGNORE_CASE)
 
     // --- IF (Identifiant Fiscal) ---
-    private val ifPattern = Regex(
-        """(?:I\.?F\.?\s*[:.]?\s*|Identifiant\s+Fiscal\s*[:.]?\s*)(\d{6,10})""",
-        RegexOption.IGNORE_CASE
+    private val ifPatterns = listOf(
+        Regex("""(?:I\.?F\.?\s*[:.]?\s*|Identifiant\s+Fiscal\s*[:.]?\s*)(\d{6,10})""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Id\s*Fiscal|Id\.?\s*F\.?)\s*[:.]?\s*(\d{6,10})""", RegexOption.IGNORE_CASE)
     )
 
-    // --- RC (Registre de Commerce) ---
+    // --- RC ---
     private val rcPattern = Regex(
         """(?:R\.?C\.?\s*[:.]?\s*|Registre\s+(?:de\s+)?Commerce\s*[:.]?\s*)([A-Za-z0-9\-/]+)""",
         RegexOption.IGNORE_CASE
@@ -56,18 +47,23 @@ class RegexExtractionService {
         RegexOption.IGNORE_CASE
     )
 
-    // --- Invoice number ---
+    // --- Invoice number (more patterns) ---
     private val invoiceNumberPatterns = listOf(
-        Regex("""(?:Facture|Fact\.?|Invoice|N°\s*Facture|N°\s*Fact)[ \t]*(?:N°|n°|#|:)[ \t]*[:.]?[ \t]*([A-Za-z0-9\-/]+)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Facture|Fact\.?|Invoice|N°\s*Facture|N°\s*Fact|Fac)[ \t]*(?:N°|n°|#|:)[ \t]*[:.]?[ \t]*([A-Za-z0-9\-/]+)""", RegexOption.IGNORE_CASE),
         Regex("""(?:Facture|Fact\.?|Invoice)[ \t]+([A-Z0-9][\w\-/]*\d[\w\-/]*)""", RegexOption.IGNORE_CASE),
-        Regex("""(?:N°|Numéro)\s*[:.]?\s*([A-Za-z0-9\-/]+\d+)""", RegexOption.IGNORE_CASE)
+        Regex("""(?:N°|Numéro|Numero|Num)\s*[:.]?\s*([A-Za-z0-9\-/]+\d+)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Ref|Réf|Reference)\s*[:.]?\s*([A-Za-z0-9\-/]+\d+)""", RegexOption.IGNORE_CASE),
+        // Pattern : "FACT-2024-001" ou "FA24/001" standalone
+        Regex("""\b(F(?:ACT?|A)\s*[-/]?\s*\d{2,4}\s*[-/]\s*\d{2,6})\b""", RegexOption.IGNORE_CASE)
     )
 
-    // --- Dates (DD/MM/YYYY, DD-MM-YYYY, DD.MM.YYYY, YYYY-MM-DD) ---
+    // --- Dates ---
     private val datePatterns = listOf(
-        Regex("""(?:Date\s*(?:de\s+)?(?:facture|facturation|émission|Facture)\s*[:.]?\s*)(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Date\s*(?:de\s+)?(?:facture|facturation|[ée]mission|Facture)\s*[:.]?\s*)(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})""", RegexOption.IGNORE_CASE),
         Regex("""(?:Date\s*[:.]?\s*)(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})""", RegexOption.IGNORE_CASE),
-        Regex("""(?:Le\s+)(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{4})""", RegexOption.IGNORE_CASE)
+        Regex("""(?:Le\s+|En date du\s+|Du\s+)(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{4})""", RegexOption.IGNORE_CASE),
+        // Format ISO: 2024-01-15
+        Regex("""(?:Date\s*[:.]?\s*)(\d{4}-\d{2}-\d{2})""", RegexOption.IGNORE_CASE)
     )
 
     private val dateFormatters = listOf(
@@ -81,35 +77,38 @@ class RegexExtractionService {
     )
 
     // --- Due date ---
-    private val dueDatePattern = Regex(
-        """(?:[ÉE]ch[ée]ance|Date\s+d'[ée]ch[ée]ance|Date\s+limite|Due\s+date)\s*[:.]?\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})""",
-        RegexOption.IGNORE_CASE
+    private val dueDatePatterns = listOf(
+        Regex("""(?:[ÉEe]ch[ée]ance|Date\s+d'[ée]ch[ée]ance|Date\s+limite|Due\s+date|Payable\s+(?:avant|le))\s*[:.]?\s*(\d{1,2}[/\-\.]\d{1,2}[/\-\.]\d{2,4})""", RegexOption.IGNORE_CASE)
     )
 
-    // --- Amounts ---
-    // Matches: 1 234,56  or  1234.56  or  1,234.56  or  1.234,56
-    private val amountRegex = """[\d\s]+[.,]\d{2}"""
+    // --- Amounts (plus flexible) ---
+    // Matches: "1 234,56" "1234.56" "1,234.56" "1.234,56" "12345" "1234,5"
+    private val amountRegex = """[\d][\d\s]*(?:[.,]\d{1,2})?"""
 
     private val amountHtPatterns = listOf(
-        Regex("""(?:Total\s+H\.?T\.?|Montant\s+H\.?T\.?|Base\s+H\.?T\.?|Sous[- ]?total\s+H\.?T\.?)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
-        Regex("""H\.?T\.?\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
+        Regex("""(?:Total\s+H\.?T\.?|Montant\s+H\.?T\.?|Base\s+H\.?T\.?|Sous[- ]?total\s+H\.?T\.?|Total\s+hors\s+tax)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""H\.?T\.?\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Hors\s+Tax(?:e|es)?)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
     )
 
     private val amountTvaPatterns = listOf(
-        Regex("""(?:Total\s+T\.?V\.?A\.?|Montant\s+T\.?V\.?A\.?|T\.?V\.?A\.?\s+\d+\s*%?)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
-        Regex("""T\.?V\.?A\.?\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
+        Regex("""(?:Total\s+T\.?V\.?A\.?|Montant\s+T\.?V\.?A\.?)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""T\.?V\.?A\.?\s+\d+\s*%?\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Taxe|Tax)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
     )
 
     private val amountTtcPatterns = listOf(
-        Regex("""(?:Total\s+T\.?T\.?C\.?|Montant\s+T\.?T\.?C\.?|Net\s+[àa]\s+payer|Total\s+g[ée]n[ée]ral)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Total\s+T\.?T\.?C\.?|Montant\s+T\.?T\.?C\.?|Net\s+[àa]\s+payer|Total\s+g[ée]n[ée]ral|Total\s+facture)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
         Regex("""T\.?T\.?C\.?\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
-        Regex("""Net\s+[àa]\s+payer\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
+        Regex("""Net\s+[àa]\s+payer\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE),
+        Regex("""(?:Toutes\s+Taxes\s+Comprises?)\s*[:.]?\s*($amountRegex)""", RegexOption.IGNORE_CASE)
     )
 
     // --- TVA rate ---
-    private val tvaRatePattern = Regex(
-        """T\.?V\.?A\.?\s*(?:au\s+taux\s+de\s+|[:.]?\s*)?(\d{1,2})\s*%""",
-        RegexOption.IGNORE_CASE
+    private val tvaRatePatterns = listOf(
+        Regex("""T\.?V\.?A\.?\s*(?:au\s+taux\s+de\s+|[:.]?\s*)?(\d{1,2})\s*%""", RegexOption.IGNORE_CASE),
+        Regex("""(\d{1,2})\s*%\s*T\.?V\.?A""", RegexOption.IGNORE_CASE),
+        Regex("""Taux\s*[:.]?\s*(\d{1,2})\s*%""", RegexOption.IGNORE_CASE)
     )
 
     // --- Discount ---
@@ -120,7 +119,7 @@ class RegexExtractionService {
 
     // --- Payment method ---
     private val paymentPatterns = listOf(
-        Regex("""(?:Mode\s+de\s+(?:paiement|règlement)|Règlement|Paiement)\s*[:.]?\s*(Virement|Chèque|Ch[eè]que|Espèces|Traite|Effet|LCN|Carte|Prélèvement|Compensation)""", RegexOption.IGNORE_CASE)
+        Regex("""(?:Mode\s+de\s+(?:paiement|r[èe]glement)|R[èe]glement|Paiement|Pay[ée]\s+par)\s*[:.]?\s*(Virement|Ch[èe]que|Espèces|Especes|Traite|Effet|LCN|Carte|Pr[ée]l[èe]vement|Compensation)""", RegexOption.IGNORE_CASE)
     )
 
     // --- RIB (24 digits for Morocco) ---
@@ -128,11 +127,13 @@ class RegexExtractionService {
         """(?:R\.?I\.?B\.?\s*[:.]?\s*)(\d[\d\s]{22,30}\d)""",
         RegexOption.IGNORE_CASE
     )
+    // RIB sans label : 24 chiffres consecutifs
+    private val ribStandalonePattern = Regex("""(?<!\d)(\d{24})(?!\d)""")
 
     // --- Bank name ---
     private val bankPatterns = listOf(
         Regex("""(?:Banque|Bank)\s*[:.]?\s*(.+?)(?:\n|R\.?I\.?B|$)""", RegexOption.IGNORE_CASE),
-        Regex("""(Attijariwafa|BMCE|BMCI|CIH|Banque\s+Populaire|Société\s+Générale|Crédit\s+du\s+Maroc|CDM|Bank\s+Al[\s-]Maghrib|BAM|SGMB|CFG|Crédit\s+Agricole|Al\s+Barid)""", RegexOption.IGNORE_CASE)
+        Regex("""(Attijariwafa|BMCE|BMCI|CIH|Banque\s+Populaire|Soci[ée]t[ée]\s+G[ée]n[ée]rale|Cr[ée]dit\s+du\s+Maroc|CDM|Bank\s+Al[\s-]Maghrib|BAM|SGMB|CFG|Cr[ée]dit\s+Agricole|Al\s+Barid|Umnia|Bank\s+Assafa|BTI\s+Bank|Al\s+Akhdar)""", RegexOption.IGNORE_CASE)
     )
 
     // --- Currency ---
@@ -141,38 +142,55 @@ class RegexExtractionService {
         RegexOption.IGNORE_CASE
     )
 
+    // --- Moroccan cities ---
+    // Villes principales d'abord (priorite), puis secondaires
+    private val moroccanCities = listOf(
+        "Casablanca", "Rabat", "Marrakech", "Fès", "Fez", "Tanger", "Tangier",
+        "Agadir", "Meknès", "Meknes", "Oujda", "Kénitra", "Kenitra", "Tétouan",
+        "Tetouan", "Safi", "El Jadida", "Mohammedia", "Nador", "Béni Mellal",
+        "Beni Mellal", "Khémisset", "Taza", "Settat", "Berrechid", "Laâyoune",
+        "Laayoune", "Khouribga", "Salé", "Sale", "Temara", "Témara"
+    )
+
     fun extract(rawText: String): ExtractedInvoiceData {
         log.info("Starting regex extraction on {} chars", rawText.length)
 
-        val ice = findFirst(rawText, icePattern) ?: findFirst(rawText, iceStandalonePattern)
-        val invoiceIf = findFirst(rawText, ifPattern)
+        val ice = findFirstFromPatterns(rawText, icePatterns)
+        val invoiceIf = findFirstFromPatterns(rawText, ifPatterns)
         val rc = findFirst(rawText, rcPattern)
         val patente = findFirst(rawText, patentePattern)
         val cnss = findFirst(rawText, cnssPattern)
 
         val invoiceNumber = findFirstFromList(rawText, invoiceNumberPatterns)
         val invoiceDate = extractDate(rawText, datePatterns)
-        val dueDate = extractSingleDate(rawText, dueDatePattern)
+        val dueDate = extractDateFromList(rawText, dueDatePatterns)
 
-        val amountHt = extractAmount(rawText, amountHtPatterns)
-        val amountTva = extractAmount(rawText, amountTvaPatterns)
-        val amountTtc = extractAmount(rawText, amountTtcPatterns)
-        val tvaRate = tvaRatePattern.find(rawText)?.groupValues?.get(1)?.toBigDecimalOrNull()
+        var amountHt = extractAmount(rawText, amountHtPatterns)
+        var amountTva = extractAmount(rawText, amountTvaPatterns)
+        var amountTtc = extractAmount(rawText, amountTtcPatterns)
+        val tvaRate = extractTvaRate(rawText)
+
+        // --- CALCUL DES CHAMPS MANQUANTS ---
+        val computed = computeMissingAmounts(amountHt, amountTva, amountTtc, tvaRate)
+        amountHt = computed.ht
+        amountTva = computed.tva
+        amountTtc = computed.ttc
 
         val discount = extractDiscount(rawText)
-
         val paymentMethod = findFirstFromList(rawText, paymentPatterns)
         val bankName = findFirstFromList(rawText, bankPatterns)?.trim()
-        val rib = ribPattern.find(rawText)?.groupValues?.get(1)?.replace("\\s".toRegex(), "")
+
+        // RIB : d'abord avec label, sinon standalone 24 chiffres (si pres d'un contexte bancaire)
+        var rib = ribPattern.find(rawText)?.groupValues?.get(1)?.replace("\\s".toRegex(), "")
+        if (rib == null && bankName != null) {
+            // Chercher 24 chiffres pres du contexte bancaire
+            rib = ribStandalonePattern.find(rawText)?.groupValues?.get(1)
+        }
 
         val currency = detectCurrency(rawText)
-
-        // Try to extract supplier name from first lines
-        val supplierName = extractSupplierName(rawText)
+        val supplierName = extractSupplierName(rawText, ice)
         val supplierAddress = extractAddress(rawText)
         val supplierCity = extractCity(rawText)
-
-        // Extract client info
         val clientInfo = extractClientInfo(rawText)
 
         val result = ExtractedInvoiceData(
@@ -202,15 +220,61 @@ class RegexExtractionService {
         )
 
         val fieldsFound = listOfNotNull(
-            ice, invoiceIf, rc, invoiceNumber, invoiceDate, amountHt, amountTtc, supplierName
+            ice, invoiceIf, rc, invoiceNumber, invoiceDate,
+            amountHt, amountTva, amountTtc, supplierName, tvaRate
         ).size
         log.info("Regex extraction done: {} fields extracted", fieldsFound)
 
         return result
     }
 
+    // --- Calcul intelligent des montants manquants ---
+
+    data class ComputedAmounts(val ht: BigDecimal?, val tva: BigDecimal?, val ttc: BigDecimal?)
+
+    private fun computeMissingAmounts(
+        ht: BigDecimal?, tva: BigDecimal?, ttc: BigDecimal?, tvaRate: BigDecimal?
+    ): ComputedAmounts {
+        var h = ht
+        var t = tva
+        var c = ttc
+
+        // Cas 1: HT + TVA connus -> calculer TTC
+        if (h != null && t != null && c == null) {
+            c = h.add(t)
+            log.debug("Computed TTC = HT + TVA = {} + {} = {}", h, t, c)
+        }
+
+        // Cas 2: HT + taux TVA connus -> calculer TVA et TTC
+        if (h != null && tvaRate != null && t == null) {
+            t = h.multiply(tvaRate).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
+            if (c == null) c = h.add(t)
+            log.debug("Computed TVA = {}% of {} = {}, TTC = {}", tvaRate, h, t, c)
+        }
+
+        // Cas 3: TTC + TVA connus -> calculer HT
+        if (c != null && t != null && h == null) {
+            h = c.subtract(t)
+            log.debug("Computed HT = TTC - TVA = {} - {} = {}", c, t, h)
+        }
+
+        // Cas 4: TTC + taux TVA connus -> calculer HT et TVA
+        if (c != null && tvaRate != null && h == null && tvaRate > BigDecimal.ZERO) {
+            h = c.divide(BigDecimal.ONE.add(tvaRate.divide(BigDecimal(100))), 2, RoundingMode.HALF_UP)
+            t = c.subtract(h)
+            log.debug("Computed HT = TTC / (1+rate) = {}, TVA = {}", h, t)
+        }
+
+        return ComputedAmounts(h, t, c)
+    }
+
+    // --- Helpers ---
+
     private fun findFirst(text: String, pattern: Regex): String? =
         pattern.find(text)?.groupValues?.get(1)?.trim()
+
+    private fun findFirstFromPatterns(text: String, patterns: List<Regex>): String? =
+        patterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.get(1)?.trim() }
 
     private fun findFirstFromList(text: String, patterns: List<Regex>): String? =
         patterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.get(1)?.trim() }
@@ -223,16 +287,14 @@ class RegexExtractionService {
         return null
     }
 
-    private fun extractSingleDate(text: String, pattern: Regex): LocalDate? {
-        val match = pattern.find(text)?.groupValues?.get(1) ?: return null
-        return parseDate(match)
+    private fun extractDateFromList(text: String, patterns: List<Regex>): LocalDate? {
+        return extractDate(text, patterns)
     }
 
     private fun parseDate(dateStr: String): LocalDate? {
         for (fmt in dateFormatters) {
             try {
                 val date = LocalDate.parse(dateStr, fmt)
-                // Handle 2-digit years
                 return if (date.year < 100) date.plusYears(2000) else date
             } catch (_: DateTimeParseException) {
                 continue
@@ -242,16 +304,17 @@ class RegexExtractionService {
     }
 
     private fun parseAmount(amountStr: String): BigDecimal? {
-        // Normalize: "1 234,56" → "1234.56", "1.234,56" → "1234.56"
         val cleaned = amountStr.trim()
+        if (cleaned.isEmpty()) return null
         return try {
-            val hasCommaDecimal = cleaned.matches(Regex(""".*,\d{2}$"""))
+            val hasCommaDecimal = cleaned.matches(Regex(""".*,\d{1,2}$"""))
             val normalized = if (hasCommaDecimal) {
                 cleaned.replace("\\s".toRegex(), "").replace(".", "").replace(",", ".")
             } else {
                 cleaned.replace("\\s".toRegex(), "").replace(",", "")
             }
-            BigDecimal(normalized)
+            val value = BigDecimal(normalized)
+            if (value <= BigDecimal.ZERO) null else value
         } catch (_: NumberFormatException) {
             null
         }
@@ -261,9 +324,27 @@ class RegexExtractionService {
         for (pattern in patterns) {
             val match = pattern.find(text)?.groupValues?.get(1) ?: continue
             val amount = parseAmount(match)
-            if (amount != null && amount > BigDecimal.ZERO) return amount
+            if (amount != null) return amount
         }
         return null
+    }
+
+    private fun extractTvaRate(text: String): BigDecimal? {
+        for (pattern in tvaRatePatterns) {
+            val match = pattern.find(text)?.groupValues?.get(1) ?: continue
+            val rate = match.toBigDecimalOrNull() ?: continue
+            // Valider que c'est un taux TVA marocain legal
+            if (rate in listOf(BigDecimal("0"), BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20"))) {
+                return rate
+            }
+        }
+        // Fallback : chercher le taux le plus courant mentionne
+        val allRates = Regex("""(\d{1,2})\s*%""").findAll(text)
+            .map { it.groupValues[1].toIntOrNull() }
+            .filterNotNull()
+            .filter { it in listOf(0, 7, 10, 14, 20) }
+            .toList()
+        return allRates.maxByOrNull { rate -> allRates.count { it == rate } }?.toBigDecimal()
     }
 
     private fun extractDiscount(text: String): Pair<BigDecimal?, BigDecimal?> {
@@ -298,50 +379,96 @@ class RegexExtractionService {
         }
     }
 
-    private fun extractSupplierName(text: String): String? {
-        // Usually the company name is in the first few lines, before any fiscal IDs
-        val lines = text.lines().take(15)
-        // Skip empty lines and very short lines at the top
-        val candidateLines = lines
-            .map { it.trim() }
-            .filter { it.length > 3 && !it.matches(Regex("^\\d+$")) }
-            .filter { !it.contains(Regex("(?:facture|date|ice|i\\.f|r\\.c|patente|tél|fax|email|adresse|n°)", RegexOption.IGNORE_CASE)) }
+    /**
+     * Extraction intelligente du nom fournisseur.
+     * Strategie : chercher la ligne juste avant ou apres l'ICE/IF,
+     * car sur une facture marocaine le nom est toujours pres des identifiants fiscaux.
+     * Fallback : premiere ligne significative du document.
+     */
+    private fun extractSupplierName(text: String, ice: String?): String? {
+        val lines = text.lines().map { it.trim() }.filter { it.isNotBlank() }
+        if (lines.isEmpty()) return null
 
-        return candidateLines.firstOrNull()
+        // Strategie 1 : ligne juste avant le premier ICE/IF/RC
+        val fiscalKeywords = listOf("ICE", "I.C.E", "I.F.", "R.C.", "Patente", "CNSS", "Identifiant Fiscal")
+        val fiscalLineIndex = lines.indexOfFirst { line ->
+            fiscalKeywords.any { kw -> line.contains(kw, ignoreCase = true) }
+        }
+
+        if (fiscalLineIndex > 0) {
+            // Remonter pour trouver le nom (1-3 lignes avant les IDs fiscaux)
+            for (i in (fiscalLineIndex - 1) downTo maxOf(0, fiscalLineIndex - 4)) {
+                val candidate = lines[i]
+                if (isLikelyCompanyName(candidate)) {
+                    return cleanCompanyName(candidate)
+                }
+            }
+        }
+
+        // Strategie 2 : premiere ligne qui ressemble a un nom d'entreprise
+        val skipPatterns = listOf(
+            Regex("^\\d+$"),
+            Regex("^(facture|date|page|tel|fax|email|www|http)", RegexOption.IGNORE_CASE),
+            Regex("^\\d{1,2}[/\\-]\\d{1,2}[/\\-]\\d{2,4}"),
+            Regex("^(adresse|adr|bp|boite)", RegexOption.IGNORE_CASE)
+        )
+
+        for (line in lines.take(10)) {
+            if (line.length < 3 || line.length > 100) continue
+            if (skipPatterns.any { it.containsMatchIn(line) }) continue
+            if (isLikelyCompanyName(line)) {
+                return cleanCompanyName(line)
+            }
+        }
+
+        return null
+    }
+
+    private fun isLikelyCompanyName(line: String): Boolean {
+        if (line.length < 3 || line.length > 100) return false
+        // Contient des mots typiques de raison sociale
+        val companyIndicators = listOf("sarl", "s.a.r.l", "sa", "s.a.", "sas", "eurl",
+            "ste", "société", "societe", "entreprise", "ets", "cabinet", "group",
+            "international", "maroc", "morocco", "import", "export", "trading",
+            "consulting", "services", "industries", "distribution")
+        if (companyIndicators.any { line.contains(it, ignoreCase = true) }) return true
+        // Au moins 2 mots, commence par majuscule, pas que des chiffres
+        val words = line.split(Regex("\\s+"))
+        return words.size >= 2 && line[0].isUpperCase() && !line.matches(Regex(".*\\d{6,}.*"))
+    }
+
+    private fun cleanCompanyName(name: String): String {
+        // Retirer les numeros de telephone, fax, emails en fin de ligne
+        return name
+            .replace(Regex("\\s*(Tel|Tél|Fax|GSM|Email|Mob).*$", RegexOption.IGNORE_CASE), "")
+            .replace(Regex("\\s*\\d{2}[.\\s]\\d{2}[.\\s]\\d{2}[.\\s]\\d{2}[.\\s]\\d{2}\\s*$"), "")
+            .trim()
     }
 
     private fun extractAddress(text: String): String? {
-        val pattern = Regex(
-            """(?:Adresse|Adr\.?)\s*[:.]?\s*(.+?)(?:\n|Tél|Tel|Fax|Email|ICE|$)""",
-            RegexOption.IGNORE_CASE
+        val patterns = listOf(
+            Regex("""(?:Adresse|Adr\.?|Siege)\s*[:.]?\s*(.+?)(?:\n|Tél|Tel|Fax|Email|ICE|$)""", RegexOption.IGNORE_CASE),
+            // Adresse typique marocaine : contient "rue", "bd", "av", "lot", "n°"
+            Regex("""((?:\d+\s*,?\s*)?(?:Rue|Boulevard|Bd|Avenue|Av|Lot|Imm|Residence|Quartier|Zone|ZI)\s+.+?)(?:\n|Tél|Tel|$)""", RegexOption.IGNORE_CASE)
         )
-        return pattern.find(text)?.groupValues?.get(1)?.trim()
+        return patterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.get(1)?.trim() }
     }
 
     private fun extractCity(text: String): String? {
-        // Common Moroccan cities
-        val cities = listOf(
-            "Casablanca", "Rabat", "Marrakech", "Fès", "Fez", "Tanger", "Tangier",
-            "Agadir", "Meknès", "Meknes", "Oujda", "Kénitra", "Kenitra", "Tétouan",
-            "Tetouan", "Safi", "El Jadida", "Mohammedia", "Nador", "Béni Mellal",
-            "Beni Mellal", "Khémisset", "Taza", "Settat", "Berrechid", "Laâyoune",
-            "Laayoune", "Khouribga", "Salé", "Sale", "Temara", "Témara"
-        )
-        val pattern = Regex(cities.joinToString("|") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
+        val pattern = Regex(moroccanCities.joinToString("|") { Regex.escape(it) }, RegexOption.IGNORE_CASE)
         return pattern.find(text)?.value
     }
 
     private fun extractClientInfo(text: String): Pair<String?, String?> {
-        // Look for "Client:" or "Destinataire:" section
-        val clientNamePattern = Regex(
-            """(?:Client|Destinataire|Livré\s+à|Adressé\s+à|Doit\s*:)\s*[:.]?\s*(.+?)(?:\n|ICE|$)""",
-            RegexOption.IGNORE_CASE
+        val clientNamePatterns = listOf(
+            Regex("""(?:Client|Destinataire|Livr[ée]\s+[àa]|Adress[ée]\s+[àa]|Doit\s*:|Facturer?\s+[àa])\s*[:.]?\s*(.+?)(?:\n|ICE|$)""", RegexOption.IGNORE_CASE)
         )
-        val name = clientNamePattern.find(text)?.groupValues?.get(1)?.trim()
+        val name = clientNamePatterns.firstNotNullOfOrNull { it.find(text)?.groupValues?.get(1)?.trim() }
 
-        // Look for second ICE (client ICE) — usually after "Client" section
-        val allIces = icePattern.findAll(text).map { it.groupValues[1] }.toList() +
-                iceStandalonePattern.findAll(text).map { it.groupValues[1] }.toList()
+        // Second ICE = client ICE
+        val allIces = icePatterns.flatMap { pattern ->
+            pattern.findAll(text).map { it.groupValues[1] }.toList()
+        }.distinct()
         val clientIce = if (allIces.size >= 2) allIces[1] else null
 
         return Pair(name, clientIce)
