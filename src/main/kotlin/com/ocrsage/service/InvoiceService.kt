@@ -166,6 +166,7 @@ class InvoiceService(
     private val aiExtractionService: AiExtractionService,
     private val erpConnectorFactory: ErpConnectorFactory,
     private val appSettingsService: AppSettingsService,
+    private val objectStorageService: ObjectStorageService,
     @Value("\${storage.upload-dir}") private val uploadDir: String
 ) {
 
@@ -174,14 +175,8 @@ class InvoiceService(
     @PostConstruct
     fun init() {
         val uploadPath = Path.of(uploadDir)
-        try {
-            Files.createDirectories(uploadPath)
-            log.info("Upload directory ready: {}", uploadPath.toAbsolutePath())
-        } catch (e: Exception) {
-            log.error("Cannot create upload directory '{}': {}. Check file system permissions.", uploadPath.toAbsolutePath(), e.message)
-            throw IllegalStateException("Upload directory '${uploadPath.toAbsolutePath()}' is not writable. " +
-                "Ensure the directory exists and the application has write permissions.", e)
-        }
+        Files.createDirectories(uploadPath)
+        log.info("Upload directory ready: {} (S3 enabled: {})", uploadPath.toAbsolutePath(), objectStorageService.isEnabled())
     }
 
     /**
@@ -200,43 +195,56 @@ class InvoiceService(
      *   TX4 → save extraction results + auto-validate
      */
     fun uploadAndProcess(file: MultipartFile): InvoiceResponse {
-        val uploadPath = Path.of(uploadDir)
-        Files.createDirectories(uploadPath)
-
         val fileName = "${System.currentTimeMillis()}_${file.originalFilename}"
-        val filePath = uploadPath.resolve(fileName)
-        file.transferTo(filePath)
+        val fileBytes = file.bytes
+
+        // Store file: S3 bucket or local filesystem
+        val storagePath: String
+        if (objectStorageService.isEnabled()) {
+            val s3Key = "invoices/$fileName"
+            val contentType = file.contentType ?: "application/octet-stream"
+            objectStorageService.upload(s3Key, fileBytes, contentType)
+            storagePath = "s3://$s3Key"
+        } else {
+            val uploadPath = Path.of(uploadDir)
+            Files.createDirectories(uploadPath)
+            val localPath = uploadPath.resolve(fileName)
+            Files.write(localPath, fileBytes)
+            storagePath = localPath.toString()
+        }
 
         // TX 1: persist the initial invoice record
-        val invoiceId = invoiceTxService.saveInitialInvoice(file.originalFilename ?: "unknown", filePath.toString())
-        log.info("Invoice uploaded: {} (id={})", fileName, invoiceId)
+        val invoiceId = invoiceTxService.saveInitialInvoice(file.originalFilename ?: "unknown", storagePath)
+        log.info("Invoice uploaded: {} (id={}, storage={})", fileName, invoiceId, if (objectStorageService.isEnabled()) "s3" else "local")
 
-        // TX 2: mark OCR as in-progress — connection released before OCR starts
+        // TX 2: mark OCR as in-progress
         invoiceTxService.markOcrInProgress(invoiceId)
 
-        // OCR — runs entirely outside any transaction; no DB connection held
-        val ocrResult = try {
-            ocrService.extractWithDetails(Files.newInputStream(filePath), fileName, filePath)
-        } catch (e: Exception) {
-            log.error("OCR failed for invoice {}: {}", invoiceId, e.message)
-            return invoiceTxService.markError(invoiceId, "OCR failed: ${e.message}")
+        // Write to temp file for OCR processing (needs file path)
+        val tempFile = Files.createTempFile("ocr-", "-$fileName")
+        try {
+            Files.write(tempFile, fileBytes)
+
+            val ocrResult = try {
+                ocrService.extractWithDetails(Files.newInputStream(tempFile), fileName, tempFile)
+            } catch (e: Exception) {
+                log.error("OCR failed for invoice {}: {}", invoiceId, e.message)
+                return invoiceTxService.markError(invoiceId, "OCR failed: ${e.message}")
+            }
+
+            val rawText = invoiceTxService.saveOcrResults(invoiceId, ocrResult)
+
+            val extractionResult = try {
+                performExtraction(invoiceId, rawText, tempFile)
+            } catch (e: Exception) {
+                log.error("Extraction failed for invoice {}: {}", invoiceId, e.message)
+                return invoiceTxService.markError(invoiceId, "Extraction failed: ${e.message}")
+            }
+
+            return invoiceTxService.saveExtractionResults(invoiceId, extractionResult)
+        } finally {
+            Files.deleteIfExists(tempFile)
         }
-
-        // TX 3: persist OCR results — connection released before extraction starts
-        log.info("OCR completed for invoice {} (engine={}, {} chars, {} pages)",
-            invoiceId, ocrResult.engine, ocrResult.text.length, ocrResult.pageCount)
-        val rawText = invoiceTxService.saveOcrResults(invoiceId, ocrResult)
-
-        // Extraction — runs entirely outside any transaction; no DB connection held
-        val extractionResult = try {
-            performExtraction(invoiceId, rawText, filePath)
-        } catch (e: Exception) {
-            log.error("Extraction failed for invoice {}: {}", invoiceId, e.message)
-            return invoiceTxService.markError(invoiceId, "Extraction failed: ${e.message}")
-        }
-
-        // TX 4: persist extraction results and run auto-validation
-        return invoiceTxService.saveExtractionResults(invoiceId, extractionResult)
     }
 
     /**

@@ -4,8 +4,10 @@ import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.InvoiceResponse
 import com.ocrsage.dto.InvoiceUpdateRequest
 import com.ocrsage.service.InvoiceService
+import com.ocrsage.service.ObjectStorageService
 import org.slf4j.LoggerFactory
 import org.springframework.core.io.FileSystemResource
+import org.springframework.core.io.InputStreamResource
 import org.springframework.core.io.Resource
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
@@ -20,7 +22,10 @@ import java.nio.file.Path
 
 @RestController
 @RequestMapping("/api/invoices")
-class InvoiceController(private val invoiceService: InvoiceService) {
+class InvoiceController(
+    private val invoiceService: InvoiceService,
+    private val objectStorageService: ObjectStorageService
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -63,15 +68,8 @@ class InvoiceController(private val invoiceService: InvoiceService) {
 
     @GetMapping("/{id}/file")
     fun getFile(@PathVariable id: Long): ResponseEntity<Resource> {
-        val invoice = invoiceService.getInvoiceFile(id)
-        val filePath = Path.of(invoice.first)
+        val (storagePath, fileName) = invoiceService.getInvoiceFile(id)
 
-        if (!Files.exists(filePath)) {
-            log.warn("File not found on disk for invoiceId={}: {}", id, filePath)
-            return ResponseEntity.notFound().build()
-        }
-
-        val fileName = invoice.second
         val contentType = when {
             fileName.lowercase().endsWith(".pdf") -> MediaType.APPLICATION_PDF
             fileName.lowercase().endsWith(".png") -> MediaType.IMAGE_PNG
@@ -80,10 +78,27 @@ class InvoiceController(private val invoiceService: InvoiceService) {
             else -> MediaType.APPLICATION_OCTET_STREAM
         }
 
+        val resource: Resource = if (storagePath.startsWith("s3://")) {
+            val s3Key = storagePath.removePrefix("s3://")
+            try {
+                InputStreamResource(objectStorageService.download(s3Key))
+            } catch (e: Exception) {
+                log.warn("File not found in S3 for invoiceId={}: {}", id, s3Key)
+                return ResponseEntity.notFound().build()
+            }
+        } else {
+            val filePath = Path.of(storagePath)
+            if (!Files.exists(filePath)) {
+                log.warn("File not found on disk for invoiceId={}: {}", id, filePath)
+                return ResponseEntity.notFound().build()
+            }
+            FileSystemResource(filePath)
+        }
+
         return ResponseEntity.ok()
             .contentType(contentType)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"$fileName\"")
             .header(HttpHeaders.CACHE_CONTROL, "max-age=86400")
-            .body(FileSystemResource(filePath))
+            .body(resource)
     }
 }
