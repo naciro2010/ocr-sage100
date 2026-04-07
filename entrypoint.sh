@@ -27,16 +27,18 @@ if [ -n "$DATABASE_URL" ]; then
   export SPRING_DATASOURCE_USERNAME="${DATABASE_USERNAME}"
   export SPRING_DATASOURCE_PASSWORD="${DATABASE_PASSWORD}"
 
-  # Drop and recreate the public schema so Flyway rebuilds everything from scratch
-  echo "=== Resetting database (DROP SCHEMA public) ==="
-  PGPASSWORD="$DATABASE_PASSWORD" psql \
-    "$(echo "$DATABASE_URL" | sed 's|^jdbc:||')" \
-    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" \
-    2>&1 && echo "=== Database reset OK ===" \
-         || echo "=== Database reset SKIPPED (DB may not be reachable yet) ==="
+  # Only reset DB if explicitly requested (e.g. for schema-breaking migrations)
+  if [ "$DB_RESET_ON_DEPLOY" = "true" ]; then
+    echo "=== Resetting database (DROP SCHEMA public) ==="
+    PGPASSWORD="$DATABASE_PASSWORD" psql \
+      "$(echo "$DATABASE_URL" | sed 's|^jdbc:||')" \
+      -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" \
+      2>&1 && echo "=== Database reset OK ===" \
+           || echo "=== Database reset SKIPPED (DB may not be reachable yet) ==="
+  fi
 fi
 
 # JVM defaults: use container-aware memory (75% of available), GC logging
-DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -Xlog:gc*:stdout:time,level,tags"
+DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -Xlog:gc:stdout:time,level"
 
 exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS -jar app.jar
