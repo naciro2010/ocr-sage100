@@ -18,7 +18,9 @@ RUN apk add --no-cache \
     leptonica-dev \
     # Fonts for PDF rendering
     fontconfig \
-    ttf-dejavu
+    ttf-dejavu \
+    # psql for DB reset on deploy
+    postgresql16-client
 
 # Set tessdata path for Tess4J
 ENV TESSDATA_PREFIX=/usr/share/tessdata

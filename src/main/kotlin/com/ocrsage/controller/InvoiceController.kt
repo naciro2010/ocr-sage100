@@ -4,6 +4,7 @@ import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.InvoiceResponse
 import com.ocrsage.dto.InvoiceUpdateRequest
 import com.ocrsage.service.InvoiceService
+import org.slf4j.LoggerFactory
 import org.springframework.core.io.FileSystemResource
 import org.springframework.core.io.Resource
 import org.springframework.data.domain.Page
@@ -21,11 +22,16 @@ import java.nio.file.Path
 @RequestMapping("/api/invoices")
 class InvoiceController(private val invoiceService: InvoiceService) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
+
     @PostMapping(consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @ResponseStatus(HttpStatus.CREATED)
     fun upload(@RequestParam("file") file: MultipartFile): InvoiceResponse {
         require(file.size > 0) { "File must not be empty" }
-        return invoiceService.uploadAndProcess(file)
+        log.info("Upload request: file={} size={}KB", file.originalFilename, file.size / 1024)
+        val result = invoiceService.uploadAndProcess(file)
+        log.info("Upload completed: invoiceId={} status={}", result.id, result.status)
+        return result
     }
 
     @GetMapping
@@ -40,11 +46,13 @@ class InvoiceController(private val invoiceService: InvoiceService) {
 
     @PutMapping("/{id}")
     fun update(@PathVariable id: Long, @RequestBody update: InvoiceUpdateRequest): InvoiceResponse {
+        log.info("Update request: invoiceId={}", id)
         return invoiceService.updateInvoice(id, update)
     }
 
     @PostMapping("/{id}/sync")
     fun syncToSage(@PathVariable id: Long): InvoiceResponse {
+        log.info("Sage sync request: invoiceId={}", id)
         return invoiceService.syncToSage(id)
     }
 
@@ -59,6 +67,7 @@ class InvoiceController(private val invoiceService: InvoiceService) {
         val filePath = Path.of(invoice.first)
 
         if (!Files.exists(filePath)) {
+            log.warn("File not found on disk for invoiceId={}: {}", id, filePath)
             return ResponseEntity.notFound().build()
         }
 

@@ -16,10 +16,12 @@ class AppSettingsService(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    @Transactional(readOnly = true)
     fun get(key: String): String? {
         return repo.findBySettingKey(key).map { it.settingValue }.orElse(null)
     }
 
+    @Transactional(readOnly = true)
     fun getOrDefault(key: String, default: String): String {
         return get(key)?.takeIf { it.isNotBlank() } ?: default
     }
@@ -40,6 +42,7 @@ class AppSettingsService(
         settings.forEach { (key, value) -> set(key, value) }
     }
 
+    @Transactional(readOnly = true)
     fun getByPrefix(prefix: String): Map<String, String?> {
         return repo.findBySettingKeyStartingWith(prefix)
             .associate { it.settingKey to it.settingValue }

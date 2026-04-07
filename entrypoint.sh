@@ -26,6 +26,17 @@ if [ -n "$DATABASE_URL" ]; then
   export SPRING_DATASOURCE_URL="$JDBC_URL"
   export SPRING_DATASOURCE_USERNAME="${DATABASE_USERNAME}"
   export SPRING_DATASOURCE_PASSWORD="${DATABASE_PASSWORD}"
+
+  # Drop and recreate the public schema so Flyway rebuilds everything from scratch
+  echo "=== Resetting database (DROP SCHEMA public) ==="
+  PGPASSWORD="$DATABASE_PASSWORD" psql \
+    "$(echo "$DATABASE_URL" | sed 's|^jdbc:||')" \
+    -c "DROP SCHEMA public CASCADE; CREATE SCHEMA public;" \
+    2>&1 && echo "=== Database reset OK ===" \
+         || echo "=== Database reset SKIPPED (DB may not be reachable yet) ==="
 fi
 
-exec java $JAVA_OPTS -jar app.jar
+# JVM defaults: use container-aware memory (75% of available), GC logging
+DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -Xlog:gc*:stdout:time,level,tags"
+
+exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS -jar app.jar
