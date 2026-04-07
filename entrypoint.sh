@@ -38,7 +38,7 @@ if [ -n "$DATABASE_URL" ]; then
   fi
 fi
 
-# JVM defaults: use container-aware memory (75% of available), GC logging
-DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseG1GC -XX:+HeapDumpOnOutOfMemoryError -Xlog:gc:stdout:time,level"
+# JVM: fast startup, container-aware memory, serial GC (better for small containers)
+DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss256k -XX:+HeapDumpOnOutOfMemoryError"
 
 exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS -jar app.jar

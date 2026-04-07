@@ -3,9 +3,14 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    # Railway private networking uses IPv6 - resolve dynamically
+    resolver 8.8.8.8 [2001:4860:4860::8888] valid=10s ipv6=on;
+    resolver_timeout 5s;
+
     # Proxy API requests to the backend service
     location /api/ {
-        proxy_pass ${BACKEND_URL}/api/;
+        set $backend ${BACKEND_URL};
+        proxy_pass $backend/api/;
         proxy_http_version 1.1;
         proxy_set_header Host $host;
         proxy_set_header X-Real-IP $remote_addr;
@@ -13,21 +18,24 @@ server {
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
 
-        # Timeouts eleves pour le traitement OCR (upload + PaddleOCR = 30-180s)
-        proxy_connect_timeout 30s;
+        proxy_connect_timeout 60s;
         proxy_send_timeout 300s;
         proxy_read_timeout 300s;
 
-        # Taille max upload factures (PDF/images)
-        client_max_body_size 50M;
+        proxy_next_upstream error timeout http_502 http_503;
+        proxy_next_upstream_tries 3;
+        proxy_next_upstream_timeout 120s;
 
-        # Desactiver le buffering pour les gros uploads
+        client_max_body_size 50M;
         proxy_request_buffering off;
     }
 
     location /actuator/ {
-        proxy_pass ${BACKEND_URL}/actuator/;
+        set $backend ${BACKEND_URL};
+        proxy_pass $backend/actuator/;
         proxy_set_header Host $host;
+        proxy_connect_timeout 10s;
+        proxy_read_timeout 10s;
     }
 
     # SPA fallback - toutes les routes non-API servent index.html
