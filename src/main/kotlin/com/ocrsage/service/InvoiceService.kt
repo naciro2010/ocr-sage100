@@ -335,8 +335,14 @@ class InvoiceService(
         val byStatus = InvoiceStatus.entries.associateWith { invoiceRepository.countByStatus(it) }
         val synced = invoiceRepository.countBySageSynced(true)
         val totalAmount = invoiceRepository.sumProcessedAmounts()
-        val topSuppliers = invoiceRepository.countBySupplier(PageRequest.of(0, 10))
-            .associate { (it[0] as String) to (it[1] as Long) }
+
+        val topSuppliers = try {
+            invoiceRepository.countBySupplier()
+                .associate { row -> (row[0] as String) to (row[1] as Number).toLong() }
+        } catch (e: Exception) {
+            log.warn("Failed to fetch top suppliers for dashboard, returning empty map: {}", e.message)
+            emptyMap()
+        }
 
         return DashboardStats(
             totalInvoices = total,

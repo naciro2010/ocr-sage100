@@ -6,7 +6,10 @@ import java.time.LocalDate
 import java.time.LocalDateTime
 
 @Entity
-@Table(name = "invoices")
+@Table(
+    name = "invoices",
+    indexes = [Index(name = "idx_invoices_supplier", columnList = "supplier_name")]
+)
 class Invoice(
     @Id
     @GeneratedValue(strategy = GenerationType.IDENTITY)
