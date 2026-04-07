@@ -56,17 +56,13 @@ class InvoiceTransactionService(
 
     @Transactional
     fun markOcrInProgress(invoiceId: Long) {
-        val start = System.currentTimeMillis()
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
         invoice.status = InvoiceStatus.OCR_IN_PROGRESS
-        invoiceRepository.save(invoice)
-        log.info("[TX2] Marked OCR_IN_PROGRESS for id={} in {}ms", invoiceId, System.currentTimeMillis() - start)
     }
 
     @Transactional
     fun saveOcrResults(invoiceId: Long, ocrResult: OcrService.OcrResult): String {
-        val start = System.currentTimeMillis()
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
         invoice.rawText = ocrResult.text
@@ -74,15 +70,11 @@ class InvoiceTransactionService(
         invoice.ocrConfidence = ocrResult.confidence.takeIf { it >= 0 }
         invoice.ocrPageCount = ocrResult.pageCount
         invoice.status = InvoiceStatus.OCR_COMPLETED
-        invoiceRepository.save(invoice)
-        log.info("[TX3] Saved OCR results for id={} engine={} chars={} in {}ms",
-            invoiceId, ocrResult.engine, ocrResult.text.length, System.currentTimeMillis() - start)
         return ocrResult.text
     }
 
     @Transactional
     fun saveExtractionResults(invoiceId: Long, result: ExtractionResult): InvoiceResponse {
-        val start = System.currentTimeMillis()
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
 
@@ -103,21 +95,16 @@ class InvoiceTransactionService(
             }
         }
 
-        invoiceRepository.save(invoice)
-        log.info("[TX4] Saved extraction for id={} status={} aiUsed={} lineItems={} in {}ms",
-            invoiceId, invoice.status, result.aiUsed, invoice.lineItems.size, System.currentTimeMillis() - start)
         return InvoiceResponse.from(invoice)
     }
 
     @Transactional
     fun markError(invoiceId: Long, message: String): InvoiceResponse {
-        val start = System.currentTimeMillis()
         val invoice = invoiceRepository.findById(invoiceId)
             .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
         invoice.status = InvoiceStatus.ERROR
         invoice.errorMessage = message
-        invoiceRepository.save(invoice)
-        log.error("[TX-ERR] Invoice id={} marked ERROR: {} in {}ms", invoiceId, message, System.currentTimeMillis() - start)
+        log.error("Invoice id={} marked ERROR: {}", invoiceId, message)
         return InvoiceResponse.from(invoice)
     }
 
@@ -389,24 +376,21 @@ class InvoiceService(
             }
         }
 
-        invoiceRepository.save(invoice)
-        log.info("Invoice {} updated manually", id)
         return InvoiceResponse.from(invoice)
     }
 
     @Transactional(readOnly = true)
     fun listInvoices(pageable: Pageable): Page<InvoiceResponse> {
-        val start = System.currentTimeMillis()
         val sorted = PageRequest.of(pageable.pageNumber, pageable.pageSize, Sort.by(Sort.Direction.DESC, "createdAt"))
-        val page = invoiceRepository.findAllWithLineItems(sorted).map { InvoiceResponse.from(it) }
-        log.info("listInvoices page={} size={} totalElements={} in {}ms",
-            pageable.pageNumber, pageable.pageSize, page.totalElements, System.currentTimeMillis() - start)
-        return page
+        val page = invoiceRepository.findAllPaged(sorted)
+        if (page.content.isNotEmpty()) {
+            invoiceRepository.fetchWithLineItems(page.content)
+        }
+        return page.map { InvoiceResponse.from(it) }
     }
 
     @Transactional
     fun syncToSage(id: Long): InvoiceResponse {
-        val start = System.currentTimeMillis()
         val invoice = invoiceRepository.findById(id)
             .orElseThrow { NoSuchElementException("Invoice not found: $id") }
 
@@ -414,45 +398,30 @@ class InvoiceService(
             throw IllegalStateException("Invoice ${invoice.id} is not ready for Sage sync (status: ${invoice.status})")
         }
 
-        log.info("Syncing invoice {} to Sage...", id)
         val result = erpConnectorFactory.syncInvoice(invoice)
         if (result.success) {
             invoice.sageSynced = true
             invoice.sageSyncDate = LocalDateTime.now()
             invoice.sageReference = result.reference
             invoice.status = InvoiceStatus.SAGE_SYNCED
-            log.info("Invoice {} synced to Sage: ref={} in {}ms", id, result.reference, System.currentTimeMillis() - start)
         } else {
             invoice.status = InvoiceStatus.SAGE_SYNC_FAILED
             invoice.errorMessage = "Sage sync failed: ${result.error}"
-            log.error("Invoice {} Sage sync failed: {} in {}ms", id, result.error, System.currentTimeMillis() - start)
+            log.error("Invoice {} Sage sync failed: {}", id, result.error)
         }
-        invoiceRepository.save(invoice)
 
         return InvoiceResponse.from(invoice)
     }
 
     @Transactional(readOnly = true)
     fun getDashboardStats(): DashboardStats {
-        val start = System.currentTimeMillis()
-
-        // Single query for ALL counts (replaces 13+ individual queries)
-        val rows = try {
-            invoiceRepository.getDashboardCounts()
-        } catch (e: Exception) {
-            log.error("Dashboard counts query failed: {}", e.message, e)
-            return DashboardStats(
-                totalInvoices = 0, byStatus = emptyMap(), sageSynced = 0,
-                pendingSync = 0, totalProcessedAmount = java.math.BigDecimal.ZERO, topSuppliers = emptyMap()
-            )
-        }
-
-        val row = rows.firstOrNull() ?: return DashboardStats(
+        val emptyStats = DashboardStats(
             totalInvoices = 0, byStatus = emptyMap(), sageSynced = 0,
             pendingSync = 0, totalProcessedAmount = java.math.BigDecimal.ZERO, topSuppliers = emptyMap()
         )
 
-        val total = (row[0] as Number).toLong()
+        val row = invoiceRepository.getDashboardCounts().firstOrNull() ?: return emptyStats
+
         val byStatus = mapOf(
             "UPLOADED" to (row[1] as Number).toLong(),
             "OCR_IN_PROGRESS" to (row[2] as Number).toLong(),
@@ -465,30 +434,16 @@ class InvoiceService(
             "SAGE_SYNC_FAILED" to (row[9] as Number).toLong(),
             "ERROR" to (row[10] as Number).toLong()
         )
-        val synced = (row[11] as Number).toLong()
-        val processedAmount = row[12] as? java.math.BigDecimal ?: java.math.BigDecimal.ZERO
 
-        log.info("Dashboard counts loaded in {}ms (total={})", System.currentTimeMillis() - start, total)
-
-        val topSuppliers = try {
-            val supplierStart = System.currentTimeMillis()
-            val result = invoiceRepository.countBySupplier()
-                .associate { r -> (r[0] as String) to (r[1] as Number).toLong() }
-            log.info("Top suppliers loaded in {}ms ({} suppliers)", System.currentTimeMillis() - supplierStart, result.size)
-            result
-        } catch (e: Exception) {
-            log.warn("Top suppliers query failed, returning empty: {}", e.message)
-            emptyMap()
-        }
-
-        log.info("getDashboardStats completed in {}ms", System.currentTimeMillis() - start)
+        val topSuppliers = invoiceRepository.countBySupplier()
+            .associate { r -> (r[0] as String) to (r[1] as Number).toLong() }
 
         return DashboardStats(
-            totalInvoices = total,
+            totalInvoices = (row[0] as Number).toLong(),
             byStatus = byStatus,
-            sageSynced = synced,
+            sageSynced = (row[11] as Number).toLong(),
             pendingSync = byStatus["READY_FOR_SAGE"] ?: 0,
-            totalProcessedAmount = processedAmount,
+            totalProcessedAmount = row[12] as? java.math.BigDecimal ?: java.math.BigDecimal.ZERO,
             topSuppliers = topSuppliers
         )
     }
