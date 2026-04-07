@@ -5,6 +5,22 @@ spring:
     url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ocrsage}
     username: ${DATABASE_USERNAME:ocrsage}
     password: ${DATABASE_PASSWORD:ocrsage}
+    hikari:
+      # Maximum number of connections in the pool. Sized to handle concurrent
+      # requests comfortably; OCR/AI work no longer holds connections so the
+      # default of 10 is sufficient for most deployments.
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      # How long a caller will wait for a connection before throwing an exception.
+      # Fail fast rather than queuing indefinitely.
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:30000}
+      # How long an idle connection is kept in the pool before being evicted.
+      idle-timeout: ${DB_IDLE_TIMEOUT:600000}
+      # Maximum lifetime of a connection in the pool (must be < server wait_timeout).
+      max-lifetime: ${DB_MAX_LIFETIME:1800000}
+      # Lightweight query used to validate connections before handing them out.
+      connection-test-query: SELECT 1
+      pool-name: OcrSageHikariPool
   jpa:
     hibernate:
       ddl-auto: validate

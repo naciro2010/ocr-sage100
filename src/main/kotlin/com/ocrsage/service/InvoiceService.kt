@@ -2,6 +2,7 @@ package com.ocrsage.service
 
 import com.ocrsage.dto.DashboardStats
 import com.ocrsage.dto.ExtractedInvoiceData
+import com.ocrsage.dto.ExtractedLineItem
 import com.ocrsage.dto.InvoiceResponse
 import com.ocrsage.dto.InvoiceUpdateRequest
 import com.ocrsage.entity.Invoice
@@ -22,9 +23,144 @@ import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDateTime
 
+/**
+ * Value object carrying the result of the extraction phase so it can be
+ * passed across transaction boundaries without holding a DB connection.
+ */
+data class ExtractionResult(
+    val data: ExtractedInvoiceData,
+    val tabulaItems: List<ExtractedLineItem>,
+    val aiUsed: Boolean
+)
+
+/**
+ * Handles all short-lived database transactions for the invoice processing
+ * pipeline. Kept as a separate Spring bean so that @Transactional is applied
+ * via the Spring AOP proxy — self-invocation within InvoiceService would
+ * bypass the proxy and leave transactions inactive.
+ */
+@Service
+class InvoiceTransactionService(
+    private val invoiceRepository: InvoiceRepository
+) {
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    @Transactional
+    fun saveInitialInvoice(fileName: String, filePath: String): Long {
+        val invoice = Invoice(fileName = fileName, filePath = filePath)
+        invoiceRepository.save(invoice)
+        return invoice.id!!
+    }
+
+    @Transactional
+    fun markOcrInProgress(invoiceId: Long) {
+        val invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
+        invoice.status = InvoiceStatus.OCR_IN_PROGRESS
+        invoiceRepository.save(invoice)
+    }
+
+    @Transactional
+    fun saveOcrResults(invoiceId: Long, ocrResult: OcrService.OcrResult): String {
+        val invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
+        invoice.rawText = ocrResult.text
+        invoice.ocrEngine = ocrResult.engine.name
+        invoice.ocrConfidence = ocrResult.confidence.takeIf { it >= 0 }
+        invoice.ocrPageCount = ocrResult.pageCount
+        invoice.status = InvoiceStatus.OCR_COMPLETED
+        invoiceRepository.save(invoice)
+        return ocrResult.text
+    }
+
+    @Transactional
+    fun saveExtractionResults(invoiceId: Long, result: ExtractionResult): InvoiceResponse {
+        val invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
+
+        invoice.aiUsed = result.aiUsed
+        applyExtraction(invoice, result.data, result.tabulaItems)
+        invoice.status = InvoiceStatus.EXTRACTED
+
+        // Auto-validate
+        if (invoice.supplierName != null && invoice.amountTtc != null && invoice.invoiceNumber != null) {
+            invoice.status = InvoiceStatus.READY_FOR_SAGE
+        } else {
+            invoice.status = InvoiceStatus.VALIDATION_FAILED
+            invoice.errorMessage = buildString {
+                append("Champs manquants :")
+                if (invoice.supplierName == null) append(" fournisseur")
+                if (invoice.invoiceNumber == null) append(" n°facture")
+                if (invoice.amountTtc == null) append(" montant TTC")
+            }
+        }
+
+        invoiceRepository.save(invoice)
+        return InvoiceResponse.from(invoice)
+    }
+
+    @Transactional
+    fun markError(invoiceId: Long, message: String): InvoiceResponse {
+        val invoice = invoiceRepository.findById(invoiceId)
+            .orElseThrow { NoSuchElementException("Invoice not found: $invoiceId") }
+        invoice.status = InvoiceStatus.ERROR
+        invoice.errorMessage = message
+        invoiceRepository.save(invoice)
+        return InvoiceResponse.from(invoice)
+    }
+
+    private fun applyExtraction(
+        invoice: Invoice,
+        data: ExtractedInvoiceData,
+        tabulaItems: List<ExtractedLineItem>
+    ) {
+        invoice.supplierName = data.supplierName
+        invoice.supplierIce = data.supplierIce
+        invoice.supplierIf = data.supplierIf
+        invoice.supplierRc = data.supplierRc
+        invoice.supplierPatente = data.supplierPatente
+        invoice.supplierCnss = data.supplierCnss
+        invoice.supplierAddress = data.supplierAddress
+        invoice.supplierCity = data.supplierCity
+        invoice.clientName = data.clientName
+        invoice.clientIce = data.clientIce
+        invoice.invoiceNumber = data.invoiceNumber
+        invoice.invoiceDate = data.invoiceDate
+        invoice.amountHt = data.amountHt
+        invoice.tvaRate = data.tvaRate
+        invoice.amountTva = data.amountTva
+        invoice.amountTtc = data.amountTtc
+        invoice.discountAmount = data.discountAmount
+        invoice.discountPercent = data.discountPercent
+        data.currency?.let { invoice.currency = it }
+        invoice.paymentMethod = data.paymentMethod
+        invoice.paymentDueDate = data.paymentDueDate
+        invoice.bankName = data.bankName
+        invoice.bankRib = data.bankRib
+
+        // Line items: prefer Tabula (structured tables), fallback to AI-extracted
+        val lineItemsSource = tabulaItems.ifEmpty { data.lineItems ?: emptyList() }
+        for ((index, line) in lineItemsSource.withIndex()) {
+            invoice.lineItems.add(InvoiceLineItem(
+                invoice = invoice,
+                lineNumber = line.lineNumber.takeIf { it > 0 } ?: (index + 1),
+                description = line.description,
+                quantity = line.quantity,
+                unit = line.unit,
+                unitPriceHt = line.unitPriceHt,
+                tvaRate = line.tvaRate,
+                tvaAmount = line.tvaAmount,
+                totalHt = line.totalHt,
+                totalTtc = line.totalTtc
+            ))
+        }
+    }
+}
+
 @Service
 class InvoiceService(
     private val invoiceRepository: InvoiceRepository,
+    private val invoiceTxService: InvoiceTransactionService,
     private val ocrService: OcrService,
     private val regexExtractionService: RegexExtractionService,
     private val tableExtractionService: TableExtractionService,
@@ -49,7 +185,21 @@ class InvoiceService(
         }
     }
 
-    @Transactional
+    /**
+     * Orchestrates the full upload-and-process pipeline without holding a single
+     * long-lived database transaction. Each DB interaction is its own short
+     * transaction (delegated to [InvoiceTransactionService]) so HikariCP
+     * connections are released promptly between the long-running OCR and AI
+     * extraction steps.
+     *
+     * Pipeline:
+     *   TX1 → save initial record
+     *   TX2 → mark OCR_IN_PROGRESS
+     *   [OCR — no DB connection held]
+     *   TX3 → save OCR results
+     *   [Regex + table + AI extraction — no DB connection held]
+     *   TX4 → save extraction results + auto-validate
+     */
     fun uploadAndProcess(file: MultipartFile): InvoiceResponse {
         val uploadPath = Path.of(uploadDir)
         Files.createDirectories(uploadPath)
@@ -58,86 +208,67 @@ class InvoiceService(
         val filePath = uploadPath.resolve(fileName)
         file.transferTo(filePath)
 
-        val invoice = Invoice(fileName = file.originalFilename ?: "unknown", filePath = filePath.toString())
-        invoiceRepository.save(invoice)
-        log.info("Invoice uploaded: {} (id={})", invoice.fileName, invoice.id)
+        // TX 1: persist the initial invoice record
+        val invoiceId = invoiceTxService.saveInitialInvoice(file.originalFilename ?: "unknown", filePath.toString())
+        log.info("Invoice uploaded: {} (id={})", fileName, invoiceId)
 
-        // Step 1: OCR text extraction (Tika + Tesseract avec preprocessing)
-        try {
-            invoice.status = InvoiceStatus.OCR_IN_PROGRESS
-            invoiceRepository.save(invoice)
+        // TX 2: mark OCR as in-progress — connection released before OCR starts
+        invoiceTxService.markOcrInProgress(invoiceId)
 
-            val ocrResult = ocrService.extractWithDetails(
-                Files.newInputStream(filePath), fileName, filePath
-            )
-            invoice.rawText = ocrResult.text
-            invoice.ocrEngine = ocrResult.engine.name
-            invoice.ocrConfidence = ocrResult.confidence.takeIf { it >= 0 }
-            invoice.ocrPageCount = ocrResult.pageCount
-            invoice.status = InvoiceStatus.OCR_COMPLETED
-            invoiceRepository.save(invoice)
-            log.info("OCR completed for invoice {} (engine={}, {} chars, {} pages)",
-                invoice.id, ocrResult.engine, ocrResult.text.length, ocrResult.pageCount)
+        // OCR — runs entirely outside any transaction; no DB connection held
+        val ocrResult = try {
+            ocrService.extractWithDetails(Files.newInputStream(filePath), fileName, filePath)
         } catch (e: Exception) {
-            log.error("OCR failed for invoice {}: {}", invoice.id, e.message)
-            invoice.status = InvoiceStatus.ERROR
-            invoice.errorMessage = "OCR failed: ${e.message}"
-            invoiceRepository.save(invoice)
-            return InvoiceResponse.from(invoice)
+            log.error("OCR failed for invoice {}: {}", invoiceId, e.message)
+            return invoiceTxService.markError(invoiceId, "OCR failed: ${e.message}")
         }
 
-        // Step 2: Structured extraction
-        try {
-            invoice.status = InvoiceStatus.EXTRACTED
-            invoiceRepository.save(invoice)
+        // TX 3: persist OCR results — connection released before extraction starts
+        log.info("OCR completed for invoice {} (engine={}, {} chars, {} pages)",
+            invoiceId, ocrResult.engine, ocrResult.text.length, ocrResult.pageCount)
+        val rawText = invoiceTxService.saveOcrResults(invoiceId, ocrResult)
 
-            // Phase A: Regex extraction (deterministic, no AI)
-            val regexData = regexExtractionService.extract(invoice.rawText!!)
+        // Extraction — runs entirely outside any transaction; no DB connection held
+        val extractionResult = try {
+            performExtraction(invoiceId, rawText, filePath)
+        } catch (e: Exception) {
+            log.error("Extraction failed for invoice {}: {}", invoiceId, e.message)
+            return invoiceTxService.markError(invoiceId, "Extraction failed: ${e.message}")
+        }
 
-            // Phase B: Tabula table extraction for line items (PDF only)
-            val tabulaItems = tableExtractionService.extractLineItems(Path.of(invoice.filePath))
+        // TX 4: persist extraction results and run auto-validation
+        return invoiceTxService.saveExtractionResults(invoiceId, extractionResult)
+    }
 
-            // Phase C: AI extraction if enabled and regex result is sparse
-            val finalData = if (aiExtractionService.isAvailable() && isExtractionSparse(regexData)) {
-                try {
-                    log.info("Regex extraction sparse for invoice {}, using AI enrichment", invoice.id)
-                    val aiData = aiExtractionService.extractInvoiceData(invoice.rawText!!)
-                    invoice.aiUsed = true
-                    mergeExtractions(regexData, aiData)
-                } catch (e: Exception) {
-                    log.warn("AI extraction failed for invoice {}, falling back to regex: {}", invoice.id, e.message)
-                    regexData
-                }
-            } else {
+    /**
+     * Pure computation — regex, table extraction, and optional AI call.
+     * No DB access, no transaction. Returns an [ExtractionResult] value object
+     * that the caller persists in its own short transaction.
+     */
+    private fun performExtraction(invoiceId: Long, rawText: String, filePath: Path): ExtractionResult {
+        // Phase A: Regex extraction (deterministic, no AI)
+        val regexData = regexExtractionService.extract(rawText)
+
+        // Phase B: Tabula table extraction for line items (PDF only)
+        val tabulaItems = tableExtractionService.extractLineItems(filePath)
+
+        // Phase C: AI extraction if enabled and regex result is sparse
+        var aiUsed = false
+        val finalData = if (aiExtractionService.isAvailable() && isExtractionSparse(regexData)) {
+            try {
+                log.info("Regex extraction sparse for invoice {}, using AI enrichment", invoiceId)
+                val aiData = aiExtractionService.extractInvoiceData(rawText)
+                aiUsed = true
+                mergeExtractions(regexData, aiData)
+            } catch (e: Exception) {
+                log.warn("AI extraction failed for invoice {}, falling back to regex: {}", invoiceId, e.message)
                 regexData
             }
-
-            applyExtraction(invoice, finalData, tabulaItems)
-            invoice.status = InvoiceStatus.EXTRACTED
-            invoiceRepository.save(invoice)
-        } catch (e: Exception) {
-            log.error("Extraction failed for invoice {}: {}", invoice.id, e.message)
-            invoice.status = InvoiceStatus.ERROR
-            invoice.errorMessage = "Extraction failed: ${e.message}"
-            invoiceRepository.save(invoice)
-            return InvoiceResponse.from(invoice)
-        }
-
-        // Step 3: Auto-validate
-        if (invoice.supplierName != null && invoice.amountTtc != null && invoice.invoiceNumber != null) {
-            invoice.status = InvoiceStatus.READY_FOR_SAGE
         } else {
-            invoice.status = InvoiceStatus.VALIDATION_FAILED
-            invoice.errorMessage = buildString {
-                append("Champs manquants :")
-                if (invoice.supplierName == null) append(" fournisseur")
-                if (invoice.invoiceNumber == null) append(" n°facture")
-                if (invoice.amountTtc == null) append(" montant TTC")
-            }
+            regexData
         }
-        invoiceRepository.save(invoice)
 
-        return InvoiceResponse.from(invoice)
+        return ExtractionResult(data = finalData, tabulaItems = tabulaItems, aiUsed = aiUsed)
     }
 
     /**
@@ -183,56 +314,6 @@ class InvoiceService(
             bankRib = regex.bankRib ?: ai.bankRib,
             lineItems = if (!regex.lineItems.isNullOrEmpty()) regex.lineItems else ai.lineItems
         )
-    }
-
-    private fun applyExtraction(invoice: Invoice, data: ExtractedInvoiceData, tabulaItems: List<com.ocrsage.dto.ExtractedLineItem>) {
-        // Supplier info
-        invoice.supplierName = data.supplierName
-        invoice.supplierIce = data.supplierIce
-        invoice.supplierIf = data.supplierIf
-        invoice.supplierRc = data.supplierRc
-        invoice.supplierPatente = data.supplierPatente
-        invoice.supplierCnss = data.supplierCnss
-        invoice.supplierAddress = data.supplierAddress
-        invoice.supplierCity = data.supplierCity
-
-        // Client
-        invoice.clientName = data.clientName
-        invoice.clientIce = data.clientIce
-
-        // Invoice details
-        invoice.invoiceNumber = data.invoiceNumber
-        invoice.invoiceDate = data.invoiceDate
-        invoice.amountHt = data.amountHt
-        invoice.tvaRate = data.tvaRate
-        invoice.amountTva = data.amountTva
-        invoice.amountTtc = data.amountTtc
-        invoice.discountAmount = data.discountAmount
-        invoice.discountPercent = data.discountPercent
-        data.currency?.let { invoice.currency = it }
-
-        // Payment
-        invoice.paymentMethod = data.paymentMethod
-        invoice.paymentDueDate = data.paymentDueDate
-        invoice.bankName = data.bankName
-        invoice.bankRib = data.bankRib
-
-        // Line items: prefer Tabula (structured tables), fallback to AI-extracted
-        val lineItemsSource = tabulaItems.ifEmpty { data.lineItems ?: emptyList() }
-        for ((index, line) in lineItemsSource.withIndex()) {
-            invoice.lineItems.add(InvoiceLineItem(
-                invoice = invoice,
-                lineNumber = line.lineNumber.takeIf { it > 0 } ?: (index + 1),
-                description = line.description,
-                quantity = line.quantity,
-                unit = line.unit,
-                unitPriceHt = line.unitPriceHt,
-                tvaRate = line.tvaRate,
-                tvaAmount = line.tvaAmount,
-                totalHt = line.totalHt,
-                totalTtc = line.totalTtc
-            ))
-        }
     }
 
     @Transactional(readOnly = true)
