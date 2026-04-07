@@ -94,7 +94,6 @@ management:
       show-details: never
 
 server:
-  address: "::"
   port: ${PORT:8080}
   tomcat:
     threads:
