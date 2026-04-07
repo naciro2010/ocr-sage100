@@ -6,6 +6,7 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.util.concurrent.ConcurrentHashMap
 
 @Service
 class AppSettingsService(
@@ -15,10 +16,29 @@ class AppSettingsService(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
+    private val cache = ConcurrentHashMap<String, String?>()
+    @Volatile private var cacheLoaded = false
+
+    private fun ensureCache() {
+        if (!cacheLoaded) {
+            synchronized(this) {
+                if (!cacheLoaded) {
+                    repo.findAll().forEach { cache[it.settingKey] = it.settingValue }
+                    cacheLoaded = true
+                }
+            }
+        }
+    }
+
+    private fun invalidateCache() {
+        cacheLoaded = false
+        cache.clear()
+    }
 
     @Transactional(readOnly = true)
     fun get(key: String): String? {
-        return repo.findBySettingKey(key).map { it.settingValue }.orElse(null)
+        ensureCache()
+        return cache[key]
     }
 
     @Transactional(readOnly = true)
@@ -35,6 +55,7 @@ class AppSettingsService(
         } else {
             repo.save(AppSetting(settingKey = key, settingValue = value))
         }
+        invalidateCache()
     }
 
     @Transactional
@@ -44,8 +65,8 @@ class AppSettingsService(
 
     @Transactional(readOnly = true)
     fun getByPrefix(prefix: String): Map<String, String?> {
-        return repo.findBySettingKeyStartingWith(prefix)
-            .associate { it.settingKey to it.settingValue }
+        ensureCache()
+        return cache.filterKeys { it.startsWith(prefix) }
     }
 
     // --- AI settings ---

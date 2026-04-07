@@ -6,15 +6,13 @@ spring:
     username: ${DATABASE_USERNAME:ocrsage}
     password: ${DATABASE_PASSWORD:ocrsage}
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:10}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
       connection-timeout: ${DB_CONNECTION_TIMEOUT:10000}
       idle-timeout: ${DB_IDLE_TIMEOUT:300000}
       max-lifetime: ${DB_MAX_LIFETIME:900000}
       leak-detection-threshold: 30000
-      connection-test-query: SELECT 1
       pool-name: OcrSageHikariPool
-      register-mbeans: true
   jpa:
     hibernate:
       ddl-auto: validate
@@ -108,9 +106,8 @@ logging:
     com.ocrsage: INFO
     http.requests: INFO
     com.zaxxer.hikari: INFO
-    com.zaxxer.hikari.pool.HikariPool: DEBUG
+    org.flywaydb: INFO
     org.springframework.transaction: WARN
     org.hibernate.SQL: WARN
-    org.hibernate.type.descriptor.sql.BasicBinder: WARN
   pattern:
     console: "%d{HH:mm:ss.SSS} %-5level [%thread] %logger{36} - %msg%n"

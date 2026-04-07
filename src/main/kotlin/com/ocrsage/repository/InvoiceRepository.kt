@@ -19,10 +19,12 @@ interface InvoiceRepository : JpaRepository<Invoice, Long> {
 
     fun countBySageSynced(synced: Boolean): Long
 
-    /** Fetch invoices WITH lineItems in a single query (avoids N+1). */
-    @EntityGraph(attributePaths = ["lineItems"])
+    /** Fetch invoices with lineItems using a two-query approach (avoids in-memory pagination). */
     @Query("SELECT i FROM Invoice i")
-    fun findAllWithLineItems(pageable: Pageable): Page<Invoice>
+    fun findAllPaged(pageable: Pageable): Page<Invoice>
+
+    @Query("SELECT i FROM Invoice i LEFT JOIN FETCH i.lineItems WHERE i IN :invoices")
+    fun fetchWithLineItems(invoices: List<Invoice>): List<Invoice>
 
     /** Single query: count total + count per status + synced count + processed amount. */
     @Query(

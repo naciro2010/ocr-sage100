@@ -8,7 +8,11 @@ import java.time.LocalDateTime
 @Entity
 @Table(
     name = "invoices",
-    indexes = [Index(name = "idx_invoices_supplier", columnList = "supplier_name")]
+    indexes = [
+        Index(name = "idx_invoices_supplier", columnList = "supplier_name"),
+        Index(name = "idx_invoices_status", columnList = "status"),
+        Index(name = "idx_invoices_created_at", columnList = "created_at")
+    ]
 )
 class Invoice(
     @Id
