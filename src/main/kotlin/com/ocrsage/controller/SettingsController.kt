@@ -12,10 +12,13 @@ class SettingsController(
     private val appSettingsService: AppSettingsService
 ) {
 
+    private val log = org.slf4j.LoggerFactory.getLogger(javaClass)
+
     // --- AI Settings ---
 
     @GetMapping("/ai")
     fun getAiSettings(): AiSettingsResponse {
+        log.debug("Fetching AI settings")
         return AiSettingsResponse(
             enabled = appSettingsService.isAiEnabled(),
             apiKey = maskApiKey(appSettingsService.getAiApiKey()),

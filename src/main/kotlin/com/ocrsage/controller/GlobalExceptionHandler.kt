@@ -16,12 +16,14 @@ class GlobalExceptionHandler {
 
     @ExceptionHandler(NoSuchElementException::class)
     fun handleNotFound(e: NoSuchElementException): ResponseEntity<ErrorResponse> {
+        log.warn("Not found: {}", e.message)
         return ResponseEntity.status(HttpStatus.NOT_FOUND)
             .body(ErrorResponse(e.message ?: "Resource not found"))
     }
 
     @ExceptionHandler(IllegalStateException::class, IllegalArgumentException::class)
     fun handleBadRequest(e: RuntimeException): ResponseEntity<ErrorResponse> {
+        log.warn("Bad request: {}", e.message)
         return ResponseEntity.status(HttpStatus.BAD_REQUEST)
             .body(ErrorResponse(e.message ?: "Bad request"))
     }
@@ -45,11 +47,32 @@ class GlobalExceptionHandler {
             .body(ErrorResponse("Le fichier dépasse la taille maximale autorisée (50 Mo)."))
     }
 
+    @ExceptionHandler(org.springframework.dao.QueryTimeoutException::class)
+    fun handleQueryTimeout(e: org.springframework.dao.QueryTimeoutException): ResponseEntity<ErrorResponse> {
+        log.error("Database query timeout: {}", e.message)
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+            .body(ErrorResponse("La requete a pris trop de temps. Reessayez."))
+    }
+
+    @ExceptionHandler(java.sql.SQLTimeoutException::class)
+    fun handleSqlTimeout(e: java.sql.SQLTimeoutException): ResponseEntity<ErrorResponse> {
+        log.error("SQL timeout: {}", e.message)
+        return ResponseEntity.status(HttpStatus.GATEWAY_TIMEOUT)
+            .body(ErrorResponse("Timeout base de donnees. Reessayez."))
+    }
+
+    @ExceptionHandler(org.springframework.transaction.CannotCreateTransactionException::class)
+    fun handlePoolExhausted(e: org.springframework.transaction.CannotCreateTransactionException): ResponseEntity<ErrorResponse> {
+        log.error("Connection pool exhausted: {}", e.message)
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE)
+            .body(ErrorResponse("Le serveur est temporairement surcharge. Reessayez dans quelques secondes."))
+    }
+
     @ExceptionHandler(Exception::class)
     fun handleGeneric(e: Exception): ResponseEntity<ErrorResponse> {
-        log.error("Unexpected error", e)
+        log.error("Unexpected error [{}]: {}", e.javaClass.simpleName, e.message, e)
         return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-            .body(ErrorResponse("Internal server error"))
+            .body(ErrorResponse("Internal server error: ${e.javaClass.simpleName}"))
     }
 }
 
