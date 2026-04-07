@@ -94,11 +94,12 @@ management:
       show-details: never
 
 server:
+  address: "::"
   port: ${PORT:8080}
   tomcat:
     threads:
-      max: 50
-      min-spare: 5
+      max: 20
+      min-spare: 2
     connection-timeout: 30s
 
 logging:
