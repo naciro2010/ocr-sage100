@@ -19,17 +19,17 @@ export default function Layout() {
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>
-              <BarChart3 size={17} /> <span>Dashboard</span>
+              <BarChart3 size={18} /> <span>Dashboard</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/dossiers">
-              <FolderOpen size={17} /> <span>Dossiers</span>
+              <FolderOpen size={18} /> <span>Dossiers</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/settings">
-              <Settings size={17} /> <span>Configuration</span>
+              <Settings size={18} /> <span>Configuration</span>
             </NavLink>
           </li>
         </ul>

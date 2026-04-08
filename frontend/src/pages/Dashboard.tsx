@@ -1,120 +1,85 @@
 import { useEffect, useState } from 'react'
-import { getDashboard } from '../api/client'
-import type { DashboardStats } from '../api/types'
-import { BarChart3, RefreshCw, AlertCircle, FileText, CheckCircle2, Clock, Banknote } from 'lucide-react'
-
-const STATUS_LABELS: Record<string, string> = {
-  UPLOADED: 'Uploadee',
-  OCR_IN_PROGRESS: 'OCR en cours',
-  OCR_COMPLETED: 'OCR termine',
-  AI_EXTRACTION_IN_PROGRESS: 'Extraction IA',
-  EXTRACTED: 'Extraite',
-  VALIDATION_FAILED: 'Validation echouee',
-  READY_FOR_SAGE: 'Prete Sage',
-  SAGE_SYNCED: 'Synchronisee',
-  SAGE_SYNC_FAILED: 'Sync echouee',
-  ERROR: 'Erreur',
-}
-
-const STATUS_COLORS: Record<string, string> = {
-  UPLOADED: '#7a7a7a',
-  OCR_IN_PROGRESS: '#d4940a',
-  OCR_COMPLETED: '#4a6fa5',
-  AI_EXTRACTION_IN_PROGRESS: '#d4940a',
-  EXTRACTED: '#7c5cbf',
-  VALIDATION_FAILED: '#d94f4f',
-  READY_FOR_SAGE: '#10a37f',
-  SAGE_SYNCED: '#0d8c6c',
-  SAGE_SYNC_FAILED: '#d94f4f',
-  ERROR: '#c04040',
-}
+import { Link } from 'react-router-dom'
+import { listDossiers } from '../api/dossierApi'
+import type { DossierListItem, PageResponse } from '../api/dossierTypes'
+import { STATUT_CONFIG } from '../api/dossierTypes'
+import { BarChart3, FolderOpen, CheckCircle, AlertTriangle, Clock, ArrowRight } from 'lucide-react'
 
 export default function Dashboard() {
-  const [stats, setStats] = useState<DashboardStats | null>(null)
-  const [error, setError] = useState('')
+  const [data, setData] = useState<PageResponse<DossierListItem> | null>(null)
 
-  const load = () => {
-    getDashboard().then(setStats).catch(e => setError(e.message))
-  }
+  useEffect(() => { listDossiers(0, 100).then(setData).catch(() => {}) }, [])
 
-  useEffect(load, [])
+  if (!data) return <div className="loading">Chargement...</div>
 
-  if (error) {
-    return (
-      <div className="card error-card">
-        <AlertCircle size={18} />
-        <span>Erreur : {error}</span>
-      </div>
-    )
-  }
-
-  if (!stats) return <div className="loading">Chargement...</div>
+  const all = data.content
+  const valides = all.filter(d => d.statut === 'VALIDE').length
+  const enVerif = all.filter(d => d.statut === 'EN_VERIFICATION').length
+  const rejetes = all.filter(d => d.statut === 'REJETE').length
+  const brouillons = all.filter(d => d.statut === 'BROUILLON').length
+  const totalMontant = all.reduce((s, d) => s + (d.montantTtc || 0), 0)
+  const recent = all.slice(0, 5)
 
   return (
     <div>
       <div className="page-header">
-        <h1><BarChart3 size={22} /> Tableau de bord</h1>
-        <button className="btn btn-secondary" onClick={load}>
-          <RefreshCw size={14} /> Rafraichir
-        </button>
+        <h1><BarChart3 size={24} /> Tableau de bord</h1>
       </div>
 
       <div className="stats-grid">
         <div className="stat-card">
-          <div className="stat-icon purple"><FileText size={18} /></div>
-          <div className="stat-value">{stats.totalInvoices}</div>
-          <div className="stat-label">Total factures</div>
+          <div className="stat-icon purple"><FolderOpen size={20} /></div>
+          <div className="stat-value">{all.length}</div>
+          <div className="stat-label">Total dossiers</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon green"><CheckCircle2 size={18} /></div>
-          <div className="stat-value">{stats.sageSynced}</div>
-          <div className="stat-label">Synchronisees Sage</div>
+          <div className="stat-icon blue"><Clock size={20} /></div>
+          <div className="stat-value">{enVerif + brouillons}</div>
+          <div className="stat-label">En cours</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon amber"><Clock size={18} /></div>
-          <div className="stat-value">{stats.pendingSync}</div>
-          <div className="stat-label">En attente de sync</div>
+          <div className="stat-icon amber"><AlertTriangle size={20} /></div>
+          <div className="stat-value">{rejetes}</div>
+          <div className="stat-label">Rejetes</div>
         </div>
         <div className="stat-card">
-          <div className="stat-icon blue"><Banknote size={18} /></div>
-          <div className="stat-value">
-            {stats.totalProcessedAmount.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
-          </div>
-          <div className="stat-label">Montant total (MAD)</div>
+          <div className="stat-icon green"><CheckCircle size={20} /></div>
+          <div className="stat-value">{valides}</div>
+          <div className="stat-label">Valides</div>
         </div>
       </div>
 
       <div className="cards-row">
         <div className="card">
-          <h2>Par statut</h2>
-          <div className="status-list">
-            {Object.entries(stats.byStatus)
-              .filter(([, count]) => count > 0)
-              .map(([status, count]) => (
-                <div key={status} className="status-item">
-                  <span className="status-dot" style={{ backgroundColor: STATUS_COLORS[status] || '#7a7a7a' }} />
-                  <span className="status-name">{STATUS_LABELS[status] || status}</span>
-                  <span className="status-count">{count}</span>
-                </div>
-              ))}
-            {Object.values(stats.byStatus).every(c => c === 0) && (
-              <p className="empty-text">Aucune facture</p>
-            )}
-          </div>
+          <h2><FolderOpen size={16} /> Dossiers recents</h2>
+          {recent.length === 0 ? <p className="empty-text">Aucun dossier</p> : (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+              {recent.map(d => {
+                const cfg = STATUT_CONFIG[d.statut]
+                return (
+                  <Link key={d.id} to={`/dossiers/${d.id}`} style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', padding: '10px 12px', borderRadius: 8, textDecoration: 'none' }}>
+                    <div>
+                      <div style={{ fontWeight: 700, color: '#0f172a', fontSize: 13 }}>{d.reference}</div>
+                      <div style={{ fontSize: 12, color: '#64748b' }}>{d.fournisseur || 'Sans fournisseur'}</div>
+                    </div>
+                    <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+                      <span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color }}>{cfg.label}</span>
+                      <ArrowRight size={14} style={{ color: '#94a3b8' }} />
+                    </div>
+                  </Link>
+                )
+              })}
+            </div>
+          )}
         </div>
 
         <div className="card">
-          <h2>Top fournisseurs</h2>
-          <div className="status-list">
-            {Object.entries(stats.topSuppliers).map(([name, count]) => (
-              <div key={name} className="status-item">
-                <span className="status-name">{name}</span>
-                <span className="status-count">{count}</span>
-              </div>
-            ))}
-            {Object.keys(stats.topSuppliers).length === 0 && (
-              <p className="empty-text">Aucun fournisseur</p>
-            )}
+          <h2><BarChart3 size={16} /> Montants</h2>
+          <div style={{ marginTop: 8 }}>
+            <div style={{ fontSize: 30, fontWeight: 800, color: '#0f172a' }}>
+              {totalMontant.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
+            </div>
+            <div className="stat-label" style={{ marginTop: 4 }}>MAD total en dossiers</div>
           </div>
         </div>
       </div>

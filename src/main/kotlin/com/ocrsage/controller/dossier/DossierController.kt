@@ -21,7 +21,7 @@ class DossierController(private val dossierService: DossierService) {
     @ResponseStatus(HttpStatus.CREATED)
     fun create(@RequestBody request: CreateDossierRequest): DossierResponse {
         val dossier = dossierService.createDossier(request)
-        return dossierService.buildFullResponse(dossier)
+        return dossierService.getDossierResponse(dossier.id!!)
     }
 
     @GetMapping
@@ -31,14 +31,13 @@ class DossierController(private val dossierService: DossierService) {
 
     @GetMapping("/{id}")
     fun get(@PathVariable id: UUID): DossierResponse {
-        val dossier = dossierService.getDossier(id)
-        return dossierService.buildFullResponse(dossier)
+        return dossierService.getDossierResponse(id)
     }
 
     @PutMapping("/{id}")
     fun update(@PathVariable id: UUID, @RequestBody request: UpdateDossierRequest): DossierResponse {
-        val dossier = dossierService.updateDossier(id, request)
-        return dossierService.buildFullResponse(dossier)
+        dossierService.updateDossier(id, request)
+        return dossierService.getDossierResponse(id)
     }
 
     @DeleteMapping("/{id}")
@@ -49,11 +48,9 @@ class DossierController(private val dossierService: DossierService) {
 
     @PatchMapping("/{id}/statut")
     fun changeStatut(@PathVariable id: UUID, @RequestBody request: ChangeStatutRequest): DossierResponse {
-        val dossier = dossierService.changeStatut(id, request)
-        return dossierService.buildFullResponse(dossier)
+        dossierService.changeStatut(id, request)
+        return dossierService.getDossierResponse(id)
     }
-
-    // === Documents ===
 
     @PostMapping("/{id}/documents", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
     @ResponseStatus(HttpStatus.CREATED)
@@ -63,28 +60,16 @@ class DossierController(private val dossierService: DossierService) {
         @RequestParam("type", required = false) type: TypeDocument?
     ): List<DocumentResponse> {
         val docs = dossierService.uploadDocuments(id, files, type)
-
-        // Process each document (extraction)
         docs.forEach { doc ->
-            try {
-                dossierService.processDocument(doc.id!!)
-            } catch (e: Exception) {
-                // Error already stored in document
-            }
+            try { dossierService.processDocument(doc.id!!) } catch (_: Exception) {}
         }
-
-        // Reload to get updated data
-        val dossier = dossierService.getDossier(id)
-        return dossier.documents.map { it.toResponse() }
+        return dossierService.getDossierResponse(id).documents
     }
 
     @GetMapping("/{id}/documents")
     fun listDocuments(@PathVariable id: UUID): List<DocumentResponse> {
-        val dossier = dossierService.getDossier(id)
-        return dossier.documents.map { it.toResponse() }
+        return dossierService.getDossierResponse(id).documents
     }
-
-    // === Validation ===
 
     @PostMapping("/{id}/valider")
     fun validate(@PathVariable id: UUID): List<ValidationResultResponse> {
@@ -93,7 +78,6 @@ class DossierController(private val dossierService: DossierService) {
 
     @GetMapping("/{id}/resultats-validation")
     fun getValidationResults(@PathVariable id: UUID): List<ValidationResultResponse> {
-        val dossier = dossierService.getDossier(id)
-        return dossier.resultatsValidation.map { it.toResponse() }
+        return dossierService.getDossierResponse(id).resultatsValidation
     }
 }

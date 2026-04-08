@@ -64,6 +64,12 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
+    fun getDossierResponse(id: UUID): DossierResponse {
+        val dossier = getDossier(id)
+        return buildFullResponse(dossier)
+    }
+
+    @Transactional(readOnly = true)
     fun listDossiers(pageable: Pageable): Page<DossierListResponse> {
         return dossierRepo.findAll(pageable).map { it.toListResponse() }
     }
@@ -306,7 +312,7 @@ class DossierService(
                 pv.periodeDebut = parseDate(data["periodeDebut"] as? String)
                 pv.periodeFin = parseDate(data["periodeFin"] as? String)
                 @Suppress("UNCHECKED_CAST")
-                pv.prestations = (data["prestations"] as? List<String>)?.toTypedArray()
+                pv.prestations = (data["prestations"] as? List<*>)?.joinToString(",")
                 pv.signataireMadaef = data["signataireMadaef"] as? String
                 pv.signataireFournisseur = data["signataireFournisseur"] as? String
                 pvRepo.save(pv)

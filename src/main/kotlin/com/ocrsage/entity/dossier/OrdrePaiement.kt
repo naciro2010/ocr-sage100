@@ -32,7 +32,7 @@ class OrdrePaiement(
     @Column(name = "reference_bc_ou_contrat") var referenceBcOuContrat: String? = null,
     @Column(name = "reference_sage") var referenceSage: String? = null,
     @Column(name = "conclusion_controleur", columnDefinition = "TEXT") var conclusionControleur: String? = null,
-    @Column(name = "pieces_justificatives", columnDefinition = "TEXT[]") var piecesJustificatives: Array<String>? = null,
+    @Column(name = "pieces_justificatives", columnDefinition = "TEXT") var piecesJustificatives: String? = null, // JSON array as string
 
     @OneToMany(mappedBy = "ordrePaiement", cascade = [CascadeType.ALL], orphanRemoval = true)
     var retenues: MutableList<Retenue> = mutableListOf()

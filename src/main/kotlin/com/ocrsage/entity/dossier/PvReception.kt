@@ -22,7 +22,7 @@ class PvReception(
     @Column(name = "reference_contrat") var referenceContrat: String? = null,
     @Column(name = "periode_debut") var periodeDebut: LocalDate? = null,
     @Column(name = "periode_fin") var periodeFin: LocalDate? = null,
-    @Column(columnDefinition = "TEXT[]") var prestations: Array<String>? = null,
+    @Column(columnDefinition = "TEXT") var prestations: String? = null, // JSON array as string
     @Column(name = "signataire_madaef") var signataireMadaef: String? = null,
     @Column(name = "signataire_fournisseur") var signataireFournisseur: String? = null
 )

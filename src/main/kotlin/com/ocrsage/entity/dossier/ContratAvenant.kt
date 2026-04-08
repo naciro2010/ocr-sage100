@@ -21,7 +21,7 @@ class ContratAvenant(
     @Column(name = "reference_contrat") var referenceContrat: String? = null,
     @Column(name = "numero_avenant") var numeroAvenant: String? = null,
     @Column(name = "date_signature") var dateSignature: LocalDate? = null,
-    @Column(columnDefinition = "TEXT[]") var parties: Array<String>? = null,
+    @Column(columnDefinition = "TEXT") var parties: String? = null, // JSON array as string
     @Column(columnDefinition = "TEXT") var objet: String? = null,
     @Column(name = "date_effet") var dateEffet: LocalDate? = null,
 

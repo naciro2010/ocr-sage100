@@ -99,7 +99,7 @@ CREATE TABLE contrat_avenant (
     reference_contrat VARCHAR(200),
     numero_avenant VARCHAR(100),
     date_signature DATE,
-    parties TEXT[], -- PostgreSQL array
+    parties TEXT,
     objet TEXT,
     date_effet DATE,
     UNIQUE(dossier_id)
@@ -133,7 +133,7 @@ CREATE TABLE ordre_paiement (
     reference_bc_ou_contrat VARCHAR(200),
     reference_sage VARCHAR(200),
     conclusion_controleur TEXT,
-    pieces_justificatives TEXT[], -- PostgreSQL array
+    pieces_justificatives TEXT,
     UNIQUE(dossier_id)
 );
 
@@ -208,7 +208,7 @@ CREATE TABLE pv_reception (
     reference_contrat VARCHAR(200),
     periode_debut DATE,
     periode_fin DATE,
-    prestations TEXT[],
+    prestations TEXT,
     signataire_madaef VARCHAR(300),
     signataire_fournisseur VARCHAR(300),
     UNIQUE(dossier_id)
