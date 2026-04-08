@@ -1,25 +1,30 @@
 package com.ocrsage.service.extraction
 
 import com.fasterxml.jackson.databind.ObjectMapper
+import com.ocrsage.service.AppSettingsService
 import org.slf4j.LoggerFactory
-import org.springframework.beans.factory.annotation.Value
 import org.springframework.http.MediaType
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
 
+/**
+ * LLM extraction service that reads API key, model, and base URL dynamically
+ * from AppSettingsService (configurable via Settings UI).
+ * Supports multi-model: Claude Sonnet, Opus, Haiku.
+ */
 @Service
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
-    @Value("\${claude.api-key:}") private val apiKey: String,
-    @Value("\${claude.model:claude-sonnet-4-6}") private val model: String,
-    @Value("\${claude.base-url:https://api.anthropic.com}") private val baseUrl: String
+    private val appSettingsService: AppSettingsService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
-    val isAvailable: Boolean get() = apiKey.isNotBlank()
+    val isAvailable: Boolean get() = appSettingsService.getAiApiKey().isNotBlank()
 
-    private val webClient: WebClient by lazy {
-        WebClient.builder()
+    private fun buildClient(): WebClient {
+        val apiKey = appSettingsService.getAiApiKey()
+        val baseUrl = appSettingsService.getAiBaseUrl()
+        return WebClient.builder()
             .baseUrl(baseUrl)
             .defaultHeader("x-api-key", apiKey)
             .defaultHeader("anthropic-version", "2023-06-01")
@@ -28,7 +33,10 @@ class LlmExtractionService(
     }
 
     fun callClaude(systemPrompt: String, userContent: String): String {
-        if (!isAvailable) throw IllegalStateException("Claude API key not configured")
+        if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
+
+        val model = appSettingsService.getAiModel()
+        log.info("Calling Claude API (model={}, text={}chars)", model, userContent.length)
 
         val requestBody = mapOf(
             "model" to model,
@@ -37,7 +45,7 @@ class LlmExtractionService(
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
 
-        val response = webClient.post()
+        val response = buildClient().post()
             .uri("/v1/messages")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(requestBody)
