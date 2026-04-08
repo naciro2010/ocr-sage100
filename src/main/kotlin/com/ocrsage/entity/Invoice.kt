@@ -123,6 +123,10 @@ class Invoice(
     @Column(name = "error_message", columnDefinition = "TEXT")
     var errorMessage: String? = null,
 
+    // --- ERP ---
+    @Column(name = "erp_type")
+    var erpType: String? = "SAGE_1000",
+
     // --- OCR metadata ---
     @Column(name = "ocr_engine")
     var ocrEngine: String? = null,

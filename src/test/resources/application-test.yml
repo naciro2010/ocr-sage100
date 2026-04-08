@@ -1,0 +1,47 @@
+spring:
+  datasource:
+    url: jdbc:h2:mem:testdb;DB_CLOSE_DELAY=-1;MODE=PostgreSQL
+    username: sa
+    password:
+    driver-class-name: org.h2.Driver
+  jpa:
+    hibernate:
+      ddl-auto: create-drop
+    database-platform: org.hibernate.dialect.H2Dialect
+  flyway:
+    enabled: false
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+claude:
+  api-key:
+  model: claude-sonnet-4-6
+  base-url: https://api.anthropic.com
+
+storage:
+  upload-dir: /tmp/ocrsage-test-uploads
+
+app:
+  tolerance-montant: 0.05
+
+ocr:
+  tesseract:
+    data-path: /tmp/tessdata
+    languages: fra
+    dpi: 300
+    oem: 1
+    psm: 6
+  preprocessing:
+    enabled: false
+  confidence-threshold: 30
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+server:
+  port: 0
