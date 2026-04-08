@@ -1,11 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers, deleteDossier } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
-import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2 } from 'lucide-react'
+import { useToast } from '../components/Toast'
+import Modal from '../components/Modal'
+import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, Trash2 } from 'lucide-react'
 
 export default function DossierList() {
+  const { toast } = useToast()
   const [data, setData] = useState<PageResponse<DossierListItem> | null>(null)
   const [page, setPage] = useState(0)
   const [error, setError] = useState('')
@@ -17,6 +20,7 @@ export default function DossierList() {
   const [filterStatut, setFilterStatut] = useState('')
   const [filterType, setFilterType] = useState('')
   const [filterFournisseur, setFilterFournisseur] = useState('')
+  const [deleteTarget, setDeleteTarget] = useState<DossierListItem | null>(null)
   const navigate = useNavigate()
 
   const load = () => {
@@ -34,9 +38,26 @@ export default function DossierList() {
     setCreating(true)
     try {
       const d = await createDossier(newType, newFournisseur || undefined, newDesc || undefined)
+      toast('success', 'Dossier cree')
       navigate(`/dossiers/${d.id}`)
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Erreur'
+      setError(msg)
+      toast('error', msg)
+    }
     finally { setCreating(false) }
+  }
+
+  const handleDelete = async () => {
+    if (!deleteTarget) return
+    try {
+      await deleteDossier(deleteTarget.id)
+      toast('success', `Dossier ${deleteTarget.reference} supprime`)
+      setDeleteTarget(null)
+      load()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur de suppression')
+    }
   }
 
   const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '—'
@@ -52,6 +73,17 @@ export default function DossierList() {
       </div>
 
       {error && <div className="result-banner error mb-3">{error}</div>}
+
+      {/* Delete confirmation modal */}
+      <Modal
+        open={!!deleteTarget}
+        title="Supprimer le dossier"
+        message={`Etes-vous sur de vouloir supprimer le dossier ${deleteTarget?.reference || ''} ? Cette action est irreversible.`}
+        confirmLabel="Supprimer"
+        confirmColor="#ef4444"
+        onConfirm={handleDelete}
+        onCancel={() => setDeleteTarget(null)}
+      />
 
       {showCreate && (
         <div className="card mb-3">
@@ -118,6 +150,7 @@ export default function DossierList() {
               <th>Checks</th>
               <th>Statut</th>
               <th>Date</th>
+              <th></th>
             </tr>
           </thead>
           <tbody>
@@ -133,10 +166,22 @@ export default function DossierList() {
                   <td>{d.nbChecksTotal > 0 ? `${d.nbChecksConformes}/${d.nbChecksTotal}` : '—'}</td>
                   <td><span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color }}>{cfg.label}</span></td>
                   <td>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                  <td>
+                    {d.statut === 'BROUILLON' && (
+                      <button
+                        className="btn btn-secondary"
+                        style={{ padding: '4px 8px', color: '#ef4444' }}
+                        onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
+                        title="Supprimer"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    )}
+                  </td>
                 </tr>
               )
             })}
-            {data?.content.length === 0 && <tr><td colSpan={8} className="empty-text">Aucun dossier</td></tr>}
+            {data?.content.length === 0 && <tr><td colSpan={9} className="empty-text">Aucun dossier</td></tr>}
           </tbody>
         </table>
 

@@ -22,12 +22,14 @@ services:
     environment:
       OCR_DPI: 300
       OCR_LANG: fr
+    volumes:
+      - paddle_models:/root/.paddleocr
     healthcheck:
       test: ["CMD", "python", "-c", "import urllib.request; urllib.request.urlopen('http://localhost:8000/health')"]
       interval: 10s
       timeout: 5s
       retries: 5
-      start_period: 30s
+      start_period: 60s
 
   app:
     build: .
@@ -38,6 +40,12 @@ services:
       PADDLE_OCR_URL: http://ocr:8000
       STORAGE_DIR: /app/uploads
       PORT: 8080
+      CLAUDE_API_KEY: ${CLAUDE_API_KEY:-}
+      BUCKET_ENDPOINT: ${BUCKET_ENDPOINT:-}
+      BUCKET_NAME: ${BUCKET_NAME:-}
+      BUCKET_ACCESS_KEY_ID: ${BUCKET_ACCESS_KEY_ID:-}
+      BUCKET_SECRET_ACCESS_KEY: ${BUCKET_SECRET_ACCESS_KEY:-}
+      BUCKET_REGION: ${BUCKET_REGION:-auto}
     ports:
       - "8080:8080"
     volumes:
@@ -47,6 +55,12 @@ services:
         condition: service_healthy
       ocr:
         condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:8080/actuator/health || exit 1"]
+      interval: 15s
+      timeout: 5s
+      retries: 5
+      start_period: 30s
 
   frontend:
     build:
@@ -59,8 +73,15 @@ services:
     ports:
       - "3000:80"
     depends_on:
-      - app
+      app:
+        condition: service_healthy
+    healthcheck:
+      test: ["CMD-SHELL", "curl -sf http://localhost:80/ || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 3
 
 volumes:
   pgdata:
   uploads:
+  paddle_models:

@@ -91,6 +91,10 @@ export async function getAuditLog(dossierId: string): Promise<AuditEntry[]> {
   return handleResponse(res)
 }
 
+export function getDocumentFileUrl(dossierId: string, docId: string): string {
+  return `${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file`
+}
+
 export async function searchDossiers(params: {
   page?: number, size?: number, statut?: string, type?: string, fournisseur?: string
 }): Promise<PageResponse<DossierListItem>> {

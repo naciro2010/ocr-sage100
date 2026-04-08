@@ -19,6 +19,8 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
+    clean-disabled: false
+    baseline-on-migrate: true
   servlet:
     multipart:
       max-file-size: 50MB
@@ -29,35 +31,6 @@ claude:
   api-key: ${CLAUDE_API_KEY:}
   model: claude-sonnet-4-6
   base-url: https://api.anthropic.com
-
-# Active ERP connector
-erp:
-  active: ${ERP_ACTIVE:SAGE_1000}
-
-# Sage 1000 configuration (Objets Métiers REST API)
-sage1000:
-  base-url: ${SAGE1000_BASE_URL:http://localhost:8443}
-  api-key: ${SAGE1000_API_KEY:}
-  timeout: 30s
-  company-code: ${SAGE1000_COMPANY_CODE:DEFAULT}
-
-# Sage X3 configuration (Syracuse OData REST API)
-sagex3:
-  base-url: ${SAGEX3_BASE_URL:https://localhost:8124}
-  client-id: ${SAGEX3_CLIENT_ID:}
-  client-secret: ${SAGEX3_CLIENT_SECRET:}
-  folder: ${SAGEX3_FOLDER:MAROC}
-  pool-alias: ${SAGEX3_POOL_ALIAS:x3}
-  token-url: ${SAGEX3_TOKEN_URL:${SAGEX3_BASE_URL:https://localhost:8124}/auth/oauth/token}
-
-# Sage 50 configuration (REST Bridge / SDK)
-sage50:
-  base-url: ${SAGE50_BASE_URL:http://localhost:9090}
-  username: ${SAGE50_USERNAME:admin}
-  password: ${SAGE50_PASSWORD:}
-  company-file: ${SAGE50_COMPANY_FILE:MAROC_2024.SAI}
-  journal-code: ${SAGE50_JOURNAL_CODE:ACH}
-  fiscal-year: ${SAGE50_FISCAL_YEAR:2024}
 
 # Application settings (dossier de paiement)
 app:

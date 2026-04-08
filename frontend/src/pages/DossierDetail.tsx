@@ -1,29 +1,49 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, getAuditLog } from '../api/dossierApi'
+import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import { STATUT_CONFIG, TYPE_DOCUMENT_LABELS, CHECK_ICONS } from '../api/dossierTypes'
 import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes'
+import { useToast } from '../components/Toast'
+import Modal from '../components/Modal'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
   Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye, Clock,
+  ExternalLink, Download, Pencil, Save, X, Columns2, Copy,
 } from 'lucide-react'
 
 export default function DossierDetail() {
   const { id } = useParams<{ id: string }>()
+  const { toast } = useToast()
   const [dossier, setDossier] = useState<DossierDetailType | null>(null)
   const [error, setError] = useState('')
   const [uploading, setUploading] = useState(false)
   const [validating, setValidating] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
+  const [showPdf, setShowPdf] = useState(false)
   const [audit, setAudit] = useState<AuditEntry[]>([])
+  const [rejectModal, setRejectModal] = useState(false)
+  const [motifRejet, setMotifRejet] = useState('')
+  const [editing, setEditing] = useState(false)
+  const [editFields, setEditFields] = useState({ fournisseur: '', description: '', montantTtc: '', montantHt: '', montantTva: '', montantNetAPayer: '' })
+  const [saving, setSaving] = useState(false)
+  const [dragging, setDragging] = useState(false)
+  const [showCompare, setShowCompare] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
-  const load = () => {
+  const load = useCallback(() => {
     if (!id) return
     setError('')
-    getDossier(id).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
-  }
+    getDossier(id).then(d => {
+      setDossier(d)
+      // Auto-refresh if any doc is still being processed
+      const processing = d.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
+      if (processing) {
+        setTimeout(() => load(), 5000)
+      }
+    }).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+  }, [id])
+
   useEffect(() => {
     const ctrl = new AbortController()
     if (id) getDossier(id, ctrl.signal).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
@@ -31,36 +51,110 @@ export default function DossierDetail() {
     return () => ctrl.abort()
   }, [id])
 
-  const handleUpload = async (files: FileList | null) => {
-    if (!files || !id) return
-    setUploading(true)
+  const startEdit = () => {
+    if (!dossier) return
+    setEditFields({
+      fournisseur: dossier.fournisseur || '',
+      description: dossier.description || '',
+      montantTtc: dossier.montantTtc?.toString() || '',
+      montantHt: dossier.montantHt?.toString() || '',
+      montantTva: dossier.montantTva?.toString() || '',
+      montantNetAPayer: dossier.montantNetAPayer?.toString() || '',
+    })
+    setEditing(true)
+  }
+
+  const handleSave = async () => {
+    if (!id) return
+    setSaving(true)
     try {
-      await uploadDocuments(id, Array.from(files))
+      const data: Record<string, unknown> = {}
+      if (editFields.fournisseur) data.fournisseur = editFields.fournisseur
+      if (editFields.description) data.description = editFields.description
+      if (editFields.montantTtc) data.montantTtc = parseFloat(editFields.montantTtc)
+      if (editFields.montantHt) data.montantHt = parseFloat(editFields.montantHt)
+      if (editFields.montantTva) data.montantTva = parseFloat(editFields.montantTva)
+      if (editFields.montantNetAPayer) data.montantNetAPayer = parseFloat(editFields.montantNetAPayer)
+      await updateDossier(id, data)
+      toast('success', 'Dossier mis a jour')
+      setEditing(false)
       load()
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Upload failed') }
+      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    } finally { setSaving(false) }
+  }
+
+  const handleUpload = async (files: FileList | File[] | null) => {
+    if (!files || !id) return
+    const fileArr = Array.from(files)
+    setUploading(true)
+    setDragging(false)
+    try {
+      await uploadDocuments(id, fileArr)
+      toast('success', `${fileArr.length} document(s) uploade(s)`)
+      load()
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : 'Upload failed'
+      setError(msg)
+      toast('error', msg)
+    }
     finally { setUploading(false) }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault()
+    setDragging(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (files.length > 0) handleUpload(files)
+    else toast('warning', 'Seuls les fichiers PDF sont acceptes')
   }
 
   const handleValidate = async () => {
     if (!id) return
     setValidating(true)
-    try { await validateDossier(id); load() }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Validation failed') }
+    try {
+      await validateDossier(id)
+      toast('success', 'Verification terminee')
+      load()
+      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    }
+    catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Validation failed')
+    }
     finally { setValidating(false) }
   }
 
   const handleStatut = async (statut: string) => {
     if (!id) return
-    try { await changeStatut(id, statut); load() }
-    catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
+    try {
+      await changeStatut(id, statut, statut === 'REJETE' ? motifRejet : undefined)
+      toast('success', statut === 'VALIDE' ? 'Dossier valide' : 'Dossier rejete')
+      setRejectModal(false)
+      setMotifRejet('')
+      load()
+      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    }
+    catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    }
   }
 
   const handleReprocess = async (docId: string) => {
     if (!id) return
     try {
       await reprocessDocument(id, docId)
+      toast('info', 'Retraitement lance')
       load()
-    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Reprocess failed') }
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Reprocess failed')
+    }
+  }
+
+  const copyRef = () => {
+    if (!dossier) return
+    navigator.clipboard.writeText(dossier.reference)
+    toast('info', `Reference ${dossier.reference} copiee`)
   }
 
   if (error && !dossier) return <div className="card error-card"><AlertTriangle size={20} /> {error}</div>
@@ -71,31 +165,42 @@ export default function DossierDetail() {
   const nbConformes = dossier.resultatsValidation.filter(r => r.statut === 'CONFORME').length
   const nbNonConformes = dossier.resultatsValidation.filter(r => r.statut === 'NON_CONFORME').length
   const nbWarn = dossier.resultatsValidation.filter(r => r.statut === 'AVERTISSEMENT').length
+  const hasProcessing = dossier.documents.some(d => d.statutExtraction === 'EN_COURS')
 
-  // Get extracted data for a selected document type
   const getDataForType = (type: TypeDocument): Record<string, unknown> | null => {
     const map: Record<string, Record<string, unknown> | null> = {
-      FACTURE: dossier.facture,
-      BON_COMMANDE: dossier.bonCommande,
-      CONTRAT_AVENANT: dossier.contratAvenant,
-      ORDRE_PAIEMENT: dossier.ordrePaiement,
-      CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole,
-      TABLEAU_CONTROLE: dossier.tableauControle,
-      PV_RECEPTION: dossier.pvReception,
-      ATTESTATION_FISCALE: dossier.attestationFiscale,
+      FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
+      CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
+      CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
+      PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
     }
     return map[type] || null
   }
+
+  // Compare view data
+  const factureData = dossier.facture
+  const bcData = dossier.type === 'BC' ? dossier.bonCommande : dossier.contratAvenant
+  const bcLabel = dossier.type === 'BC' ? 'Bon de commande' : 'Contrat / Avenant'
 
   return (
     <div>
       <div className="page-header">
         <h1>
           <Link to="/dossiers" className="back-link"><ArrowLeft size={20} /></Link>
-          {dossier.reference}
+          <span onClick={copyRef} style={{ cursor: 'pointer' }} title="Cliquer pour copier">{dossier.reference}</span>
+          <Copy size={14} style={{ color: 'var(--ink-faint)', cursor: 'pointer' }} onClick={copyRef} />
         </h1>
         <div className="header-actions">
+          {hasProcessing && <span style={{ fontSize: 11, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }}><Loader2 size={14} className="spin" /> Extraction en cours...</span>}
           <button className="btn btn-secondary" onClick={load}><RefreshCw size={16} /></button>
+          {dossier.statut === 'BROUILLON' && !editing && (
+            <button className="btn btn-secondary" onClick={startEdit}><Pencil size={16} /> Modifier</button>
+          )}
+          {factureData && bcData && (
+            <button className="btn btn-secondary" onClick={() => setShowCompare(!showCompare)}>
+              <Columns2 size={16} /> {showCompare ? 'Masquer' : 'Comparer'}
+            </button>
+          )}
           <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
             {validating ? <><Loader2 size={16} className="spin" /> Verification...</> : <><ShieldCheck size={16} /> Verifier</>}
           </button>
@@ -105,7 +210,7 @@ export default function DossierDetail() {
             </button>
           )}
           {dossier.statut !== 'REJETE' && dossier.statut !== 'VALIDE' && (
-            <button className="btn btn-secondary" onClick={() => handleStatut('REJETE')} style={{ color: '#ef4444' }}>
+            <button className="btn btn-secondary" onClick={() => setRejectModal(true)} style={{ color: '#ef4444' }}>
               <Ban size={16} /> Rejeter
             </button>
           )}
@@ -114,86 +219,143 @@ export default function DossierDetail() {
 
       {error && <div className="result-banner error mb-3"><XCircle size={18} /> {error}</div>}
 
-      {/* Header info */}
-      <div className="card" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-        <div>
-          <span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color, fontSize: 13 }}>{cfg.label}</span>
-          <span className="preprocess-tag" style={{ marginLeft: 8 }}>{dossier.type === 'BC' ? 'Bon de commande' : 'Contractuel'}</span>
-          {dossier.fournisseur && <strong style={{ marginLeft: 12, fontSize: 16 }}>{dossier.fournisseur}</strong>}
+      <Modal open={rejectModal} title="Rejeter le dossier" message="Etes-vous sur de vouloir rejeter ce dossier ? Cette action sera enregistree dans l'historique."
+        confirmLabel="Rejeter" confirmColor="#ef4444" onConfirm={() => handleStatut('REJETE')} onCancel={() => { setRejectModal(false); setMotifRejet('') }}>
+        <div style={{ marginBottom: 16 }}>
+          <label className="form-label">Motif de rejet (optionnel)</label>
+          <input className="form-input" value={motifRejet} onChange={e => setMotifRejet(e.target.value)} placeholder="Ex: Documents manquants, montants incoherents..." />
         </div>
-        <div style={{ textAlign: 'right', fontSize: 13, color: '#64748b' }}>
-          {dossier.description}
-        </div>
+      </Modal>
+
+      {/* Header info / Edit mode */}
+      <div className="card">
+        {editing ? (
+          <div>
+            <h2><Pencil size={14} /> Modifier le dossier</h2>
+            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+              <div>
+                <label className="form-label">Fournisseur</label>
+                <input className="form-input" value={editFields.fournisseur} onChange={e => setEditFields(f => ({ ...f, fournisseur: e.target.value }))} />
+              </div>
+              <div>
+                <label className="form-label">Description</label>
+                <input className="form-input" value={editFields.description} onChange={e => setEditFields(f => ({ ...f, description: e.target.value }))} />
+              </div>
+              <div>
+                <label className="form-label">Montant TTC</label>
+                <input className="form-input" type="number" step="0.01" value={editFields.montantTtc} onChange={e => setEditFields(f => ({ ...f, montantTtc: e.target.value }))} />
+              </div>
+              <div>
+                <label className="form-label">Montant HT</label>
+                <input className="form-input" type="number" step="0.01" value={editFields.montantHt} onChange={e => setEditFields(f => ({ ...f, montantHt: e.target.value }))} />
+              </div>
+              <div>
+                <label className="form-label">Montant TVA</label>
+                <input className="form-input" type="number" step="0.01" value={editFields.montantTva} onChange={e => setEditFields(f => ({ ...f, montantTva: e.target.value }))} />
+              </div>
+              <div>
+                <label className="form-label">Net a payer</label>
+                <input className="form-input" type="number" step="0.01" value={editFields.montantNetAPayer} onChange={e => setEditFields(f => ({ ...f, montantNetAPayer: e.target.value }))} />
+              </div>
+            </div>
+            <div style={{ display: 'flex', gap: 8 }}>
+              <button className="btn btn-primary" disabled={saving} onClick={handleSave}>
+                {saving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Save size={14} /> Sauvegarder</>}
+              </button>
+              <button className="btn btn-secondary" onClick={() => setEditing(false)}><X size={14} /> Annuler</button>
+            </div>
+          </div>
+        ) : (
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+            <div>
+              <span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color, fontSize: 13 }}>{cfg.label}</span>
+              <span className="preprocess-tag" style={{ marginLeft: 8 }}>{dossier.type === 'BC' ? 'Bon de commande' : 'Contractuel'}</span>
+              {dossier.fournisseur && <strong style={{ marginLeft: 12, fontSize: 16 }}>{dossier.fournisseur}</strong>}
+            </div>
+            <div style={{ textAlign: 'right', fontSize: 13, color: '#64748b' }}>{dossier.description}</div>
+          </div>
+        )}
       </div>
 
       {/* Metrics */}
       <div className="stats-grid" style={{ gridTemplateColumns: 'repeat(4, 1fr)' }}>
-        <div className="stat-card">
-          <div className="stat-icon purple"><Banknote size={20} /></div>
-          <div className="stat-value">{fmt(dossier.montantTtc)}</div>
-          <div className="stat-label">Montant TTC</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon blue"><Banknote size={20} /></div>
-          <div className="stat-value">{fmt(dossier.montantNetAPayer ?? dossier.montantHt)}</div>
-          <div className="stat-label">{dossier.montantNetAPayer ? 'Net a payer' : 'Montant HT'}</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon amber"><FolderOpen size={20} /></div>
-          <div className="stat-value">{dossier.documents.length}</div>
-          <div className="stat-label">Documents</div>
-        </div>
-        <div className="stat-card">
-          <div className="stat-icon green"><FileCheck size={20} /></div>
-          <div className="stat-value">{nbConformes}/{dossier.resultatsValidation.length}</div>
-          <div className="stat-label">Checks conformes</div>
-        </div>
+        <div className="stat-card"><div className="stat-icon purple"><Banknote size={20} /></div><div className="stat-value">{fmt(dossier.montantTtc)}</div><div className="stat-label">Montant TTC</div></div>
+        <div className="stat-card"><div className="stat-icon blue"><Banknote size={20} /></div><div className="stat-value">{fmt(dossier.montantNetAPayer ?? dossier.montantHt)}</div><div className="stat-label">{dossier.montantNetAPayer ? 'Net a payer' : 'Montant HT'}</div></div>
+        <div className="stat-card"><div className="stat-icon amber"><FolderOpen size={20} /></div><div className="stat-value">{dossier.documents.length}</div><div className="stat-label">Documents</div></div>
+        <div className="stat-card"><div className="stat-icon green"><FileCheck size={20} /></div><div className="stat-value">{nbConformes}/{dossier.resultatsValidation.length}</div><div className="stat-label">Checks conformes</div></div>
       </div>
 
-      {/* Documents */}
-      <div className="card">
+      {/* Comparison view Facture vs BC/Contrat */}
+      {showCompare && factureData && bcData && (
+        <div className="card">
+          <h2><Columns2 size={16} /> Comparaison Facture / {bcLabel}</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--accent)', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>Facture</div>
+              <table className="invoice-table">
+                <tbody>
+                  {Object.entries(factureData).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
+                    <tr key={k}><td style={{ fontWeight: 600, color: '#475569', fontSize: 12 }}>{k}</td><td style={{ fontSize: 12 }}>{String(v)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+            <div>
+              <div style={{ fontSize: 10, fontWeight: 700, color: '#3b7dd8', textTransform: 'uppercase', letterSpacing: 0.8, marginBottom: 10 }}>{bcLabel}</div>
+              <table className="invoice-table">
+                <tbody>
+                  {Object.entries(bcData).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
+                    <tr key={k}><td style={{ fontWeight: 600, color: '#475569', fontSize: 12 }}>{k}</td><td style={{ fontSize: 12 }}>{String(v)}</td></tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Documents with drag & drop */}
+      <div className="card"
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        style={dragging ? { borderColor: 'var(--accent)', background: 'var(--accent-light)' } : undefined}
+      >
         <h2><FileText size={16} /> Documents du dossier</h2>
+        {dragging && (
+          <div style={{ padding: 32, textAlign: 'center', border: '2px dashed var(--accent)', borderRadius: 4, marginBottom: 16, color: 'var(--accent)', fontWeight: 700 }}>
+            <Upload size={32} /><div style={{ marginTop: 8 }}>Deposez vos PDFs ici</div>
+          </div>
+        )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(220px, 1fr))', gap: 12, marginBottom: 16 }}>
           {dossier.documents.map(doc => (
-            <div
-              key={doc.id}
-              className={`radio-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
-              style={{ cursor: 'pointer', padding: 14 }}
-              onClick={() => setSelectedDoc(selectedDoc?.id === doc.id ? null : doc)}
-            >
+            <div key={doc.id} className={`radio-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
+              style={{ cursor: 'pointer', padding: 14, flexDirection: 'column', alignItems: 'stretch' }}
+              onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false) }}>
               <div>
-                <div className="fw-700" style={{ fontSize: 13 }}>
-                  {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
-                </div>
+                <div className="fw-700" style={{ fontSize: 13 }}>{TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}</div>
                 <div className="text-sm text-muted" style={{ marginTop: 4 }}>{doc.nomFichier}</div>
                 <div style={{ marginTop: 6 }}>
-                  <span className={`status-badge`} style={{
-                    backgroundColor: doc.statutExtraction === 'EXTRAIT' ? '#ecfdf5' : doc.statutExtraction === 'ERREUR' ? '#fef2f2' : '#fffbeb',
-                    color: doc.statutExtraction === 'EXTRAIT' ? '#065f46' : doc.statutExtraction === 'ERREUR' ? '#991b1b' : '#92400e',
-                    borderColor: doc.statutExtraction === 'EXTRAIT' ? '#a7f3d0' : doc.statutExtraction === 'ERREUR' ? '#fecaca' : '#fde68a',
+                  <span className="status-badge" style={{
+                    backgroundColor: doc.statutExtraction === 'EXTRAIT' ? '#ecfdf5' : doc.statutExtraction === 'ERREUR' ? '#fef2f2' : doc.statutExtraction === 'EN_COURS' ? '#eef4fc' : '#fffbeb',
+                    color: doc.statutExtraction === 'EXTRAIT' ? '#065f46' : doc.statutExtraction === 'ERREUR' ? '#991b1b' : doc.statutExtraction === 'EN_COURS' ? '#3b7dd8' : '#92400e',
+                    borderColor: doc.statutExtraction === 'EXTRAIT' ? '#a7f3d0' : doc.statutExtraction === 'ERREUR' ? '#fecaca' : doc.statutExtraction === 'EN_COURS' ? '#c9ddf4' : '#fde68a',
                   }}>
                     {doc.statutExtraction === 'EXTRAIT' ? 'Extrait' : doc.statutExtraction === 'ERREUR' ? 'Erreur' : doc.statutExtraction === 'EN_COURS' ? 'En cours...' : 'En attente'}
                   </span>
+                  {doc.statutExtraction === 'EN_COURS' && <Loader2 size={12} className="spin" style={{ marginLeft: 6, color: '#3b7dd8' }} />}
                 </div>
                 {doc.statutExtraction === 'ERREUR' && (
-                  <button
-                    className="btn btn-secondary"
-                    style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }}
-                    onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}
-                  >
+                  <button className="btn btn-secondary" style={{ fontSize: 11, padding: '2px 8px', marginTop: 8 }}
+                    onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}>
                     <RefreshCw size={12} /> Relancer
                   </button>
                 )}
               </div>
             </div>
           ))}
-
-          {/* Upload zone */}
-          <div
-            className="drop-zone"
-            style={{ padding: 24, minHeight: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
-            onClick={() => inputRef.current?.click()}
-          >
+          <div className="drop-zone" style={{ padding: 24, minHeight: 100, display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center' }}
+            onClick={() => inputRef.current?.click()}>
             <input ref={inputRef} type="file" accept=".pdf" multiple hidden onChange={e => handleUpload(e.target.files)} />
             {uploading ? <Loader2 size={24} className="spin" /> : <Upload size={24} className="drop-icon" />}
             <p className="text-sm text-muted" style={{ marginTop: 8 }}>{uploading ? 'Upload en cours...' : 'Ajouter des PDFs'}</p>
@@ -201,49 +363,40 @@ export default function DossierDetail() {
         </div>
       </div>
 
-      {/* Selected document data */}
+      {/* Selected doc: PDF + data */}
       {selectedDoc && (
-        <div className="card">
-          <h2><Eye size={16} /> Donnees extraites — {TYPE_DOCUMENT_LABELS[selectedDoc.typeDocument]}</h2>
-          {selectedDoc.statutExtraction === 'ERREUR' && (
-            <div className="result-banner error"><XCircle size={16} /> {selectedDoc.erreurExtraction}</div>
-          )}
-          {(() => {
-            const data = getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites
-            if (!data) return <p className="text-muted">Aucune donnee extraite</p>
-            return (
-              <table className="invoice-table">
-                <thead><tr><th>Champ</th><th>Valeur</th></tr></thead>
-                <tbody>
-                  {Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
-                    <tr key={k}>
-                      <td style={{ fontWeight: 600, color: '#475569' }}>{k}</td>
-                      <td>{String(v)}</td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            )
-          })()}
-        </div>
-      )}
-
-      {/* Audit log */}
-      {audit.length > 0 && (
-        <div className="card">
-          <h2><Clock size={16} /> Historique</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
-            {audit.map((a, i) => (
-              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 6, background: i % 2 === 0 ? '#f8fafc' : 'transparent', fontSize: 13 }}>
-                <div>
-                  <span style={{ fontWeight: 700, color: '#334155' }}>{a.action}</span>
-                  {a.detail && <span style={{ color: '#64748b', marginLeft: 8 }}>{a.detail}</span>}
-                </div>
-                <span style={{ color: '#94a3b8', fontSize: 12 }}>{new Date(a.dateAction).toLocaleString('fr-FR')}</span>
+        <>
+          <div className="card">
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h2 style={{ marginBottom: 0 }}><Eye size={16} /> {TYPE_DOCUMENT_LABELS[selectedDoc.typeDocument]} — {selectedDoc.nomFichier}</h2>
+              <div style={{ display: 'flex', gap: 6 }}>
+                <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px' }} onClick={() => setShowPdf(!showPdf)}>
+                  {showPdf ? <><XCircle size={14} /> Masquer PDF</> : <><FileText size={14} /> Voir PDF</>}
+                </button>
+                {id && <a href={getDocumentFileUrl(id, selectedDoc.id)} target="_blank" rel="noopener noreferrer"
+                  className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 10px', textDecoration: 'none' }}>
+                  <Download size={14} /> Telecharger
+                </a>}
               </div>
-            ))}
+            </div>
+            {showPdf && id && <div className="pdf-viewer"><iframe src={getDocumentFileUrl(id, selectedDoc.id)} title={selectedDoc.nomFichier} /></div>}
           </div>
-        </div>
+          <div className="card">
+            <h2><ExternalLink size={16} /> Donnees extraites</h2>
+            {selectedDoc.statutExtraction === 'ERREUR' && <div className="result-banner error"><XCircle size={16} /> {selectedDoc.erreurExtraction}</div>}
+            {(() => {
+              const data = getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites
+              if (!data) return <p className="text-muted">Aucune donnee extraite</p>
+              return (
+                <table className="invoice-table"><thead><tr><th>Champ</th><th>Valeur</th></tr></thead><tbody>
+                  {Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
+                    <tr key={k}><td style={{ fontWeight: 600, color: '#475569' }}>{k}</td><td>{String(v)}</td></tr>
+                  ))}
+                </tbody></table>
+              )
+            })()}
+          </div>
+        </>
       )}
 
       {/* Validation results */}
@@ -257,21 +410,31 @@ export default function DossierDetail() {
                 <div key={i} className="status-item" style={{ padding: '10px 12px', borderRadius: 8, background: r.statut === 'NON_CONFORME' ? '#fef2f2' : r.statut === 'AVERTISSEMENT' ? '#fffbeb' : 'transparent' }}>
                   <span style={{ color: chk.color, fontWeight: 800, fontSize: 16, width: 24 }}>{chk.icon}</span>
                   <div style={{ flex: 1 }}>
-                    <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      <span style={{ color: '#94a3b8', marginRight: 6 }}>[{r.regle}]</span>
-                      {r.libelle}
-                    </div>
+                    <div style={{ fontWeight: 600, fontSize: 13 }}><span style={{ color: '#94a3b8', marginRight: 6 }}>[{r.regle}]</span>{r.libelle}</div>
                     {r.detail && <div style={{ fontSize: 12, color: '#64748b', marginTop: 2 }}>{r.detail}</div>}
                     {r.valeurAttendue && r.valeurTrouvee && r.statut === 'NON_CONFORME' && (
-                      <div style={{ fontSize: 11, marginTop: 4, color: '#991b1b' }}>
-                        Attendu: <code>{r.valeurAttendue}</code> | Trouve: <code>{r.valeurTrouvee}</code>
-                      </div>
+                      <div style={{ fontSize: 11, marginTop: 4, color: '#991b1b' }}>Attendu: <code>{r.valeurAttendue}</code> | Trouve: <code>{r.valeurTrouvee}</code></div>
                     )}
                   </div>
                   <span className="preprocess-tag" style={{ fontSize: 9 }}>{r.source}</span>
                 </div>
               )
             })}
+          </div>
+        </div>
+      )}
+
+      {/* Audit log */}
+      {audit.length > 0 && (
+        <div className="card">
+          <h2><Clock size={16} /> Historique</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {audit.map((a, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 6, background: i % 2 === 0 ? '#f8fafc' : 'transparent', fontSize: 13 }}>
+                <div><span style={{ fontWeight: 700, color: '#334155' }}>{a.action}</span>{a.detail && <span style={{ color: '#64748b', marginLeft: 8 }}>{a.detail}</span>}</div>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}>{new Date(a.dateAction).toLocaleString('fr-FR')}</span>
+              </div>
+            ))}
           </div>
         </div>
       )}
