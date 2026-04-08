@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, ShieldCheck } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, Shield } from 'lucide-react'
 
 export default function Layout() {
   return (
@@ -7,29 +7,29 @@ export default function Layout() {
       <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="sidebar-logo"><ShieldCheck size={18} /></div>
+            <div className="sidebar-logo"><Shield size={18} /></div>
             <div className="sidebar-title">
-              <h2>MADAEF</h2>
-              <span>Reconciliation paiements</span>
+              <h2>ReconDoc</h2>
+              <span>MADAEF / Groupe CDG</span>
             </div>
           </div>
         </div>
 
-        <div className="nav-section">Navigation</div>
+        <div className="nav-section">Menu</div>
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>
-              <BarChart3 size={18} /> <span>Dashboard</span>
+              <BarChart3 size={17} /> <span>Tableau de bord</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/dossiers">
-              <FolderOpen size={18} /> <span>Dossiers</span>
+              <FolderOpen size={17} /> <span>Dossiers</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/settings">
-              <Settings size={18} /> <span>Configuration</span>
+              <Settings size={17} /> <span>Parametres</span>
             </NavLink>
           </li>
         </ul>

@@ -1,4 +1,4 @@
-import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType, DashboardStats } from './dossierTypes'
+import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType, DashboardStats, AuditEntry } from './dossierTypes'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
@@ -78,5 +78,28 @@ export async function validateDossier(id: string): Promise<ValidationResult[]> {
 
 export async function getValidationResults(id: string): Promise<ValidationResult[]> {
   const res = await fetch(`${BASE}/${id}/resultats-validation`)
+  return handleResponse(res)
+}
+
+export async function reprocessDocument(dossierId: string, docId: string): Promise<DocumentInfo> {
+  const res = await fetch(`${BASE}/${dossierId}/documents/${docId}/reprocess`, { method: 'POST' })
+  return handleResponse(res)
+}
+
+export async function getAuditLog(dossierId: string): Promise<AuditEntry[]> {
+  const res = await fetch(`${BASE}/${dossierId}/audit`)
+  return handleResponse(res)
+}
+
+export async function searchDossiers(params: {
+  page?: number, size?: number, statut?: string, type?: string, fournisseur?: string
+}): Promise<PageResponse<DossierListItem>> {
+  const q = new URLSearchParams()
+  if (params.page != null) q.set('page', String(params.page))
+  if (params.size != null) q.set('size', String(params.size))
+  if (params.statut) q.set('statut', params.statut)
+  if (params.type) q.set('type', params.type)
+  if (params.fournisseur) q.set('fournisseur', params.fournisseur)
+  const res = await fetch(`${BASE}/search?${q}`)
   return handleResponse(res)
 }

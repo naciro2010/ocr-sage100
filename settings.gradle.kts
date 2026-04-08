@@ -5,4 +5,4 @@ pluginManagement {
     }
 }
 
-rootProject.name = "ocr-sage100"
+rootProject.name = "recondoc-madaef"

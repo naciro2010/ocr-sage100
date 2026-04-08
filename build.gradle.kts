@@ -6,7 +6,7 @@ plugins {
     kotlin("plugin.jpa") version "2.1.10"
 }
 
-group = "com.ocrsage"
+group = "com.madaef.recondoc"
 version = "1.0.0"
 
 java {

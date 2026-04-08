@@ -21,7 +21,7 @@ claude:
   base-url: https://api.anthropic.com
 
 storage:
-  upload-dir: /tmp/ocrsage-test-uploads
+  upload-dir: /tmp/recondoc-test-uploads
 
 app:
   tolerance-montant: 0.05

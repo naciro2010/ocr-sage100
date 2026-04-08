@@ -15,7 +15,6 @@ COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
 RUN ./gradlew dependencies --no-daemon || true
 COPY src src
-# Copy frontend dist into Spring Boot static resources
 COPY --from=frontend-build /app/frontend/dist src/main/resources/static/
 RUN ./gradlew bootJar --no-daemon
 
@@ -23,16 +22,13 @@ RUN ./gradlew bootJar --no-daemon
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
-# Install Tesseract OCR with French and Arabic language packs
 RUN apk add --no-cache \
     tesseract-ocr \
     tesseract-ocr-data-fra \
     tesseract-ocr-data-ara \
     leptonica-dev \
     fontconfig \
-    ttf-dejavu \
-    # psql for DB reset on deploy
-    postgresql16-client
+    ttf-dejavu
 
 ENV TESSDATA_PREFIX=/usr/share/tessdata
 
@@ -43,5 +39,6 @@ RUN chmod +x entrypoint.sh && \
     mkdir -p /app/uploads && \
     chown -R appuser:appgroup /app/uploads
 USER appuser
+
 EXPOSE 8080
 ENTRYPOINT ["./entrypoint.sh"]
