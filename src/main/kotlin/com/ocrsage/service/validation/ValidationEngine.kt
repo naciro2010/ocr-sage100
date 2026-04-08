@@ -11,7 +11,7 @@ import java.time.LocalDateTime
 @Service
 class ValidationEngine(
     private val resultatRepository: ResultatValidationRepository,
-    @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: Double
+    @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -19,11 +19,10 @@ class ValidationEngine(
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
 
-        // Clear previous results
         resultatRepository.deleteByDossierId(dossier.id!!)
 
         val results = mutableListOf<ResultatValidation>()
-        val tol = toleranceMontant.toBigDecimal()
+        val tol = java.math.BigDecimal(toleranceMontant)
 
         val facture = dossier.facture
         val bc = dossier.bonCommande
@@ -255,9 +254,13 @@ class ValidationEngine(
 
     private fun matchReference(ref1: String?, ref2: String?): Boolean {
         if (ref1 == null || ref2 == null) return false
-        val normalize = { s: String -> s.replace("\\s".toRegex(), "").replace("'", "").trimStart('0').lowercase() }
+        val normalize = { s: String -> s.replace("[\\s\\-_/.']+".toRegex(), "").trimStart('0').lowercase() }
         val n1 = normalize(ref1)
         val n2 = normalize(ref2)
-        return n1.contains(n2) || n2.contains(n1)
+        if (n1 == n2) return true
+        // Only allow contains if the shorter string is at least 4 chars (avoid "001" matching everything)
+        val shorter = if (n1.length < n2.length) n1 else n2
+        val longer = if (n1.length < n2.length) n2 else n1
+        return shorter.length >= 4 && longer.contains(shorter)
     }
 }

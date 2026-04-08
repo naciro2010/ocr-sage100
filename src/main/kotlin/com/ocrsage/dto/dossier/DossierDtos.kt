@@ -1,6 +1,7 @@
 package com.ocrsage.dto.dossier
 
 import com.ocrsage.entity.dossier.*
+import jakarta.validation.constraints.NotNull
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -9,7 +10,7 @@ import java.util.UUID
 // === Request DTOs ===
 
 data class CreateDossierRequest(
-    val type: DossierType,
+    @field:NotNull val type: DossierType,
     val fournisseur: String? = null,
     val description: String? = null
 )
@@ -24,9 +25,18 @@ data class UpdateDossierRequest(
 )
 
 data class ChangeStatutRequest(
-    val statut: StatutDossier,
+    @field:NotNull val statut: StatutDossier,
     val motifRejet: String? = null,
     val validePar: String? = null
+)
+
+data class DashboardStatsResponse(
+    val total: Long,
+    val brouillons: Long,
+    val enVerification: Long,
+    val valides: Long,
+    val rejetes: Long,
+    val montantTotal: BigDecimal
 )
 
 // === Response DTOs ===
@@ -95,15 +105,20 @@ data class ValidationResultResponse(
 
 // === Mapper functions ===
 
-fun DossierPaiement.toListResponse(): DossierListResponse = DossierListResponse(
-    id = id!!, reference = reference, type = type, statut = statut,
-    fournisseur = fournisseur, description = description,
-    montantTtc = montantTtc, montantNetAPayer = montantNetAPayer,
-    dateCreation = dateCreation,
-    nbDocuments = documents.size,
-    nbChecksConformes = resultatsValidation.count { it.statut == StatutCheck.CONFORME },
-    nbChecksTotal = resultatsValidation.size
-)
+fun DossierPaiement.toListResponse(): DossierListResponse {
+    val docs = try { documents.size } catch (_: Exception) { 0 }
+    val checksConformes = try { resultatsValidation.count { it.statut == StatutCheck.CONFORME } } catch (_: Exception) { 0 }
+    val checksTotal = try { resultatsValidation.size } catch (_: Exception) { 0 }
+    return DossierListResponse(
+        id = id!!, reference = reference, type = type, statut = statut,
+        fournisseur = fournisseur, description = description,
+        montantTtc = montantTtc, montantNetAPayer = montantNetAPayer,
+        dateCreation = dateCreation,
+        nbDocuments = docs,
+        nbChecksConformes = checksConformes,
+        nbChecksTotal = checksTotal
+    )
+}
 
 fun Document.toResponse(): DocumentResponse = DocumentResponse(
     id = id!!, typeDocument = typeDocument, nomFichier = nomFichier,

@@ -20,9 +20,14 @@ export default function DossierDetail() {
 
   const load = () => {
     if (!id) return
-    getDossier(id).then(setDossier).catch(e => setError(e.message))
+    setError('')
+    getDossier(id).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
   }
-  useEffect(load, [id])
+  useEffect(() => {
+    const ctrl = new AbortController()
+    if (id) getDossier(id, ctrl.signal).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+    return () => ctrl.abort()
+  }, [id])
 
   const handleUpload = async (files: FileList | null) => {
     if (!files || !id) return

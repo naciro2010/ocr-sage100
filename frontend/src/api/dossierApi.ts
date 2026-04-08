@@ -1,12 +1,18 @@
-import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType } from './dossierTypes'
+import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType, DashboardStats } from './dossierTypes'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
-    const body = await res.json().catch(() => ({ message: res.statusText }))
-    throw new Error(body.message || `HTTP ${res.status}`)
+    let message: string
+    try {
+      const body = await res.json()
+      message = body.message || body.error || `HTTP ${res.status}`
+    } catch {
+      message = `HTTP ${res.status} ${res.statusText}`
+    }
+    throw new Error(message)
   }
   return res.json()
 }
@@ -25,8 +31,13 @@ export async function listDossiers(page = 0, size = 20): Promise<PageResponse<Do
   return handleResponse(res)
 }
 
-export async function getDossier(id: string): Promise<DossierDetail> {
-  const res = await fetch(`${BASE}/${id}`)
+export async function getDashboardStats(signal?: AbortSignal): Promise<DashboardStats> {
+  const res = await fetch(`${BASE}/stats`, { signal })
+  return handleResponse(res)
+}
+
+export async function getDossier(id: string, signal?: AbortSignal): Promise<DossierDetail> {
+  const res = await fetch(`${BASE}/${id}`, { signal })
   return handleResponse(res)
 }
 

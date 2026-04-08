@@ -3,6 +3,7 @@ package com.ocrsage.controller.dossier
 import com.ocrsage.dto.dossier.*
 import com.ocrsage.entity.dossier.TypeDocument
 import com.ocrsage.service.DossierService
+import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
@@ -17,6 +18,8 @@ import java.util.UUID
 @RequestMapping("/api/dossiers")
 class DossierController(private val dossierService: DossierService) {
 
+    private val log = LoggerFactory.getLogger(javaClass)
+
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)
     fun create(@RequestBody request: CreateDossierRequest): DossierResponse {
@@ -27,6 +30,11 @@ class DossierController(private val dossierService: DossierService) {
     @GetMapping
     fun list(@PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable): Page<DossierListResponse> {
         return dossierService.listDossiers(pageable)
+    }
+
+    @GetMapping("/stats")
+    fun stats(): DashboardStatsResponse {
+        return dossierService.getDashboardStats()
     }
 
     @GetMapping("/{id}")
@@ -60,8 +68,12 @@ class DossierController(private val dossierService: DossierService) {
         @RequestParam("type", required = false) type: TypeDocument?
     ): List<DocumentResponse> {
         val docs = dossierService.uploadDocuments(id, files, type)
-        docs.forEach { doc ->
-            try { dossierService.processDocument(doc.id!!) } catch (_: Exception) {}
+        for (doc in docs) {
+            try {
+                dossierService.processDocument(doc.id!!)
+            } catch (e: Exception) {
+                log.error("Processing failed for document {} in dossier {}: {}", doc.nomFichier, id, e.message)
+            }
         }
         return dossierService.getDossierResponse(id).documents
     }

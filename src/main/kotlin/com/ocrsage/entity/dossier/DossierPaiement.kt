@@ -6,11 +6,22 @@ import java.time.LocalDateTime
 import java.util.UUID
 
 @Entity
-@Table(name = "dossier_paiement")
+@Table(
+    name = "dossier_paiement",
+    indexes = [
+        Index(name = "idx_dossier_statut", columnList = "statut"),
+        Index(name = "idx_dossier_reference", columnList = "reference"),
+        Index(name = "idx_dossier_type", columnList = "type"),
+        Index(name = "idx_dossier_date_creation", columnList = "date_creation")
+    ]
+)
 class DossierPaiement(
     @Id
     @GeneratedValue(strategy = GenerationType.UUID)
     var id: UUID? = null,
+
+    @Version
+    var version: Long = 0,
 
     @Column(nullable = false, unique = true)
     var reference: String,
@@ -36,33 +47,35 @@ class DossierPaiement(
     @Column(name = "valide_par") var validePar: String? = null,
     @Column(name = "motif_rejet", columnDefinition = "TEXT") var motifRejet: String? = null,
 
-    @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var documents: MutableList<Document> = mutableListOf(),
+    @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("dateUpload ASC")
+    var documents: MutableSet<Document> = mutableSetOf(),
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var facture: Facture? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var bonCommande: BonCommande? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var contratAvenant: ContratAvenant? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var ordrePaiement: OrdrePaiement? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var checklistAutocontrole: ChecklistAutocontrole? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var tableauControle: TableauControle? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var pvReception: PvReception? = null,
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
+    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var attestationFiscale: AttestationFiscale? = null,
 
-    @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true)
-    var resultatsValidation: MutableList<ResultatValidation> = mutableListOf()
+    @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    @OrderBy("dateExecution ASC")
+    var resultatsValidation: MutableSet<ResultatValidation> = mutableSetOf()
 )

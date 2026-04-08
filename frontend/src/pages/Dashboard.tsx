@@ -1,24 +1,22 @@
 import { useEffect, useState } from 'react'
 import { Link } from 'react-router-dom'
-import { listDossiers } from '../api/dossierApi'
-import type { DossierListItem, PageResponse } from '../api/dossierTypes'
+import { getDashboardStats, listDossiers } from '../api/dossierApi'
+import type { DossierListItem, DashboardStats } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { BarChart3, FolderOpen, CheckCircle, AlertTriangle, Clock, ArrowRight } from 'lucide-react'
 
 export default function Dashboard() {
-  const [data, setData] = useState<PageResponse<DossierListItem> | null>(null)
+  const [stats, setStats] = useState<DashboardStats | null>(null)
+  const [recent, setRecent] = useState<DossierListItem[]>([])
 
-  useEffect(() => { listDossiers(0, 100).then(setData).catch(() => {}) }, [])
+  useEffect(() => {
+    const ctrl = new AbortController()
+    getDashboardStats(ctrl.signal).then(setStats).catch(() => {})
+    listDossiers(0, 5).then(d => setRecent(d.content)).catch(() => {})
+    return () => ctrl.abort()
+  }, [])
 
-  if (!data) return <div className="loading">Chargement...</div>
-
-  const all = data.content
-  const valides = all.filter(d => d.statut === 'VALIDE').length
-  const enVerif = all.filter(d => d.statut === 'EN_VERIFICATION').length
-  const rejetes = all.filter(d => d.statut === 'REJETE').length
-  const brouillons = all.filter(d => d.statut === 'BROUILLON').length
-  const totalMontant = all.reduce((s, d) => s + (d.montantTtc || 0), 0)
-  const recent = all.slice(0, 5)
+  if (!stats) return <div className="loading">Chargement...</div>
 
   return (
     <div>
@@ -29,22 +27,22 @@ export default function Dashboard() {
       <div className="stats-grid">
         <div className="stat-card">
           <div className="stat-icon purple"><FolderOpen size={20} /></div>
-          <div className="stat-value">{all.length}</div>
+          <div className="stat-value">{stats.total}</div>
           <div className="stat-label">Total dossiers</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon blue"><Clock size={20} /></div>
-          <div className="stat-value">{enVerif + brouillons}</div>
+          <div className="stat-value">{stats.enVerification + stats.brouillons}</div>
           <div className="stat-label">En cours</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon amber"><AlertTriangle size={20} /></div>
-          <div className="stat-value">{rejetes}</div>
+          <div className="stat-value">{stats.rejetes}</div>
           <div className="stat-label">Rejetes</div>
         </div>
         <div className="stat-card">
           <div className="stat-icon green"><CheckCircle size={20} /></div>
-          <div className="stat-value">{valides}</div>
+          <div className="stat-value">{stats.valides}</div>
           <div className="stat-label">Valides</div>
         </div>
       </div>
@@ -77,7 +75,7 @@ export default function Dashboard() {
           <h2><BarChart3 size={16} /> Montants</h2>
           <div style={{ marginTop: 8 }}>
             <div style={{ fontSize: 30, fontWeight: 800, color: '#0f172a' }}>
-              {totalMontant.toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
+              {Number(stats.montantTotal).toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
             </div>
             <div className="stat-label" style={{ marginTop: 4 }}>MAD total en dossiers</div>
           </div>

@@ -13,16 +13,17 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
-import org.springframework.scheduling.annotation.Async
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
 import org.springframework.web.multipart.MultipartFile
+import java.math.BigDecimal
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.format.DateTimeFormatter
 import java.util.UUID
-import java.math.BigDecimal
+import java.util.concurrent.atomic.AtomicLong
 
 @Service
 class DossierService(
@@ -44,18 +45,25 @@ class DossierService(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val tika = Tika()
-    private var nextRef = System.currentTimeMillis()
+    private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
 
     @Transactional
     fun createDossier(request: CreateDossierRequest): DossierPaiement {
-        val ref = "DOSSIER-${java.time.Year.now().value}-${String.format("%04d", nextRef++ % 10000)}"
+        val seq = refCounter.incrementAndGet()
+        val ref = "DOS-${java.time.Year.now().value}-${String.format("%05d", seq % 100000)}"
         val dossier = DossierPaiement(
             reference = ref,
             type = request.type,
-            fournisseur = request.fournisseur,
-            description = request.description
+            fournisseur = request.fournisseur?.takeIf { it.isNotBlank() },
+            description = request.description?.takeIf { it.isNotBlank() }
         )
         return dossierRepo.save(dossier)
+    }
+
+    @Transactional(readOnly = true)
+    fun getDossierFull(id: UUID): DossierPaiement {
+        return dossierRepo.findByIdWithAll(id)
+            .orElseThrow { NoSuchElementException("Dossier not found: $id") }
     }
 
     @Transactional(readOnly = true)
@@ -65,13 +73,39 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierResponse(id: UUID): DossierResponse {
-        val dossier = getDossier(id)
+        val dossier = getDossierFull(id)
         return buildFullResponse(dossier)
     }
 
     @Transactional(readOnly = true)
     fun listDossiers(pageable: Pageable): Page<DossierListResponse> {
         return dossierRepo.findAll(pageable).map { it.toListResponse() }
+    }
+
+    @Transactional(readOnly = true)
+    fun getDashboardStats(): DashboardStatsResponse {
+        val rows = dossierRepo.getStatsByStatut()
+        var total = 0L
+        var totalMontant = BigDecimal.ZERO
+        val byStatut = mutableMapOf<String, Long>()
+
+        for (row in rows) {
+            val statut = (row[0] as StatutDossier).name
+            val count = (row[1] as Number).toLong()
+            val montant = row[2] as BigDecimal
+            byStatut[statut] = count
+            total += count
+            totalMontant = totalMontant.add(montant)
+        }
+
+        return DashboardStatsResponse(
+            total = total,
+            brouillons = byStatut["BROUILLON"] ?: 0,
+            enVerification = byStatut["EN_VERIFICATION"] ?: 0,
+            valides = byStatut["VALIDE"] ?: 0,
+            rejetes = byStatut["REJETE"] ?: 0,
+            montantTotal = totalMontant
+        )
     }
 
     @Transactional
@@ -83,7 +117,7 @@ class DossierService(
         request.montantHt?.let { dossier.montantHt = it }
         request.montantTva?.let { dossier.montantTva = it }
         request.montantNetAPayer?.let { dossier.montantNetAPayer = it }
-        return dossierRepo.save(dossier)
+        return dossier
     }
 
     @Transactional
@@ -97,7 +131,7 @@ class DossierService(
         if (request.statut == StatutDossier.REJETE) {
             dossier.motifRejet = request.motifRejet
         }
-        return dossierRepo.save(dossier)
+        return dossier
     }
 
     @Transactional
@@ -118,7 +152,7 @@ class DossierService(
 
             val doc = Document(
                 dossier = dossier,
-                typeDocument = typeDocument ?: TypeDocument.FACTURE, // will be reclassified
+                typeDocument = typeDocument ?: TypeDocument.FACTURE,
                 nomFichier = file.originalFilename ?: "unknown",
                 cheminFichier = filePath.toString()
             )
@@ -130,36 +164,32 @@ class DossierService(
     fun processDocument(documentId: UUID) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         doc.statutExtraction = StatutExtraction.EN_COURS
-        documentRepo.save(doc)
 
         try {
-            // Step 1: Extract text with Tika
             val rawText = Files.newInputStream(Path.of(doc.cheminFichier)).use { tika.parseToString(it) }
             doc.texteExtrait = rawText
 
-            // Step 2: Classify document
             val detectedType = classificationService.classify(rawText)
             doc.typeDocument = detectedType
             log.info("Document {} classified as {}", doc.nomFichier, detectedType)
 
-            // Step 3: Extract structured data with LLM
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
                     val jsonText = llmService.callClaude(prompt, rawText)
-                    @Suppress("UNCHECKED_CAST")
-                    val data = objectMapper.readValue(jsonText, Map::class.java) as Map<String, Any?>
-                    doc.donneesExtraites = data
-
-                    // Step 4: Create typed entity from extracted data
-                    saveExtractedEntity(doc.dossier, doc, detectedType, data)
+                    val data = parseLlmResponse(jsonText)
+                    if (data != null) {
+                        doc.donneesExtraites = data
+                        saveExtractedEntity(doc.dossier, doc, detectedType, data)
+                    } else {
+                        log.warn("Failed to parse LLM response for document {}", doc.nomFichier)
+                    }
                 }
             }
 
             doc.statutExtraction = StatutExtraction.EXTRAIT
             doc.erreurExtraction = null
 
-            // Update dossier amounts from facture
             if (detectedType == TypeDocument.FACTURE) {
                 updateDossierFromFacture(doc.dossier)
             }
@@ -168,16 +198,23 @@ class DossierService(
             doc.statutExtraction = StatutExtraction.ERREUR
             doc.erreurExtraction = e.message
         }
-
-        documentRepo.save(doc)
     }
 
     @Transactional
     fun validateDossier(dossierId: UUID): List<ResultatValidation> {
-        val dossier = getDossier(dossierId)
+        val dossier = getDossierFull(dossierId)
         dossier.statut = StatutDossier.EN_VERIFICATION
-        dossierRepo.save(dossier)
         return validationEngine.validate(dossier)
+    }
+
+    private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {
+        return try {
+            @Suppress("UNCHECKED_CAST")
+            objectMapper.readValue(jsonText, Map::class.java) as Map<String, Any?>
+        } catch (e: Exception) {
+            log.error("Failed to parse LLM JSON: {}", e.message)
+            null
+        }
     }
 
     private fun getPromptForType(type: TypeDocument): String? = when (type) {
@@ -192,170 +229,191 @@ class DossierService(
         else -> null
     }
 
-    @Suppress("UNCHECKED_CAST")
     private fun saveExtractedEntity(dossier: DossierPaiement, doc: Document, type: TypeDocument, data: Map<String, Any?>) {
-        when (type) {
-            TypeDocument.FACTURE -> {
-                val existing = factureRepo.findByDossierId(dossier.id!!)
-                val facture = existing ?: Facture(dossier = dossier, document = doc)
-                facture.numeroFacture = data["numeroFacture"] as? String
-                facture.dateFacture = parseDate(data["dateFacture"] as? String)
-                facture.fournisseur = data["fournisseur"] as? String
-                facture.client = data["client"] as? String
-                facture.ice = data["ice"] as? String
-                facture.identifiantFiscal = data["identifiantFiscal"] as? String
-                facture.rc = data["rc"] as? String
-                facture.rib = data["rib"] as? String
-                facture.montantHt = toBigDecimal(data["montantHT"])
-                facture.montantTva = toBigDecimal(data["montantTVA"])
-                facture.tauxTva = toBigDecimal(data["tauxTVA"])
-                facture.montantTtc = toBigDecimal(data["montantTTC"])
-                facture.referenceContrat = data["referenceContrat"] as? String
-                facture.periode = data["periode"] as? String
-                factureRepo.save(facture)
+        try {
+            when (type) {
+                TypeDocument.FACTURE -> saveFacture(dossier, doc, data)
+                TypeDocument.BON_COMMANDE -> saveBonCommande(dossier, doc, data)
+                TypeDocument.CONTRAT_AVENANT -> saveContrat(dossier, doc, data)
+                TypeDocument.ORDRE_PAIEMENT -> saveOrdrePaiement(dossier, doc, data)
+                TypeDocument.CHECKLIST_AUTOCONTROLE -> saveChecklist(dossier, doc, data)
+                TypeDocument.TABLEAU_CONTROLE -> saveTableau(dossier, doc, data)
+                TypeDocument.PV_RECEPTION -> savePvReception(dossier, doc, data)
+                TypeDocument.ATTESTATION_FISCALE -> saveAttestationFiscale(dossier, doc, data)
+                else -> log.debug("No entity mapping for type {}", type)
             }
-            TypeDocument.BON_COMMANDE -> {
-                val existing = bcRepo.findByDossierId(dossier.id!!)
-                val bc = existing ?: BonCommande(dossier = dossier, document = doc)
-                bc.reference = data["reference"] as? String
-                bc.dateBc = parseDate(data["dateBc"] as? String)
-                bc.fournisseur = data["fournisseur"] as? String
-                bc.objet = data["objet"] as? String
-                bc.montantHt = toBigDecimal(data["montantHT"])
-                bc.montantTva = toBigDecimal(data["montantTVA"])
-                bc.tauxTva = toBigDecimal(data["tauxTVA"])
-                bc.montantTtc = toBigDecimal(data["montantTTC"])
-                bc.signataire = data["signataire"] as? String
-                bcRepo.save(bc)
-            }
-            TypeDocument.CONTRAT_AVENANT -> {
-                val existing = contratRepo.findByDossierId(dossier.id!!)
-                val ca = existing ?: ContratAvenant(dossier = dossier, document = doc)
-                ca.referenceContrat = data["referenceContrat"] as? String
-                ca.numeroAvenant = data["numeroAvenant"] as? String
-                ca.dateSignature = parseDate(data["dateSignature"] as? String)
-                ca.parties = (data["parties"] as? List<*>)?.joinToString(",")
-                ca.objet = data["objet"] as? String
-                ca.dateEffet = parseDate(data["dateEffet"] as? String)
-                val grilles = data["grillesTarifaires"] as? List<Map<String, Any?>>
-                if (grilles != null) {
-                    ca.grillesTarifaires.clear()
-                    for (g in grilles) {
-                        ca.grillesTarifaires.add(GrilleTarifaire(
-                            contratAvenant = ca,
-                            designation = g["designation"] as? String ?: "",
-                            prixUnitaireHt = toBigDecimal(g["prixUnitaireHT"]),
-                            periodicite = try { Periodicite.valueOf(g["periodicite"] as? String ?: "MENSUEL") } catch (_: Exception) { Periodicite.MENSUEL },
-                            entite = g["entite"] as? String
-                        ))
-                    }
-                }
-                contratRepo.save(ca)
-            }
-            TypeDocument.ORDRE_PAIEMENT -> {
-                val existing = opRepo.findByDossierId(dossier.id!!)
-                val op = existing ?: OrdrePaiement(dossier = dossier, document = doc)
-                op.numeroOp = data["numeroOp"] as? String
-                op.dateEmission = parseDate(data["dateEmission"] as? String)
-                op.emetteur = data["emetteur"] as? String
-                op.natureOperation = data["natureOperation"] as? String
-                op.description = data["description"] as? String
-                op.beneficiaire = data["beneficiaire"] as? String
-                op.rib = data["rib"] as? String
-                op.banque = data["banque"] as? String
-                op.montantOperation = toBigDecimal(data["montantOperation"])
-                op.referenceFacture = data["referenceFacture"] as? String
-                op.referenceBcOuContrat = data["referenceBcOuContrat"] as? String
-                op.referenceSage = data["referenceSage"] as? String
-                op.conclusionControleur = data["conclusionControleur"] as? String
-                // Retenues
-                val retList = data["retenues"] as? List<Map<String, Any?>>
-                if (retList != null) {
-                    op.retenues.clear()
-                    for (r in retList) {
-                        op.retenues.add(Retenue(
-                            ordrePaiement = op,
-                            type = try { TypeRetenue.valueOf(r["type"] as? String ?: "AUTRE") } catch (_: Exception) { TypeRetenue.AUTRE },
-                            articleCgi = r["articleCGI"] as? String,
-                            base = toBigDecimal(r["base"]),
-                            taux = toBigDecimal(r["taux"]),
-                            montant = toBigDecimal(r["montant"])
-                        ))
-                    }
-                }
-                opRepo.save(op)
-            }
-            TypeDocument.CHECKLIST_AUTOCONTROLE -> {
-                val existing = checklistRepo.findByDossierId(dossier.id!!)
-                val cl = existing ?: ChecklistAutocontrole(dossier = dossier, document = doc)
-                cl.reference = data["reference"] as? String
-                cl.nomProjet = data["nomProjet"] as? String
-                cl.referenceFacture = data["referenceFacture"] as? String
-                cl.prestataire = data["prestataire"] as? String
-                val points = data["points"] as? List<Map<String, Any?>>
-                if (points != null) {
-                    cl.points.clear()
-                    for (p in points) {
-                        cl.points.add(PointControle(
-                            checklist = cl,
-                            numero = (p["numero"] as? Number)?.toInt() ?: 0,
-                            estValide = p["estValide"] as? Boolean,
-                            observation = p["observation"] as? String
-                        ))
-                    }
-                }
-                checklistRepo.save(cl)
-            }
-            TypeDocument.TABLEAU_CONTROLE -> {
-                val existing = tableauRepo.findByDossierId(dossier.id!!)
-                val tc = existing ?: TableauControle(dossier = dossier, document = doc)
-                tc.societeGeree = data["societeGeree"] as? String
-                tc.referenceFacture = data["referenceFacture"] as? String
-                tc.fournisseur = data["fournisseur"] as? String
-                tc.signataire = data["signataire"] as? String
-                val pts = data["points"] as? List<Map<String, Any?>>
-                if (pts != null) {
-                    tc.points.clear()
-                    for (p in pts) {
-                        tc.points.add(PointControleFinancier(
-                            tableauControle = tc,
-                            numero = (p["numero"] as? Number)?.toInt() ?: 0,
-                            observation = p["observation"] as? String,
-                            commentaire = p["commentaire"] as? String
-                        ))
-                    }
-                }
-                tableauRepo.save(tc)
-            }
-            TypeDocument.PV_RECEPTION -> {
-                val existing = pvRepo.findByDossierId(dossier.id!!)
-                val pv = existing ?: PvReception(dossier = dossier, document = doc)
-                pv.titre = data["titre"] as? String
-                pv.dateReception = parseDate(data["dateReception"] as? String)
-                pv.referenceContrat = data["referenceContrat"] as? String
-                pv.periodeDebut = parseDate(data["periodeDebut"] as? String)
-                pv.periodeFin = parseDate(data["periodeFin"] as? String)
-                @Suppress("UNCHECKED_CAST")
-                pv.prestations = (data["prestations"] as? List<*>)?.joinToString(",")
-                pv.signataireMadaef = data["signataireMadaef"] as? String
-                pv.signataireFournisseur = data["signataireFournisseur"] as? String
-                pvRepo.save(pv)
-            }
-            TypeDocument.ATTESTATION_FISCALE -> {
-                val existing = arfRepo.findByDossierId(dossier.id!!)
-                val arf = existing ?: AttestationFiscale(dossier = dossier, document = doc)
-                arf.numero = data["numero"] as? String
-                arf.dateEdition = parseDate(data["dateEdition"] as? String)
-                arf.raisonSociale = data["raisonSociale"] as? String
-                arf.identifiantFiscal = data["identifiantFiscal"] as? String
-                arf.ice = data["ice"] as? String
-                arf.rc = data["rc"] as? String
-                arf.estEnRegle = data["estEnRegle"] as? Boolean
-                arf.dateValidite = parseDate(data["dateValidite"] as? String)
-                arfRepo.save(arf)
-            }
-            else -> log.debug("No entity mapping for type {}", type)
+        } catch (e: Exception) {
+            log.error("Failed to save extracted entity for type {}: {}", type, e.message)
         }
+    }
+
+    private fun saveFacture(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = factureRepo.findByDossierId(dossier.id!!)
+        val facture = existing ?: Facture(dossier = dossier, document = doc)
+        facture.numeroFacture = data["numeroFacture"] as? String
+        facture.dateFacture = parseDate(data["dateFacture"] as? String)
+        facture.fournisseur = data["fournisseur"] as? String
+        facture.client = data["client"] as? String
+        facture.ice = data["ice"] as? String
+        facture.identifiantFiscal = data["identifiantFiscal"] as? String
+        facture.rc = data["rc"] as? String
+        facture.rib = data["rib"] as? String
+        facture.montantHt = toBigDecimal(data["montantHT"])
+        facture.montantTva = toBigDecimal(data["montantTVA"])
+        facture.tauxTva = toBigDecimal(data["tauxTVA"])
+        facture.montantTtc = toBigDecimal(data["montantTTC"])
+        facture.referenceContrat = data["referenceContrat"] as? String
+        facture.periode = data["periode"] as? String
+        factureRepo.save(facture)
+    }
+
+    private fun saveBonCommande(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = bcRepo.findByDossierId(dossier.id!!)
+        val bc = existing ?: BonCommande(dossier = dossier, document = doc)
+        bc.reference = data["reference"] as? String
+        bc.dateBc = parseDate(data["dateBc"] as? String)
+        bc.fournisseur = data["fournisseur"] as? String
+        bc.objet = data["objet"] as? String
+        bc.montantHt = toBigDecimal(data["montantHT"])
+        bc.montantTva = toBigDecimal(data["montantTVA"])
+        bc.tauxTva = toBigDecimal(data["tauxTVA"])
+        bc.montantTtc = toBigDecimal(data["montantTTC"])
+        bc.signataire = data["signataire"] as? String
+        bcRepo.save(bc)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun saveContrat(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = contratRepo.findByDossierId(dossier.id!!)
+        val ca = existing ?: ContratAvenant(dossier = dossier, document = doc)
+        ca.referenceContrat = data["referenceContrat"] as? String
+        ca.numeroAvenant = data["numeroAvenant"] as? String
+        ca.dateSignature = parseDate(data["dateSignature"] as? String)
+        ca.parties = (data["parties"] as? List<*>)?.joinToString(",")
+        ca.objet = data["objet"] as? String
+        ca.dateEffet = parseDate(data["dateEffet"] as? String)
+        val grilles = data["grillesTarifaires"] as? List<Map<String, Any?>>
+        if (grilles != null) {
+            ca.grillesTarifaires.clear()
+            for (g in grilles) {
+                ca.grillesTarifaires.add(GrilleTarifaire(
+                    contratAvenant = ca,
+                    designation = g["designation"] as? String ?: "",
+                    prixUnitaireHt = toBigDecimal(g["prixUnitaireHT"]),
+                    periodicite = parseEnum(g["periodicite"] as? String, Periodicite.MENSUEL),
+                    entite = g["entite"] as? String
+                ))
+            }
+        }
+        contratRepo.save(ca)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun saveOrdrePaiement(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = opRepo.findByDossierId(dossier.id!!)
+        val op = existing ?: OrdrePaiement(dossier = dossier, document = doc)
+        op.numeroOp = data["numeroOp"] as? String
+        op.dateEmission = parseDate(data["dateEmission"] as? String)
+        op.emetteur = data["emetteur"] as? String
+        op.natureOperation = data["natureOperation"] as? String
+        op.description = data["description"] as? String
+        op.beneficiaire = data["beneficiaire"] as? String
+        op.rib = data["rib"] as? String
+        op.banque = data["banque"] as? String
+        op.montantOperation = toBigDecimal(data["montantOperation"])
+        op.referenceFacture = data["referenceFacture"] as? String
+        op.referenceBcOuContrat = data["referenceBcOuContrat"] as? String
+        op.referenceSage = data["referenceSage"] as? String
+        op.conclusionControleur = data["conclusionControleur"] as? String
+        val retList = data["retenues"] as? List<Map<String, Any?>>
+        if (retList != null) {
+            op.retenues.clear()
+            for (r in retList) {
+                op.retenues.add(Retenue(
+                    ordrePaiement = op,
+                    type = parseEnum(r["type"] as? String, TypeRetenue.AUTRE),
+                    articleCgi = r["articleCGI"] as? String,
+                    base = toBigDecimal(r["base"]),
+                    taux = toBigDecimal(r["taux"]),
+                    montant = toBigDecimal(r["montant"])
+                ))
+            }
+        }
+        opRepo.save(op)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun saveChecklist(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = checklistRepo.findByDossierId(dossier.id!!)
+        val cl = existing ?: ChecklistAutocontrole(dossier = dossier, document = doc)
+        cl.reference = data["reference"] as? String
+        cl.nomProjet = data["nomProjet"] as? String
+        cl.referenceFacture = data["referenceFacture"] as? String
+        cl.prestataire = data["prestataire"] as? String
+        val points = data["points"] as? List<Map<String, Any?>>
+        if (points != null) {
+            cl.points.clear()
+            for (p in points) {
+                cl.points.add(PointControle(
+                    checklist = cl,
+                    numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    estValide = p["estValide"] as? Boolean,
+                    observation = p["observation"] as? String
+                ))
+            }
+        }
+        checklistRepo.save(cl)
+    }
+
+    @Suppress("UNCHECKED_CAST")
+    private fun saveTableau(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = tableauRepo.findByDossierId(dossier.id!!)
+        val tc = existing ?: TableauControle(dossier = dossier, document = doc)
+        tc.societeGeree = data["societeGeree"] as? String
+        tc.referenceFacture = data["referenceFacture"] as? String
+        tc.fournisseur = data["fournisseur"] as? String
+        tc.signataire = data["signataire"] as? String
+        val pts = data["points"] as? List<Map<String, Any?>>
+        if (pts != null) {
+            tc.points.clear()
+            for (p in pts) {
+                tc.points.add(PointControleFinancier(
+                    tableauControle = tc,
+                    numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    observation = p["observation"] as? String,
+                    commentaire = p["commentaire"] as? String
+                ))
+            }
+        }
+        tableauRepo.save(tc)
+    }
+
+    private fun savePvReception(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = pvRepo.findByDossierId(dossier.id!!)
+        val pv = existing ?: PvReception(dossier = dossier, document = doc)
+        pv.titre = data["titre"] as? String
+        pv.dateReception = parseDate(data["dateReception"] as? String)
+        pv.referenceContrat = data["referenceContrat"] as? String
+        pv.periodeDebut = parseDate(data["periodeDebut"] as? String)
+        pv.periodeFin = parseDate(data["periodeFin"] as? String)
+        pv.prestations = (data["prestations"] as? List<*>)?.joinToString(",")
+        pv.signataireMadaef = data["signataireMadaef"] as? String
+        pv.signataireFournisseur = data["signataireFournisseur"] as? String
+        pvRepo.save(pv)
+    }
+
+    private fun saveAttestationFiscale(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
+        val existing = arfRepo.findByDossierId(dossier.id!!)
+        val arf = existing ?: AttestationFiscale(dossier = dossier, document = doc)
+        arf.numero = data["numero"] as? String
+        arf.dateEdition = parseDate(data["dateEdition"] as? String)
+        arf.raisonSociale = data["raisonSociale"] as? String
+        arf.identifiantFiscal = data["identifiantFiscal"] as? String
+        arf.ice = data["ice"] as? String
+        arf.rc = data["rc"] as? String
+        arf.estEnRegle = data["estEnRegle"] as? Boolean
+        arf.dateValidite = parseDate(data["dateValidite"] as? String)
+        arfRepo.save(arf)
     }
 
     private fun updateDossierFromFacture(dossier: DossierPaiement) {
@@ -364,18 +422,31 @@ class DossierService(
         dossier.montantHt = facture.montantHt
         dossier.montantTva = facture.montantTva
         dossier.fournisseur = dossier.fournisseur ?: facture.fournisseur
-        dossierRepo.save(dossier)
     }
+
+    private val dateFormats = listOf(
+        DateTimeFormatter.ISO_LOCAL_DATE,
+        DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+        DateTimeFormatter.ofPattern("d/M/yyyy")
+    )
 
     private fun parseDate(s: String?): LocalDate? {
         if (s.isNullOrBlank()) return null
-        return try { LocalDate.parse(s) } catch (_: Exception) { null }
+        for (fmt in dateFormats) {
+            try { return LocalDate.parse(s.trim(), fmt) } catch (_: Exception) {}
+        }
+        return null
     }
 
     private fun toBigDecimal(v: Any?): BigDecimal? = when (v) {
         is Number -> BigDecimal(v.toString())
         is String -> v.toBigDecimalOrNull()
         else -> null
+    }
+
+    private inline fun <reified T : Enum<T>> parseEnum(value: String?, default: T): T {
+        if (value.isNullOrBlank()) return default
+        return try { enumValueOf<T>(value) } catch (_: Exception) { default }
     }
 
     fun buildFullResponse(dossier: DossierPaiement): DossierResponse {

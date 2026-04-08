@@ -74,6 +74,15 @@ export interface PageResponse<T> {
   size: number
 }
 
+export interface DashboardStats {
+  total: number
+  brouillons: number
+  enVerification: number
+  valides: number
+  rejetes: number
+  montantTotal: number
+}
+
 export const TYPE_DOCUMENT_LABELS: Record<TypeDocument, string> = {
   FACTURE: 'Facture',
   BON_COMMANDE: 'Bon de commande',
