@@ -27,7 +27,7 @@ class OcrService(
     private val preprocessingService: ImagePreprocessingService,
     private val textNormalizationService: TextNormalizationService,
     private val paddleOcrClient: PaddleOcrClient,
-    @Value("\${ocr.tesseract.data-path:/usr/share/tesseract-ocr/5/tessdata}") private val tessDataPath: String,
+    @Value("\${ocr.tesseract.data-path:/usr/share/tessdata}") private val tessDataPath: String,
     @Value("\${ocr.tesseract.languages:fra+ara}") private val languages: String,
     @Value("\${ocr.tesseract.dpi:300}") private val dpi: Int,
     @Value("\${ocr.tesseract.oem:1}") private val oem: Int,

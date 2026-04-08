@@ -2,9 +2,9 @@ spring:
   application:
     name: recondoc-madaef
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}?options=-c%20statement_timeout%3D15000
-    username: ${DATABASE_USERNAME:recondoc}
-    password: ${DATABASE_PASSWORD:recondoc}
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}}?options=-c%20statement_timeout%3D15000
+    username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:recondoc}}
+    password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:recondoc}}
     hikari:
       maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
@@ -43,7 +43,7 @@ ocr:
     timeout: ${PADDLE_OCR_TIMEOUT:120}
     lang: ${PADDLE_OCR_LANG:fr}
   tesseract:
-    data-path: ${TESSDATA_PREFIX:/usr/share/tesseract-ocr/5/tessdata}
+    data-path: ${TESSDATA_PREFIX:/usr/share/tessdata}
     languages: ${OCR_LANGUAGES:fra+ara}
     dpi: ${OCR_DPI:300}
     oem: ${OCR_OEM:1}
