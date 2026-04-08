@@ -1,0 +1,52 @@
+spring:
+  datasource:
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc_test}
+    username: ${DATABASE_USERNAME:recondoc}
+    password: ${DATABASE_PASSWORD:recondoc}
+  jpa:
+    hibernate:
+      ddl-auto: none
+    database-platform: org.hibernate.dialect.PostgreSQLDialect
+  flyway:
+    enabled: true
+  servlet:
+    multipart:
+      max-file-size: 50MB
+      max-request-size: 50MB
+
+claude:
+  api-key:
+  model: claude-sonnet-4-6
+  base-url: https://api.anthropic.com
+
+storage:
+  upload-dir: /tmp/recondoc-ci-uploads
+  s3:
+    endpoint:
+    bucket:
+    access-key:
+    secret-key:
+    region: auto
+
+app:
+  tolerance-montant: 0.05
+
+ocr:
+  tesseract:
+    data-path: /tmp/tessdata
+    languages: fra
+    dpi: 300
+    oem: 1
+    psm: 6
+  preprocessing:
+    enabled: false
+  confidence-threshold: 30
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health
+
+server:
+  port: 0
