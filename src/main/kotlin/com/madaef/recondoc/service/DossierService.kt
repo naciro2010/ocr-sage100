@@ -472,6 +472,14 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
+    fun getDocumentFile(documentId: UUID): Pair<String, String> {
+        val doc = documentRepo.findById(documentId)
+            .orElseThrow { NoSuchElementException("Document not found: $documentId") }
+        val path = Path.of(doc.cheminFichier)
+        if (!Files.exists(path)) throw NoSuchElementException("File not found on disk: ${doc.cheminFichier}")
+        return Pair(doc.cheminFichier, doc.nomFichier)
+    }
+
     fun getAuditLog(dossierId: UUID): List<AuditLogResponse> {
         return auditLogRepo.findByDossierIdOrderByDateActionDesc(dossierId)
             .map { AuditLogResponse(action = it.action, detail = it.detail, utilisateur = it.utilisateur, dateAction = it.dateAction) }

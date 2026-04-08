@@ -44,7 +44,15 @@ app = FastAPI(title="OCR Service", version="2.0.0", lifespan=lifespan)
 
 @app.get("/health")
 async def health():
-    return {"status": "ok", "engine": "paddleocr", "version": "3.4.0"}
+    loaded_langs = list(_ocr_instances.keys())
+    return {
+        "status": "ok",
+        "engine": "paddleocr",
+        "version": "3.4.0",
+        "dpi": DPI,
+        "loaded_languages": loaded_langs,
+        "available_languages": ["fr", "ar", "en", "latin"],
+    }
 
 
 @app.post("/ocr")

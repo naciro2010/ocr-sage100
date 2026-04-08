@@ -1,7 +1,22 @@
+import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, Shield } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, Shield, Search } from 'lucide-react'
+import SearchPanel from './SearchPanel'
 
 export default function Layout() {
+  const [searchOpen, setSearchOpen] = useState(false)
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if ((e.metaKey || e.ctrlKey) && e.key === 'k') {
+        e.preventDefault()
+        setSearchOpen(true)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [])
+
   return (
     <div className="app">
       <nav className="sidebar">
@@ -34,6 +49,23 @@ export default function Layout() {
           </li>
         </ul>
 
+        <div style={{ padding: '0 12px', marginBottom: 12 }}>
+          <button
+            onClick={() => setSearchOpen(true)}
+            style={{
+              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
+              padding: '9px 14px', background: 'rgba(255,255,255,0.04)',
+              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6,
+              color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 12,
+              transition: 'all 0.15s',
+            }}
+          >
+            <Search size={14} />
+            <span style={{ flex: 1, textAlign: 'left' }}>Rechercher...</span>
+            <kbd style={{ fontSize: 9, opacity: 0.5, background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3 }}>Ctrl+K</kbd>
+          </button>
+        </div>
+
         <div className="sidebar-footer">
           <div className="dot" />
           <span>Systeme operationnel</span>
@@ -42,6 +74,7 @@ export default function Layout() {
       <main className="main-content">
         <Outlet />
       </main>
+      <SearchPanel open={searchOpen} onClose={() => setSearchOpen(false)} />
     </div>
   )
 }

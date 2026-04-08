@@ -10,8 +10,12 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
 import org.springframework.data.web.PageableDefault
+import org.springframework.core.io.FileSystemResource
+import org.springframework.core.io.Resource
+import org.springframework.http.HttpHeaders
 import org.springframework.http.HttpStatus
 import org.springframework.http.MediaType
+import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import org.springframework.web.multipart.MultipartFile
 import java.util.UUID
@@ -104,6 +108,22 @@ class DossierController(private val dossierService: DossierService) {
     @GetMapping("/{id}/audit")
     fun getAudit(@PathVariable id: UUID): List<AuditLogResponse> {
         return dossierService.getAuditLog(id)
+    }
+
+    @GetMapping("/{id}/documents/{docId}/file")
+    fun downloadDocumentFile(@PathVariable id: UUID, @PathVariable docId: UUID): ResponseEntity<Resource> {
+        val (filePath, fileName) = dossierService.getDocumentFile(docId)
+        val resource = FileSystemResource(filePath)
+        val contentType = when {
+            fileName.endsWith(".pdf", true) -> MediaType.APPLICATION_PDF
+            fileName.endsWith(".png", true) -> MediaType.IMAGE_PNG
+            fileName.endsWith(".jpg", true) || fileName.endsWith(".jpeg", true) -> MediaType.IMAGE_JPEG
+            else -> MediaType.APPLICATION_OCTET_STREAM
+        }
+        return ResponseEntity.ok()
+            .contentType(contentType)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"$fileName\"")
+            .body(resource)
     }
 
     @GetMapping("/search")

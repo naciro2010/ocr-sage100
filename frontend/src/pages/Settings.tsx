@@ -3,6 +3,7 @@ import {
   getAiSettings, saveAiSettings as saveAiSettingsApi,
 } from '../api/client'
 import type { AiSettingsResponse } from '../api/types'
+import { useToast } from '../components/Toast'
 import {
   Settings as SettingsIcon, Brain, ScanLine, Cpu,
   CheckCircle, XCircle, Loader2, Eye, EyeOff,
@@ -16,6 +17,7 @@ const AI_MODELS = [
 ]
 
 export default function Settings() {
+  const { toast } = useToast()
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
@@ -23,7 +25,6 @@ export default function Settings() {
   const [aiBaseUrl, setAiBaseUrl] = useState('https://api.anthropic.com')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
-  const [aiMsg, setAiMsg] = useState<{ ok: boolean; text: string } | null>(null)
 
   useEffect(() => {
     getAiSettings()
@@ -38,7 +39,7 @@ export default function Settings() {
   }, [])
 
   const handleSaveAi = async () => {
-    setAiSaving(true); setAiMsg(null)
+    setAiSaving(true)
     try {
       const result = await saveAiSettingsApi({
         enabled: aiEnabled,
@@ -47,9 +48,9 @@ export default function Settings() {
         baseUrl: aiBaseUrl,
       })
       setAiSettings(result)
-      setAiMsg({ ok: true, text: 'Configuration sauvegardee.' })
+      toast('success', 'Configuration IA sauvegardee')
     } catch (e: unknown) {
-      setAiMsg({ ok: false, text: e instanceof Error ? e.message : 'Erreur' })
+      toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setAiSaving(false) }
   }
 
@@ -153,12 +154,6 @@ export default function Settings() {
           <button className="btn btn-primary" disabled={aiSaving} onClick={handleSaveAi}>
             {aiSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder</>}
           </button>
-          {aiMsg && (
-            <span style={{ fontSize: 12, fontWeight: 600, color: aiMsg.ok ? 'var(--accent)' : 'var(--danger)' }}>
-              {aiMsg.ok ? <CheckCircle size={13} style={{ verticalAlign: -2 }} /> : <XCircle size={13} style={{ verticalAlign: -2 }} />}
-              {' '}{aiMsg.text}
-            </span>
-          )}
         </div>
       </div>
 
@@ -223,7 +218,7 @@ export default function Settings() {
           </div>
           <div>
             <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase' as const, letterSpacing: 0.8, marginBottom: 6 }}>Version</div>
-            <div style={{ fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--mono)' }}>1.0.0</div>
+            <div style={{ fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--mono)' }}>1.1.0</div>
             <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 2 }}>Kotlin + React + Claude IA</div>
           </div>
         </div>
