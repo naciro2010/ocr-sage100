@@ -228,6 +228,30 @@ class DossierService(
                 bc.signataire = data["signataire"] as? String
                 bcRepo.save(bc)
             }
+            TypeDocument.CONTRAT_AVENANT -> {
+                val existing = contratRepo.findByDossierId(dossier.id!!)
+                val ca = existing ?: ContratAvenant(dossier = dossier, document = doc)
+                ca.referenceContrat = data["referenceContrat"] as? String
+                ca.numeroAvenant = data["numeroAvenant"] as? String
+                ca.dateSignature = parseDate(data["dateSignature"] as? String)
+                ca.parties = (data["parties"] as? List<*>)?.joinToString(",")
+                ca.objet = data["objet"] as? String
+                ca.dateEffet = parseDate(data["dateEffet"] as? String)
+                val grilles = data["grillesTarifaires"] as? List<Map<String, Any?>>
+                if (grilles != null) {
+                    ca.grillesTarifaires.clear()
+                    for (g in grilles) {
+                        ca.grillesTarifaires.add(GrilleTarifaire(
+                            contratAvenant = ca,
+                            designation = g["designation"] as? String ?: "",
+                            prixUnitaireHt = toBigDecimal(g["prixUnitaireHT"]),
+                            periodicite = try { Periodicite.valueOf(g["periodicite"] as? String ?: "MENSUEL") } catch (_: Exception) { Periodicite.MENSUEL },
+                            entite = g["entite"] as? String
+                        ))
+                    }
+                }
+                contratRepo.save(ca)
+            }
             TypeDocument.ORDRE_PAIEMENT -> {
                 val existing = opRepo.findByDossierId(dossier.id!!)
                 val op = existing ?: OrdrePaiement(dossier = dossier, document = doc)
@@ -327,6 +351,7 @@ class DossierService(
                 arf.ice = data["ice"] as? String
                 arf.rc = data["rc"] as? String
                 arf.estEnRegle = data["estEnRegle"] as? Boolean
+                arf.dateValidite = parseDate(data["dateValidite"] as? String)
                 arfRepo.save(arf)
             }
             else -> log.debug("No entity mapping for type {}", type)
