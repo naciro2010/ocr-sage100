@@ -1,7 +1,12 @@
 #!/bin/sh
+set -e
+
+echo "=== ReconDoc MADAEF - Starting ==="
+echo "PORT=${PORT:-8080}"
 
 # Convert Railway's DATABASE_URL to Spring Boot JDBC format
 if [ -n "$DATABASE_URL" ]; then
+  echo "DATABASE_URL detected, converting to JDBC format..."
   case "$DATABASE_URL" in
     jdbc:*) JDBC_URL="$DATABASE_URL" ;;
     postgresql://*) JDBC_URL="jdbc:$DATABASE_URL" ;;
@@ -22,6 +27,11 @@ if [ -n "$DATABASE_URL" ]; then
   export SPRING_DATASOURCE_URL="$JDBC_URL"
   export SPRING_DATASOURCE_USERNAME="${DATABASE_USERNAME}"
   export SPRING_DATASOURCE_PASSWORD="${DATABASE_PASSWORD}"
+
+  # Log DB host (no password)
+  echo "JDBC URL: $(echo "$JDBC_URL" | sed 's|//.*@|//***@|')"
+else
+  echo "WARNING: No DATABASE_URL set, using defaults"
 fi
 
 # JVM: fast startup, container-aware memory
@@ -31,6 +41,10 @@ DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseSe
 SPRING_PORT_OPTS=""
 if [ -n "$PORT" ]; then
   SPRING_PORT_OPTS="-Dserver.port=$PORT"
+  echo "Binding to Railway PORT=$PORT"
+else
+  echo "No PORT env var, defaulting to 8080"
 fi
 
+echo "Starting JVM..."
 exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS $SPRING_PORT_OPTS -jar app.jar

@@ -19,8 +19,9 @@ spring:
     open-in-view: false
   flyway:
     enabled: true
-    clean-disabled: false
+    clean-disabled: true
     baseline-on-migrate: true
+    validate-on-migrate: false
   servlet:
     multipart:
       max-file-size: 50MB
