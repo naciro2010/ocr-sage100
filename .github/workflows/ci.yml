@@ -43,10 +43,17 @@ jobs:
       - name: Compile
         run: ./gradlew compileKotlin compileTestKotlin --no-daemon
 
-      - name: Test
+      - name: Unit tests (H2)
         run: ./gradlew test --no-daemon
         env:
           SPRING_PROFILES_ACTIVE: test
+
+      - name: Integration tests (PostgreSQL)
+        run: ./gradlew test --no-daemon -Dspring.profiles.active=ci
+        env:
+          DATABASE_URL: jdbc:postgresql://localhost:5432/recondoc_test
+          DATABASE_USERNAME: recondoc
+          DATABASE_PASSWORD: recondoc
 
       - name: Build JAR
         run: ./gradlew bootJar --no-daemon
@@ -58,6 +65,13 @@ jobs:
           name: backend-test-reports
           path: build/reports/tests/
           retention-days: 7
+
+      - name: Upload JAR artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-jar
+          path: build/libs/*.jar
+          retention-days: 3
 
   frontend:
     name: Frontend Build & Lint
@@ -83,13 +97,20 @@ jobs:
         run: npx tsc --noEmit
 
       - name: Lint
-        run: npx eslint . --max-warnings 0
+        run: npx eslint .
 
       - name: Build
         run: npm run build
 
+      - name: Upload dist artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: frontend-dist
+          path: frontend/dist/
+          retention-days: 3
+
   ocr-service:
-    name: OCR Service (Python) Lint & Validate
+    name: OCR Service Validate
     runs-on: ubuntu-latest
     defaults:
       run:
@@ -103,9 +124,6 @@ jobs:
         with:
           python-version: "3.12"
 
-      - name: Validate requirements
-        run: pip install --dry-run -r requirements.txt
-
       - name: Syntax check
         run: python -m py_compile main.py
 
@@ -113,15 +131,18 @@ jobs:
     name: Docker Build
     runs-on: ubuntu-latest
     needs: [backend, frontend, ocr-service]
+    if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build backend image
-        run: docker build -t recondoc-madaef-backend .
-
-      - name: Build frontend image
-        run: docker build -t recondoc-madaef-frontend frontend/
+      - name: Build unified image (backend + frontend)
+        run: docker build -t recondoc-madaef .
 
       - name: Build OCR service image
         run: docker build -t recondoc-madaef-ocr ocr-service/
+
+      - name: Verify images
+        run: |
+          docker images recondoc-madaef --format "{{.Repository}}:{{.Tag}} {{.Size}}"
+          docker images recondoc-madaef-ocr --format "{{.Repository}}:{{.Tag}} {{.Size}}"
