@@ -33,9 +33,6 @@ DROP TABLE IF EXISTS invoice_line_items CASCADE;
 DROP TABLE IF EXISTS invoices CASCADE;
 DROP TABLE IF EXISTS erp_config CASCADE;
 
--- Suppression historique Flyway pour repartir propre
-DROP TABLE IF EXISTS flyway_schema_history CASCADE;
-
 -- =====================================================
 -- Configuration applicative
 -- =====================================================

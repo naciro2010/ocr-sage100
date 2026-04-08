@@ -27,4 +27,10 @@ fi
 # JVM: fast startup, container-aware memory
 DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:MaxRAMPercentage=75.0 -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss256k"
 
-exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS -jar app.jar
+# Pass Railway's PORT to Spring Boot
+SPRING_PORT_OPTS=""
+if [ -n "$PORT" ]; then
+  SPRING_PORT_OPTS="-Dserver.port=$PORT"
+fi
+
+exec java $DEFAULT_JAVA_OPTS $JAVA_OPTS $SPRING_PORT_OPTS -jar app.jar
