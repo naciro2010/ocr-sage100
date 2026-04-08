@@ -1,12 +1,12 @@
 import { useEffect, useState, useRef } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, uploadDocuments, validateDossier, changeStatut } from '../api/dossierApi'
+import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, getAuditLog } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import { STATUT_CONFIG, TYPE_DOCUMENT_LABELS, CHECK_ICONS } from '../api/dossierTypes'
-import type { DocumentInfo, TypeDocument } from '../api/dossierTypes'
+import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
-  Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye,
+  Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye, Clock,
 } from 'lucide-react'
 
 export default function DossierDetail() {
@@ -16,6 +16,7 @@ export default function DossierDetail() {
   const [uploading, setUploading] = useState(false)
   const [validating, setValidating] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
+  const [audit, setAudit] = useState<AuditEntry[]>([])
   const inputRef = useRef<HTMLInputElement>(null)
 
   const load = () => {
@@ -26,6 +27,7 @@ export default function DossierDetail() {
   useEffect(() => {
     const ctrl = new AbortController()
     if (id) getDossier(id, ctrl.signal).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+    if (id) getAuditLog(id).then(setAudit).catch(() => {})
     return () => ctrl.abort()
   }, [id])
 
@@ -51,6 +53,14 @@ export default function DossierDetail() {
     if (!id) return
     try { await changeStatut(id, statut); load() }
     catch (e: unknown) { setError(e instanceof Error ? e.message : 'Erreur') }
+  }
+
+  const handleReprocess = async (docId: string) => {
+    if (!id) return
+    try {
+      await reprocessDocument(id, docId)
+      load()
+    } catch (e: unknown) { setError(e instanceof Error ? e.message : 'Reprocess failed') }
   }
 
   if (error && !dossier) return <div className="card error-card"><AlertTriangle size={20} /> {error}</div>
@@ -165,6 +175,15 @@ export default function DossierDetail() {
                     {doc.statutExtraction === 'EXTRAIT' ? 'Extrait' : doc.statutExtraction === 'ERREUR' ? 'Erreur' : doc.statutExtraction === 'EN_COURS' ? 'En cours...' : 'En attente'}
                   </span>
                 </div>
+                {doc.statutExtraction === 'ERREUR' && (
+                  <button
+                    className="btn btn-secondary"
+                    style={{ marginTop: 6, fontSize: 11, padding: '2px 8px' }}
+                    onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}
+                  >
+                    <RefreshCw size={12} /> Relancer
+                  </button>
+                )}
               </div>
             </div>
           ))}
@@ -206,6 +225,24 @@ export default function DossierDetail() {
               </table>
             )
           })()}
+        </div>
+      )}
+
+      {/* Audit log */}
+      {audit.length > 0 && (
+        <div className="card">
+          <h2><Clock size={16} /> Historique</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6 }}>
+            {audit.map((a, i) => (
+              <div key={i} style={{ display: 'flex', justifyContent: 'space-between', padding: '8px 12px', borderRadius: 6, background: i % 2 === 0 ? '#f8fafc' : 'transparent', fontSize: 13 }}>
+                <div>
+                  <span style={{ fontWeight: 700, color: '#334155' }}>{a.action}</span>
+                  {a.detail && <span style={{ color: '#64748b', marginLeft: 8 }}>{a.detail}</span>}
+                </div>
+                <span style={{ color: '#94a3b8', fontSize: 12 }}>{new Date(a.dateAction).toLocaleString('fr-FR')}</span>
+              </div>
+            ))}
+          </div>
         </div>
       )}
 

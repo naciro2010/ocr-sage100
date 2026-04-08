@@ -150,6 +150,33 @@ class ValidationEngine(
             )
         }
 
+        // R14 — Coherence fournisseur entre documents
+        run {
+            val fournisseurs = listOfNotNull(
+                dossier.fournisseur,
+                facture?.fournisseur,
+                bc?.fournisseur,
+                op?.beneficiaire,
+                tableau?.fournisseur,
+                checklist?.prestataire
+            ).map { it.trim().lowercase() }.distinct()
+            if (fournisseurs.size > 1) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R14",
+                    libelle = "Coherence fournisseur entre documents",
+                    statut = StatutCheck.AVERTISSEMENT,
+                    detail = "Fournisseurs differents: ${fournisseurs.joinToString(", ")}"
+                )
+            } else if (fournisseurs.isNotEmpty()) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R14",
+                    libelle = "Coherence fournisseur entre documents",
+                    statut = StatutCheck.CONFORME,
+                    detail = "Fournisseur: ${fournisseurs.first()}"
+                )
+            }
+        }
+
         // R12 — Checklist complete
         if (checklist != null) {
             val nonValides = checklist.points.filter { it.estValide == false }

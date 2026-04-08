@@ -41,6 +41,7 @@ class DossierService(
     private val llmService: LlmExtractionService,
     private val validationEngine: ValidationEngine,
     private val objectMapper: ObjectMapper,
+    private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -57,7 +58,9 @@ class DossierService(
             fournisseur = request.fournisseur?.takeIf { it.isNotBlank() },
             description = request.description?.takeIf { it.isNotBlank() }
         )
-        return dossierRepo.save(dossier)
+        val saved = dossierRepo.save(dossier)
+        audit(saved.id, "CREATION", "Type: ${request.type}, Fournisseur: ${request.fournisseur}")
+        return saved
     }
 
     @Transactional(readOnly = true)
@@ -123,6 +126,15 @@ class DossierService(
     @Transactional
     fun changeStatut(id: UUID, request: ChangeStatutRequest): DossierPaiement {
         val dossier = getDossier(id)
+        val allowed = when (dossier.statut) {
+            StatutDossier.BROUILLON -> setOf(StatutDossier.EN_VERIFICATION, StatutDossier.REJETE)
+            StatutDossier.EN_VERIFICATION -> setOf(StatutDossier.VALIDE, StatutDossier.REJETE, StatutDossier.BROUILLON)
+            StatutDossier.VALIDE -> setOf<StatutDossier>()
+            StatutDossier.REJETE -> setOf(StatutDossier.BROUILLON)
+        }
+        require(request.statut in allowed) {
+            "Transition ${dossier.statut} -> ${request.statut} non autorisee. Transitions possibles: $allowed"
+        }
         dossier.statut = request.statut
         if (request.statut == StatutDossier.VALIDE) {
             dossier.dateValidation = LocalDateTime.now()
@@ -131,11 +143,13 @@ class DossierService(
         if (request.statut == StatutDossier.REJETE) {
             dossier.motifRejet = request.motifRejet
         }
+        audit(dossier.id, "CHANGEMENT_STATUT", "Nouveau statut: ${request.statut}")
         return dossier
     }
 
     @Transactional
     fun deleteDossier(id: UUID) {
+        audit(id, "SUPPRESSION")
         dossierRepo.deleteById(id)
     }
 
@@ -157,6 +171,8 @@ class DossierService(
                 cheminFichier = filePath.toString()
             )
             documentRepo.save(doc)
+        }.also {
+            audit(dossierId, "UPLOAD_DOCUMENTS", "${files.size} document(s)")
         }
     }
 
@@ -204,7 +220,9 @@ class DossierService(
     fun validateDossier(dossierId: UUID): List<ResultatValidation> {
         val dossier = getDossierFull(dossierId)
         dossier.statut = StatutDossier.EN_VERIFICATION
-        return validationEngine.validate(dossier)
+        val results = validationEngine.validate(dossier)
+        audit(dossierId, "VALIDATION", "${results.size} regles executees")
+        return results
     }
 
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {
@@ -447,6 +465,21 @@ class DossierService(
     private inline fun <reified T : Enum<T>> parseEnum(value: String?, default: T): T {
         if (value.isNullOrBlank()) return default
         return try { enumValueOf<T>(value) } catch (_: Exception) { default }
+    }
+
+    private fun audit(dossierId: UUID?, action: String, detail: String? = null) {
+        auditLogRepo.save(AuditLog(dossierId = dossierId, action = action, detail = detail))
+    }
+
+    @Transactional(readOnly = true)
+    fun getAuditLog(dossierId: UUID): List<AuditLogResponse> {
+        return auditLogRepo.findByDossierIdOrderByDateActionDesc(dossierId)
+            .map { AuditLogResponse(action = it.action, detail = it.detail, utilisateur = it.utilisateur, dateAction = it.dateAction) }
+    }
+
+    @Transactional(readOnly = true)
+    fun searchDossiers(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<DossierListResponse> {
+        return dossierRepo.search(statut, type, fournisseur, pageable).map { it.toListResponse() }
     }
 
     fun buildFullResponse(dossier: DossierPaiement): DossierResponse {

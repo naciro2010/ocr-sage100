@@ -103,6 +103,13 @@ data class ValidationResultResponse(
     val source: String
 )
 
+data class AuditLogResponse(
+    val action: String,
+    val detail: String?,
+    val utilisateur: String?,
+    val dateAction: LocalDateTime
+)
+
 // === Mapper functions ===
 
 fun DossierPaiement.toListResponse(): DossierListResponse {

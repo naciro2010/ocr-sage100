@@ -1,6 +1,6 @@
 import { useEffect, useState } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listDossiers, createDossier } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2 } from 'lucide-react'
@@ -14,10 +14,21 @@ export default function DossierList() {
   const [newType, setNewType] = useState<DossierType>('BC')
   const [newFournisseur, setNewFournisseur] = useState('')
   const [newDesc, setNewDesc] = useState('')
+  const [filterStatut, setFilterStatut] = useState('')
+  const [filterType, setFilterType] = useState('')
+  const [filterFournisseur, setFilterFournisseur] = useState('')
   const navigate = useNavigate()
 
-  const load = () => { listDossiers(page).then(setData).catch(e => setError(e.message)) }
-  useEffect(load, [page])
+  const load = () => {
+    const hasFilters = filterStatut || filterType || filterFournisseur
+    if (hasFilters) {
+      searchDossiers({ page, statut: filterStatut || undefined, type: filterType || undefined, fournisseur: filterFournisseur || undefined })
+        .then(setData).catch(e => setError(e.message))
+    } else {
+      listDossiers(page).then(setData).catch(e => setError(e.message))
+    }
+  }
+  useEffect(load, [page, filterStatut, filterType, filterFournisseur])
 
   const handleCreate = async () => {
     setCreating(true)
@@ -67,6 +78,33 @@ export default function DossierList() {
           </button>
         </div>
       )}
+
+      <div className="card mb-3" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+        <select className="form-select" value={filterStatut} onChange={e => { setFilterStatut(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
+          <option value="">Tous les statuts</option>
+          <option value="BROUILLON">Brouillon</option>
+          <option value="EN_VERIFICATION">En verification</option>
+          <option value="VALIDE">Valide</option>
+          <option value="REJETE">Rejete</option>
+        </select>
+        <select className="form-select" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
+          <option value="">Tous les types</option>
+          <option value="BC">Bon de commande</option>
+          <option value="CONTRACTUEL">Contractuel</option>
+        </select>
+        <input
+          className="form-input"
+          placeholder="Rechercher fournisseur..."
+          value={filterFournisseur}
+          onChange={e => { setFilterFournisseur(e.target.value); setPage(0) }}
+          style={{ width: 200 }}
+        />
+        {(filterStatut || filterType || filterFournisseur) && (
+          <button className="btn btn-secondary" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setPage(0) }}>
+            Effacer filtres
+          </button>
+        )}
+      </div>
 
       <div className="card">
         <table className="invoice-table">

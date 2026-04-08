@@ -1,6 +1,8 @@
 package com.madaef.recondoc.repository.dossier
 
 import com.madaef.recondoc.entity.dossier.*
+import org.springframework.data.domain.Page
+import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.EntityGraph
 import org.springframework.data.jpa.repository.JpaRepository
 import org.springframework.data.jpa.repository.Query
@@ -25,6 +27,14 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
         FROM DossierPaiement d GROUP BY d.statut
     """)
     fun getStatsByStatut(): List<Array<Any>>
+
+    @Query("""
+        SELECT d FROM DossierPaiement d
+        WHERE (:statut IS NULL OR d.statut = :statut)
+        AND (:type IS NULL OR d.type = :type)
+        AND (:fournisseur IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :fournisseur, '%')))
+    """)
+    fun search(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<DossierPaiement>
 }
 
 interface DocumentRepository : JpaRepository<Document, UUID> {
@@ -67,4 +77,8 @@ interface AttestationFiscaleRepository : JpaRepository<AttestationFiscale, UUID>
 interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID> {
     fun findByDossierId(dossierId: UUID): List<ResultatValidation>
     fun deleteByDossierId(dossierId: UUID)
+}
+
+interface AuditLogRepository : JpaRepository<AuditLog, UUID> {
+    fun findByDossierIdOrderByDateActionDesc(dossierId: UUID): List<AuditLog>
 }

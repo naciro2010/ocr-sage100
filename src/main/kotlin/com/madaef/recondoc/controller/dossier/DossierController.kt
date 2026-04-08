@@ -1,6 +1,8 @@
 package com.madaef.recondoc.controller.dossier
 
 import com.madaef.recondoc.dto.dossier.*
+import com.madaef.recondoc.entity.dossier.DossierType
+import com.madaef.recondoc.entity.dossier.StatutDossier
 import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.service.DossierService
 import org.slf4j.LoggerFactory
@@ -91,5 +93,26 @@ class DossierController(private val dossierService: DossierService) {
     @GetMapping("/{id}/resultats-validation")
     fun getValidationResults(@PathVariable id: UUID): List<ValidationResultResponse> {
         return dossierService.getDossierResponse(id).resultatsValidation
+    }
+
+    @PostMapping("/{id}/documents/{docId}/reprocess")
+    fun reprocessDocument(@PathVariable id: UUID, @PathVariable docId: UUID): DocumentResponse {
+        dossierService.processDocument(docId)
+        return dossierService.getDossierResponse(id).documents.first { it.id == docId }
+    }
+
+    @GetMapping("/{id}/audit")
+    fun getAudit(@PathVariable id: UUID): List<AuditLogResponse> {
+        return dossierService.getAuditLog(id)
+    }
+
+    @GetMapping("/search")
+    fun search(
+        @RequestParam(required = false) statut: StatutDossier?,
+        @RequestParam(required = false) type: DossierType?,
+        @RequestParam(required = false) fournisseur: String?,
+        @PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable
+    ): Page<DossierListResponse> {
+        return dossierService.searchDossiers(statut, type, fournisseur, pageable)
     }
 }

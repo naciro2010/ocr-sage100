@@ -83,6 +83,13 @@ export interface DashboardStats {
   montantTotal: number
 }
 
+export interface AuditEntry {
+  action: string
+  detail: string | null
+  utilisateur: string | null
+  dateAction: string
+}
+
 export const TYPE_DOCUMENT_LABELS: Record<TypeDocument, string> = {
   FACTURE: 'Facture',
   BON_COMMANDE: 'Bon de commande',
