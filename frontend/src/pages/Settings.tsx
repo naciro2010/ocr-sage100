@@ -1,14 +1,11 @@
 import { useState, useEffect } from 'react'
-import {
-  getAiSettings, saveAiSettings as saveAiSettingsApi,
-  getErpSettings, saveErpSettings as saveErpSettingsApi, testErpConnection,
-} from '../api/client'
-import type { AiSettingsResponse, ErpSettingsResponse } from '../api/types'
+import { getAiSettings, saveAiSettings as saveAiSettingsApi } from '../api/client'
+import type { AiSettingsResponse } from '../api/types'
 import { useToast } from '../components/Toast'
 import {
-  Settings as SettingsIcon, Brain, ScanLine, Cpu, Database,
+  Settings as SettingsIcon, Brain, ScanLine, Cpu,
   CheckCircle, XCircle, Loader2, Eye, EyeOff,
-  Shield, Globe, Key, Info, Plug, Keyboard,
+  Shield, Globe, Key, Info, Keyboard,
 } from 'lucide-react'
 
 const AI_MODELS = [
@@ -19,7 +16,6 @@ const AI_MODELS = [
 
 const SHORTCUTS = [
   { keys: 'Ctrl+K', desc: 'Recherche globale' },
-  { keys: 'Ctrl+N', desc: 'Nouveau dossier (sur page dossiers)' },
   { keys: 'Esc', desc: 'Fermer modale/recherche' },
 ]
 
@@ -33,12 +29,6 @@ export default function Settings() {
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
 
-  const [erpSettings, setErpSettings] = useState<ErpSettingsResponse | null>(null)
-  const [erpType, setErpType] = useState('SAGE_1000')
-  const [erpFields, setErpFields] = useState<Record<string, string>>({})
-  const [erpSaving, setErpSaving] = useState(false)
-  const [erpTesting, setErpTesting] = useState(false)
-
   useEffect(() => {
     getAiSettings()
       .then(data => {
@@ -47,13 +37,6 @@ export default function Settings() {
         setAiApiKey(data.apiKeyConfigured ? data.apiKey : '')
         setAiModel(data.model)
         setAiBaseUrl(data.baseUrl)
-      })
-      .catch(() => {})
-
-    getErpSettings()
-      .then(data => {
-        setErpSettings(data)
-        setErpType(data.activeType || 'SAGE_1000')
       })
       .catch(() => {})
   }, [])
@@ -70,27 +53,6 @@ export default function Settings() {
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setAiSaving(false) }
-  }
-
-  const handleSaveErp = async () => {
-    setErpSaving(true)
-    try {
-      const result = await saveErpSettingsApi({ activeType: erpType, ...erpFields })
-      setErpSettings(result)
-      toast('success', 'Configuration ERP sauvegardee')
-    } catch (e: unknown) {
-      toast('error', e instanceof Error ? e.message : 'Erreur')
-    } finally { setErpSaving(false) }
-  }
-
-  const handleTestErp = async () => {
-    setErpTesting(true)
-    try {
-      await testErpConnection(erpType)
-      toast('success', 'Connexion ERP reussie')
-    } catch (e: unknown) {
-      toast('error', e instanceof Error ? e.message : 'Connexion echouee')
-    } finally { setErpTesting(false) }
   }
 
   const PasswordField = ({ value, onChange, show, onToggle, placeholder }: {
@@ -155,49 +117,6 @@ export default function Settings() {
         <button className="btn btn-primary" disabled={aiSaving} onClick={handleSaveAi}>
           {aiSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder</>}
         </button>
-      </div>
-
-      {/* ===== ERP Settings ===== */}
-      <div className="card">
-        <h2><Database size={14} /> Connecteur ERP</h2>
-        <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 16 }}>
-          Configuration de la connexion au systeme Sage pour la synchronisation des dossiers de paiement.
-        </p>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-          <div>
-            <label className="form-label">Type ERP actif</label>
-            <select className="form-select full-width" value={erpType} onChange={e => setErpType(e.target.value)}>
-              <option value="SAGE_1000">Sage 1000 (Objets Metiers)</option>
-              <option value="SAGE_X3">Sage X3 (Syracuse OData)</option>
-              <option value="SAGE_50">Sage 50 (REST Bridge)</option>
-            </select>
-          </div>
-          <div>
-            <label className="form-label">Statut</label>
-            <div style={{ padding: '9px 0', fontSize: 13 }}>
-              {erpSettings ? (
-                <span style={{ color: 'var(--accent)', fontWeight: 600, display: 'flex', alignItems: 'center', gap: 4 }}>
-                  <Plug size={14} /> {erpSettings.activeType || 'SAGE_1000'}
-                </span>
-              ) : <span className="text-muted">Chargement...</span>}
-            </div>
-          </div>
-        </div>
-        {erpType === 'SAGE_1000' && (
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
-            <div><label className="form-label">URL de base</label><input className="form-input" placeholder="http://localhost:8443" value={erpFields.sage1000BaseUrl || ''} onChange={e => setErpFields(f => ({ ...f, sage1000BaseUrl: e.target.value }))} /></div>
-            <div><label className="form-label">Cle API</label><input className="form-input" placeholder="Bearer token" value={erpFields.sage1000ApiKey || ''} onChange={e => setErpFields(f => ({ ...f, sage1000ApiKey: e.target.value }))} /></div>
-            <div><label className="form-label">Code societe</label><input className="form-input" placeholder="DEFAULT" value={erpFields.sage1000CompanyCode || ''} onChange={e => setErpFields(f => ({ ...f, sage1000CompanyCode: e.target.value }))} /></div>
-          </div>
-        )}
-        <div style={{ display: 'flex', gap: 8 }}>
-          <button className="btn btn-primary" disabled={erpSaving} onClick={handleSaveErp}>
-            {erpSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder</>}
-          </button>
-          <button className="btn btn-secondary" disabled={erpTesting} onClick={handleTestErp}>
-            {erpTesting ? <><Loader2 size={14} className="spin" /> Test...</> : <><Plug size={14} /> Tester la connexion</>}
-          </button>
-        </div>
       </div>
 
       {/* ===== Pipeline OCR ===== */}

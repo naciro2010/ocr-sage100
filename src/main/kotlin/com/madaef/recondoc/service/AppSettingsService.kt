@@ -11,8 +11,7 @@ import java.util.concurrent.ConcurrentHashMap
 @Service
 class AppSettingsService(
     private val repo: AppSettingRepository,
-    @Value("\${claude.api-key:}") private val envApiKey: String,
-    @Value("\${erp.active:SAGE_1000}") private val envErpActive: String
+    @Value("\${claude.api-key:}") private val envApiKey: String
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -91,17 +90,5 @@ class AppSettingsService(
 
     fun hasValidAiConfig(): Boolean {
         return isAiEnabled() && getAiApiKey().isNotBlank()
-    }
-
-    // --- ERP settings ---
-
-    fun getActiveErpType(): String {
-        val dbType = get("erp.active_type")
-        return if (!dbType.isNullOrBlank()) dbType else envErpActive
-    }
-
-    fun getErpConfig(erpType: String): Map<String, String?> {
-        val prefix = "erp.${erpType.lowercase().replace("_", "")}."
-        return getByPrefix(prefix).mapKeys { it.key.removePrefix(prefix) }
     }
 }
