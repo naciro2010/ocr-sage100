@@ -1,7 +1,7 @@
-# CLAUDE.md - Project Instructions for OCR Sage 100
+# CLAUDE.md - Project Instructions for ReconDoc MADAEF
 
 ## Project Overview
-Application de traitement OCR de factures marocaines avec extraction IA et intégration ERP Sage 1000.
+Plateforme de reconciliation documentaire des dossiers de paiement MADAEF (Groupe CDG). Extraction IA, verification croisee entre documents, et validation des dossiers fournisseurs.
 
 ## Tech Stack
 

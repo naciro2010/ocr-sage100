@@ -1,10 +1,10 @@
 spring:
   application:
-    name: ocr-sage1000
+    name: recondoc-madaef
   datasource:
-    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/ocrsage}?options=-c%20statement_timeout%3D15000
-    username: ${DATABASE_USERNAME:ocrsage}
-    password: ${DATABASE_PASSWORD:ocrsage}
+    url: ${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}?options=-c%20statement_timeout%3D15000
+    username: ${DATABASE_USERNAME:recondoc}
+    password: ${DATABASE_PASSWORD:recondoc}
     hikari:
       maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
       minimum-idle: ${DB_POOL_MIN_IDLE:2}
@@ -12,7 +12,7 @@ spring:
       idle-timeout: ${DB_IDLE_TIMEOUT:300000}
       max-lifetime: ${DB_MAX_LIFETIME:900000}
       leak-detection-threshold: 30000
-      pool-name: OcrSageHikariPool
+      pool-name: ReconDocPool
   jpa:
     hibernate:
       ddl-auto: validate
@@ -113,7 +113,7 @@ server:
 
 logging:
   level:
-    com.ocrsage: INFO
+    com.madaef.recondoc: INFO
     http.requests: INFO
     com.zaxxer.hikari: INFO
     org.flywaydb: INFO
