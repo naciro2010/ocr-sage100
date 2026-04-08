@@ -1,5 +1,5 @@
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, Upload, FileText, Files, Download, Settings, Zap } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, ShieldCheck } from 'lucide-react'
 
 export default function Layout() {
   return (
@@ -7,10 +7,10 @@ export default function Layout() {
       <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="sidebar-logo"><Zap size={16} /></div>
+            <div className="sidebar-logo"><ShieldCheck size={18} /></div>
             <div className="sidebar-title">
-              <h2>OCR Sage</h2>
-              <span>Traitement factures</span>
+              <h2>MADAEF</h2>
+              <span>Reconciliation paiements</span>
             </div>
           </div>
         </div>
@@ -23,23 +23,8 @@ export default function Layout() {
             </NavLink>
           </li>
           <li>
-            <NavLink to="/upload">
-              <Upload size={17} /> <span>Upload</span>
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/batch-upload">
-              <Files size={17} /> <span>Batch Upload</span>
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/invoices">
-              <FileText size={17} /> <span>Factures</span>
-            </NavLink>
-          </li>
-          <li>
-            <NavLink to="/export">
-              <Download size={17} /> <span>Export</span>
+            <NavLink to="/dossiers">
+              <FolderOpen size={17} /> <span>Dossiers</span>
             </NavLink>
           </li>
           <li>
