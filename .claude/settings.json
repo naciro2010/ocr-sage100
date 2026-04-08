@@ -8,8 +8,8 @@
             "type": "command",
             "if": "Bash(git push*)",
             "timeout": 300,
-            "statusMessage": "Validating backend + frontend before push...",
-            "command": "cd /home/user/ocr-sage100 && ./gradlew build -x test --no-daemon -q 2>&1 | tail -3 && cd frontend && npx tsc --noEmit 2>&1 && npm run build --silent 2>&1 | tail -1 && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"All services validated\"}}' || echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Validation failed - fix errors before pushing\"}}'"
+            "statusMessage": "Validating backend + frontend + OCR service before push...",
+            "command": "cd /home/user/ocr-sage100 && ./gradlew build --no-daemon -q 2>&1 | tail -5 && cd frontend && npx tsc --noEmit 2>&1 && npm run build --silent 2>&1 | tail -1 && cd .. && python3 -m py_compile ocr-service/main.py && echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"allow\",\"permissionDecisionReason\":\"All 3 services validated\"}}' || echo '{\"hookSpecificOutput\":{\"hookEventName\":\"PreToolUse\",\"permissionDecision\":\"deny\",\"permissionDecisionReason\":\"Validation failed - fix errors before pushing\"}}'"
           }
         ]
       }
