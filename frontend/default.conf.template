@@ -3,27 +3,33 @@ server {
     root /usr/share/nginx/html;
     index index.html;
 
+    resolver 8.8.8.8 valid=30s;
+
     # Proxy API requests to the backend service
     location /api/ {
-        proxy_pass ${BACKEND_URL}/api/;
+        set $backend ${BACKEND_URL};
+        proxy_pass $backend/api/;
         proxy_http_version 1.1;
-        proxy_set_header Host $host;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $proxy_host;
         proxy_set_header X-Real-IP $remote_addr;
         proxy_set_header X-Forwarded-For $proxy_add_x_forwarded_for;
         proxy_set_header X-Forwarded-Proto $scheme;
         proxy_set_header Connection "";
 
-        proxy_connect_timeout 60s;
-        proxy_send_timeout 300s;
-        proxy_read_timeout 300s;
+        proxy_connect_timeout 30s;
+        proxy_send_timeout 120s;
+        proxy_read_timeout 120s;
 
         client_max_body_size 50M;
         proxy_request_buffering off;
     }
 
     location /actuator/ {
-        proxy_pass ${BACKEND_URL}/actuator/;
-        proxy_set_header Host $host;
+        set $backend ${BACKEND_URL};
+        proxy_pass $backend/actuator/;
+        proxy_ssl_server_name on;
+        proxy_set_header Host $proxy_host;
         proxy_connect_timeout 10s;
         proxy_read_timeout 10s;
     }
