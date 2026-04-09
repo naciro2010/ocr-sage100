@@ -50,11 +50,6 @@ dependencies {
     // HTTP client for Claude API & Sage 1000
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
-    // S3-compatible object storage (Railway bucket)
-    implementation(platform("software.amazon.awssdk:bom:2.31.1"))
-    implementation("software.amazon.awssdk:s3")
-    implementation("software.amazon.awssdk:sts")
-
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")

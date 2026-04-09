@@ -57,15 +57,9 @@ ocr:
     scale-dpi: ${OCR_SCALE_DPI:300}
   confidence-threshold: ${OCR_CONFIDENCE_THRESHOLD:30}
 
-# File storage (S3-compatible bucket)
+# File storage
 storage:
   upload-dir: ${STORAGE_DIR:uploads}
-  s3:
-    endpoint: ${BUCKET_ENDPOINT:https://t3.storageapi.dev}
-    bucket: ${BUCKET_NAME:assembled-envelope-g5yhzs}
-    access-key: ${BUCKET_ACCESS_KEY_ID:}
-    secret-key: ${BUCKET_SECRET_ACCESS_KEY:}
-    region: ${BUCKET_REGION:auto}
 
 # Actuator
 management:

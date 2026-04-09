@@ -6,7 +6,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 
 @Service
 class ValidationEngine(
@@ -15,6 +19,15 @@ class ValidationEngine(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    companion object {
+        private val WHITESPACE_RE = "\\s".toRegex()
+        private val REF_NORMALIZE_RE = "[\\s\\-_/.']+".toRegex()
+        private val MONTH_NAMES = listOf(
+            "janvier", "fevrier", "mars", "avril", "mai", "juin",
+            "juillet", "aout", "septembre", "octobre", "novembre", "decembre"
+        )
+    }
+
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
@@ -22,7 +35,7 @@ class ValidationEngine(
         resultatRepository.deleteByDossierId(dossier.id!!)
 
         val results = mutableListOf<ResultatValidation>()
-        val tol = java.math.BigDecimal(toleranceMontant)
+        val tol = BigDecimal(toleranceMontant)
 
         val facture = dossier.facture
         val bc = dossier.bonCommande
@@ -35,20 +48,35 @@ class ValidationEngine(
 
         // R01 — Concordance montant TTC Facture ↔ BC
         if (dossier.type == DossierType.BC && facture != null && bc != null) {
-            results += checkMontant("R01", "Concordance montant TTC : Facture = BC",
+            results += checkMontantWithFraction("R01", "Concordance montant TTC : Facture = BC",
                 facture.montantTtc, bc.montantTtc, tol, dossier)
         }
 
         // R02 — Concordance montant HT Facture ↔ BC
         if (dossier.type == DossierType.BC && facture != null && bc != null) {
-            results += checkMontant("R02", "Concordance montant HT : Facture = BC",
+            results += checkMontantWithFraction("R02", "Concordance montant HT : Facture = BC",
                 facture.montantHt, bc.montantHt, tol, dossier)
         }
 
         // R03 — Concordance TVA Facture ↔ BC
         if (dossier.type == DossierType.BC && facture != null && bc != null) {
-            results += checkMontant("R03", "Concordance TVA : Facture = BC",
+            results += checkMontantWithFraction("R03", "Concordance TVA : Facture = BC",
                 facture.montantTva, bc.montantTva, tol, dossier)
+        }
+
+        // R03b — Avertissement si taux TVA different (multi-taux possible)
+        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+            val fTva = facture.tauxTva
+            val bcTva = bc.tauxTva
+            if (fTva != null && bcTva != null && fTva.compareTo(bcTva) != 0) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R03b",
+                    libelle = "Taux TVA different entre Facture et BC (multi-taux possible)",
+                    statut = StatutCheck.AVERTISSEMENT,
+                    detail = "Facture: ${fTva}%, BC: ${bcTva}%",
+                    valeurAttendue = bcTva.toPlainString(), valeurTrouvee = fTva.toPlainString()
+                )
+            }
         }
 
         // R04 — Montant OP = TTC facture (sans retenues)
@@ -59,7 +87,7 @@ class ValidationEngine(
 
         // R05 — Montant OP = TTC - retenues
         if (facture != null && op != null && op.retenues.isNotEmpty()) {
-            val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(java.math.BigDecimal.ZERO) { acc, m -> acc.add(m) }
+            val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
             val attendu = facture.montantTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
                 op.montantOperation, attendu, tol, dossier)
@@ -69,7 +97,7 @@ class ValidationEngine(
         if (op != null) {
             for (ret in op.retenues) {
                 if (ret.base != null && ret.taux != null && ret.montant != null) {
-                    val calcule = ret.base!!.multiply(ret.taux).divide(java.math.BigDecimal(100), 2, java.math.RoundingMode.HALF_UP)
+                    val calcule = ret.base!!.multiply(ret.taux).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
                     val ok = (calcule.subtract(ret.montant).abs()) <= tol
                     results += ResultatValidation(
                         dossier = dossier, regle = "R06",
@@ -109,34 +137,32 @@ class ValidationEngine(
 
         // R09 — Coherence ICE
         if (facture != null) {
-            val ices = listOfNotNull(facture.ice, arf?.ice).distinct()
+            val rawIces = listOfNotNull(facture.ice, arf?.ice)
+            val normalizedIces = rawIces.mapNotNull { normalizeId(it) }.distinct()
             results += ResultatValidation(
                 dossier = dossier, regle = "R09",
                 libelle = "Coherence ICE fournisseur entre documents",
-                statut = when {
-                    ices.size <= 1 -> StatutCheck.CONFORME
-                    ices.toSet().size == 1 -> StatutCheck.CONFORME
-                    else -> StatutCheck.NON_CONFORME
-                },
-                detail = if (ices.size > 1) "ICE trouves: ${ices.joinToString(", ")}" else "ICE: ${ices.firstOrNull() ?: "non renseigne"}"
+                statut = if (normalizedIces.size <= 1) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                detail = if (rawIces.size > 1) "ICE trouves: ${rawIces.joinToString(", ")}" else "ICE: ${rawIces.firstOrNull() ?: "non renseigne"}"
             )
         }
 
         // R10 — Coherence IF
         if (facture != null) {
-            val ifs = listOfNotNull(facture.identifiantFiscal, arf?.identifiantFiscal).distinct()
+            val rawIfs = listOfNotNull(facture.identifiantFiscal, arf?.identifiantFiscal)
+            val normalizedIfs = rawIfs.mapNotNull { normalizeId(it) }.distinct()
             results += ResultatValidation(
                 dossier = dossier, regle = "R10",
                 libelle = "Coherence IF fournisseur entre documents",
-                statut = if (ifs.toSet().size <= 1) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "IF trouves: ${ifs.joinToString(", ").ifEmpty { "non renseigne" }}"
+                statut = if (normalizedIfs.size <= 1) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                detail = "IF trouves: ${rawIfs.joinToString(", ").ifEmpty { "non renseigne" }}"
             )
         }
 
         // R11 — Coherence RIB Facture ↔ OP
         if (facture != null && op != null) {
-            val ribFact = facture.rib?.replace("\\s".toRegex(), "")
-            val ribOp = op.rib?.replace("\\s".toRegex(), "")
+            val ribFact = facture.rib?.replace(WHITESPACE_RE, "")
+            val ribOp = op.rib?.replace(WHITESPACE_RE, "")
             val ok = ribFact != null && ribOp != null && ribFact == ribOp
             results += ResultatValidation(
                 dossier = dossier, regle = "R11",
@@ -235,13 +261,46 @@ class ValidationEngine(
 
         // R18 — Validite attestation fiscale
         if (arf != null && arf.dateEdition != null) {
-            val valide = arf.dateEdition!!.plusMonths(6).isAfter(java.time.LocalDate.now())
+            val valide = arf.dateEdition!!.plusMonths(6).isAfter(LocalDate.now())
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
                 libelle = "Validite attestation fiscale (6 mois)",
                 statut = if (valide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
                 detail = "Editee le ${arf.dateEdition}, valide jusqu'au ${arf.dateEdition!!.plusMonths(6)}"
             )
+        }
+
+        // R15 — Verification grille tarifaire x duree = HT facture (CONTRACTUEL)
+        if (dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
+            val grilles = contrat.grillesTarifaires
+            if (grilles.isNotEmpty()) {
+                val months = computeMonths(pv?.periodeDebut, pv?.periodeFin, facture.periode)
+                if (months != null && months > 0) {
+                    val bdMonths = BigDecimal(months)
+                    var expectedHt = BigDecimal.ZERO
+                    for (g in grilles) {
+                        val prix = g.prixUnitaireHt ?: continue
+                        val multiplier = when (g.periodicite) {
+                            Periodicite.MENSUEL -> bdMonths
+                            Periodicite.TRIMESTRIEL -> bdMonths.divide(BigDecimal(3), 2, RoundingMode.HALF_UP)
+                            Periodicite.ANNUEL -> bdMonths.divide(BigDecimal(12), 2, RoundingMode.HALF_UP)
+                            Periodicite.JOURNALIER -> BigDecimal(months * 30)
+                            null -> bdMonths
+                        }
+                        expectedHt = expectedHt.add(prix.multiply(multiplier))
+                    }
+                    results += checkMontant("R15",
+                        "Grille tarifaire x ${months} mois = HT facture",
+                        facture.montantHt, expectedHt, tol, dossier)
+                } else {
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R15",
+                        libelle = "Verification grille tarifaire x duree = HT facture",
+                        statut = StatutCheck.AVERTISSEMENT,
+                        detail = "Impossible de determiner la duree de la periode facturee"
+                    )
+                }
+            }
         }
 
         // Save all results
@@ -258,8 +317,8 @@ class ValidationEngine(
 
     private fun checkMontant(
         regle: String, libelle: String,
-        valeur1: java.math.BigDecimal?, valeur2: java.math.BigDecimal?,
-        tolerance: java.math.BigDecimal, dossier: DossierPaiement
+        valeur1: BigDecimal?, valeur2: BigDecimal?,
+        tolerance: BigDecimal, dossier: DossierPaiement
     ): ResultatValidation {
         if (valeur1 == null || valeur2 == null) {
             return ResultatValidation(
@@ -279,13 +338,55 @@ class ValidationEngine(
         )
     }
 
+    private fun checkMontantWithFraction(
+        regle: String, libelle: String,
+        factureVal: BigDecimal?, bcVal: BigDecimal?,
+        tolerance: BigDecimal, dossier: DossierPaiement
+    ): ResultatValidation {
+        val result = checkMontant(regle, libelle, factureVal, bcVal, tolerance, dossier)
+        if (result.statut != StatutCheck.NON_CONFORME || factureVal == null || bcVal == null ||
+            bcVal.signum() == 0 || factureVal >= bcVal) {
+            return result
+        }
+        for (n in listOf(2, 3, 4, 6, 12)) {
+            val expected = bcVal.divide(BigDecimal(n), 2, RoundingMode.HALF_UP)
+            if (factureVal.subtract(expected).abs() <= tolerance) {
+                return ResultatValidation(
+                    dossier = dossier, regle = regle, libelle = libelle,
+                    statut = StatutCheck.AVERTISSEMENT,
+                    detail = "Facture = 1/${n} du BC (couverture partielle). Facture: ${factureVal.toPlainString()}, BC: ${bcVal.toPlainString()}",
+                    valeurAttendue = bcVal.toPlainString(), valeurTrouvee = factureVal.toPlainString()
+                )
+            }
+        }
+        return result
+    }
+
+    private fun normalizeId(value: String?): String? {
+        if (value.isNullOrBlank()) return null
+        return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
+    }
+
+    private fun computeMonths(debut: LocalDate?, fin: LocalDate?, periodeText: String?): Long? {
+        if (debut != null && fin != null) {
+            return ChronoUnit.MONTHS.between(debut, fin.plusDays(1)).coerceAtLeast(1)
+        }
+        if (periodeText != null) {
+            val lower = periodeText.lowercase()
+            if (lower.contains("t1") || lower.contains("t2") || lower.contains("t3") || lower.contains("t4")) return 3
+            if (lower.contains("s1") || lower.contains("s2")) return 6
+            val found = MONTH_NAMES.count { lower.contains(it) }
+            if (found > 0) return found.toLong().coerceAtLeast(1)
+        }
+        return null
+    }
+
     private fun matchReference(ref1: String?, ref2: String?): Boolean {
         if (ref1 == null || ref2 == null) return false
-        val normalize = { s: String -> s.replace("[\\s\\-_/.']+".toRegex(), "").trimStart('0').lowercase() }
+        val normalize = { s: String -> s.replace(REF_NORMALIZE_RE, "").trimStart('0').lowercase() }
         val n1 = normalize(ref1)
         val n2 = normalize(ref2)
         if (n1 == n2) return true
-        // Only allow contains if the shorter string is at least 4 chars (avoid "001" matching everything)
         val shorter = if (n1.length < n2.length) n1 else n2
         val longer = if (n1.length < n2.length) n2 else n1
         return shorter.length >= 4 && longer.contains(shorter)
