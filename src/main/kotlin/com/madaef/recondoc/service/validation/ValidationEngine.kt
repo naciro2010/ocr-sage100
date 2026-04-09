@@ -6,7 +6,11 @@ import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
+import java.math.BigDecimal
+import java.math.RoundingMode
+import java.time.LocalDate
 import java.time.LocalDateTime
+import java.time.temporal.ChronoUnit
 
 @Service
 class ValidationEngine(
@@ -15,6 +19,15 @@ class ValidationEngine(
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
+    companion object {
+        private val WHITESPACE_RE = "\\s".toRegex()
+        private val REF_NORMALIZE_RE = "[\\s\\-_/.']+".toRegex()
+        private val MONTH_NAMES = listOf(
+            "janvier", "fevrier", "mars", "avril", "mai", "juin",
+            "juillet", "aout", "septembre", "octobre", "novembre", "decembre"
+        )
+    }
+
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
@@ -22,7 +35,7 @@ class ValidationEngine(
         resultatRepository.deleteByDossierId(dossier.id!!)
 
         val results = mutableListOf<ResultatValidation>()
-        val tol = java.math.BigDecimal(toleranceMontant)
+        val tol = BigDecimal(toleranceMontant)
 
         val facture = dossier.facture
         val bc = dossier.bonCommande
@@ -52,16 +65,18 @@ class ValidationEngine(
         }
 
         // R03b — Avertissement si taux TVA different (multi-taux possible)
-        if (dossier.type == DossierType.BC && facture != null && bc != null &&
-            facture.tauxTva != null && bc.tauxTva != null &&
-            facture.tauxTva!!.compareTo(bc.tauxTva!!) != 0) {
-            results += ResultatValidation(
-                dossier = dossier, regle = "R03b",
-                libelle = "Taux TVA different entre Facture et BC (multi-taux possible)",
-                statut = StatutCheck.AVERTISSEMENT,
-                detail = "Facture: ${facture.tauxTva}%, BC: ${bc.tauxTva}%",
-                valeurAttendue = bc.tauxTva?.toPlainString(), valeurTrouvee = facture.tauxTva?.toPlainString()
-            )
+        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+            val fTva = facture.tauxTva
+            val bcTva = bc.tauxTva
+            if (fTva != null && bcTva != null && fTva.compareTo(bcTva) != 0) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R03b",
+                    libelle = "Taux TVA different entre Facture et BC (multi-taux possible)",
+                    statut = StatutCheck.AVERTISSEMENT,
+                    detail = "Facture: ${fTva}%, BC: ${bcTva}%",
+                    valeurAttendue = bcTva.toPlainString(), valeurTrouvee = fTva.toPlainString()
+                )
+            }
         }
 
         // R04 — Montant OP = TTC facture (sans retenues)
@@ -72,7 +87,7 @@ class ValidationEngine(
 
         // R05 — Montant OP = TTC - retenues
         if (facture != null && op != null && op.retenues.isNotEmpty()) {
-            val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(java.math.BigDecimal.ZERO) { acc, m -> acc.add(m) }
+            val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
             val attendu = facture.montantTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
                 op.montantOperation, attendu, tol, dossier)
@@ -82,7 +97,7 @@ class ValidationEngine(
         if (op != null) {
             for (ret in op.retenues) {
                 if (ret.base != null && ret.taux != null && ret.montant != null) {
-                    val calcule = ret.base!!.multiply(ret.taux).divide(java.math.BigDecimal(100), 2, java.math.RoundingMode.HALF_UP)
+                    val calcule = ret.base!!.multiply(ret.taux).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
                     val ok = (calcule.subtract(ret.montant).abs()) <= tol
                     results += ResultatValidation(
                         dossier = dossier, regle = "R06",
@@ -146,8 +161,8 @@ class ValidationEngine(
 
         // R11 — Coherence RIB Facture ↔ OP
         if (facture != null && op != null) {
-            val ribFact = facture.rib?.replace("\\s".toRegex(), "")
-            val ribOp = op.rib?.replace("\\s".toRegex(), "")
+            val ribFact = facture.rib?.replace(WHITESPACE_RE, "")
+            val ribOp = op.rib?.replace(WHITESPACE_RE, "")
             val ok = ribFact != null && ribOp != null && ribFact == ribOp
             results += ResultatValidation(
                 dossier = dossier, regle = "R11",
@@ -246,7 +261,7 @@ class ValidationEngine(
 
         // R18 — Validite attestation fiscale
         if (arf != null && arf.dateEdition != null) {
-            val valide = arf.dateEdition!!.plusMonths(6).isAfter(java.time.LocalDate.now())
+            val valide = arf.dateEdition!!.plusMonths(6).isAfter(LocalDate.now())
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
                 libelle = "Validite attestation fiscale (6 mois)",
@@ -261,15 +276,16 @@ class ValidationEngine(
             if (grilles.isNotEmpty()) {
                 val months = computeMonths(pv?.periodeDebut, pv?.periodeFin, facture.periode)
                 if (months != null && months > 0) {
-                    var expectedHt = java.math.BigDecimal.ZERO
+                    val bdMonths = BigDecimal(months)
+                    var expectedHt = BigDecimal.ZERO
                     for (g in grilles) {
                         val prix = g.prixUnitaireHt ?: continue
                         val multiplier = when (g.periodicite) {
-                            Periodicite.MENSUEL -> java.math.BigDecimal(months)
-                            Periodicite.TRIMESTRIEL -> java.math.BigDecimal(months).divide(java.math.BigDecimal(3), 2, java.math.RoundingMode.HALF_UP)
-                            Periodicite.ANNUEL -> java.math.BigDecimal(months).divide(java.math.BigDecimal(12), 2, java.math.RoundingMode.HALF_UP)
-                            Periodicite.JOURNALIER -> java.math.BigDecimal(months * 30)
-                            null -> java.math.BigDecimal(months)
+                            Periodicite.MENSUEL -> bdMonths
+                            Periodicite.TRIMESTRIEL -> bdMonths.divide(BigDecimal(3), 2, RoundingMode.HALF_UP)
+                            Periodicite.ANNUEL -> bdMonths.divide(BigDecimal(12), 2, RoundingMode.HALF_UP)
+                            Periodicite.JOURNALIER -> BigDecimal(months * 30)
+                            null -> bdMonths
                         }
                         expectedHt = expectedHt.add(prix.multiply(multiplier))
                     }
@@ -301,8 +317,8 @@ class ValidationEngine(
 
     private fun checkMontant(
         regle: String, libelle: String,
-        valeur1: java.math.BigDecimal?, valeur2: java.math.BigDecimal?,
-        tolerance: java.math.BigDecimal, dossier: DossierPaiement
+        valeur1: BigDecimal?, valeur2: BigDecimal?,
+        tolerance: BigDecimal, dossier: DossierPaiement
     ): ResultatValidation {
         if (valeur1 == null || valeur2 == null) {
             return ResultatValidation(
@@ -324,8 +340,8 @@ class ValidationEngine(
 
     private fun checkMontantWithFraction(
         regle: String, libelle: String,
-        factureVal: java.math.BigDecimal?, bcVal: java.math.BigDecimal?,
-        tolerance: java.math.BigDecimal, dossier: DossierPaiement
+        factureVal: BigDecimal?, bcVal: BigDecimal?,
+        tolerance: BigDecimal, dossier: DossierPaiement
     ): ResultatValidation {
         val result = checkMontant(regle, libelle, factureVal, bcVal, tolerance, dossier)
         if (result.statut != StatutCheck.NON_CONFORME || factureVal == null || bcVal == null ||
@@ -333,7 +349,7 @@ class ValidationEngine(
             return result
         }
         for (n in listOf(2, 3, 4, 6, 12)) {
-            val expected = bcVal.divide(java.math.BigDecimal(n), 2, java.math.RoundingMode.HALF_UP)
+            val expected = bcVal.divide(BigDecimal(n), 2, RoundingMode.HALF_UP)
             if (factureVal.subtract(expected).abs() <= tolerance) {
                 return ResultatValidation(
                     dossier = dossier, regle = regle, libelle = libelle,
@@ -348,22 +364,18 @@ class ValidationEngine(
 
     private fun normalizeId(value: String?): String? {
         if (value.isNullOrBlank()) return null
-        return value.replace("\\s".toRegex(), "").trimStart('0').ifEmpty { "0" }
+        return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
     }
 
-    private fun computeMonths(debut: java.time.LocalDate?, fin: java.time.LocalDate?, periodeText: String?): Long? {
+    private fun computeMonths(debut: LocalDate?, fin: LocalDate?, periodeText: String?): Long? {
         if (debut != null && fin != null) {
-            return java.time.temporal.ChronoUnit.MONTHS.between(debut, fin.plusDays(1)).coerceAtLeast(1)
+            return ChronoUnit.MONTHS.between(debut, fin.plusDays(1)).coerceAtLeast(1)
         }
         if (periodeText != null) {
             val lower = periodeText.lowercase()
             if (lower.contains("t1") || lower.contains("t2") || lower.contains("t3") || lower.contains("t4")) return 3
             if (lower.contains("s1") || lower.contains("s2")) return 6
-            // Count month names
-            val monthNames = listOf("janvier","fevrier","mars","avril","mai","juin",
-                "juillet","aout","septembre","octobre","novembre","decembre",
-                "janv","fev","avr","juil","sept","oct","nov","dec")
-            val found = monthNames.count { lower.contains(it) }
+            val found = MONTH_NAMES.count { lower.contains(it) }
             if (found > 0) return found.toLong().coerceAtLeast(1)
         }
         return null
@@ -371,7 +383,7 @@ class ValidationEngine(
 
     private fun matchReference(ref1: String?, ref2: String?): Boolean {
         if (ref1 == null || ref2 == null) return false
-        val normalize = { s: String -> s.replace("[\\s\\-_/.']+".toRegex(), "").trimStart('0').lowercase() }
+        val normalize = { s: String -> s.replace(REF_NORMALIZE_RE, "").trimStart('0').lowercase() }
         val n1 = normalize(ref1)
         val n2 = normalize(ref2)
         if (n1 == n2) return true
