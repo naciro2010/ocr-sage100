@@ -22,7 +22,7 @@ export default function Layout() {
       <nav className="sidebar">
         <div className="sidebar-header">
           <div className="sidebar-brand">
-            <div className="sidebar-logo"><Shield size={18} /></div>
+            <div className="sidebar-logo"><Shield size={17} /></div>
             <div className="sidebar-title">
               <h2>ReconDoc</h2>
               <span>MADAEF / Groupe CDG</span>
@@ -30,21 +30,21 @@ export default function Layout() {
           </div>
         </div>
 
-        <div className="nav-section">Menu</div>
+        <div className="nav-section">Navigation</div>
         <ul className="nav-links">
           <li>
             <NavLink to="/" end>
-              <BarChart3 size={17} /> <span>Tableau de bord</span>
+              <BarChart3 size={16} /> <span>Tableau de bord</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/dossiers">
-              <FolderOpen size={17} /> <span>Dossiers</span>
+              <FolderOpen size={16} /> <span>Dossiers</span>
             </NavLink>
           </li>
           <li>
             <NavLink to="/settings">
-              <Settings size={17} /> <span>Parametres</span>
+              <Settings size={16} /> <span>Parametres</span>
             </NavLink>
           </li>
         </ul>

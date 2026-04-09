@@ -103,11 +103,11 @@ export const TYPE_DOCUMENT_LABELS: Record<TypeDocument, string> = {
   FORMULAIRE_FOURNISSEUR: 'Formulaire fournisseur',
 }
 
-export const STATUT_CONFIG: Record<StatutDossier, { label: string; color: string }> = {
-  BROUILLON: { label: 'Brouillon', color: '#6b7280' },
-  EN_VERIFICATION: { label: 'En verification', color: '#f59e0b' },
-  VALIDE: { label: 'Valide', color: '#10b981' },
-  REJETE: { label: 'Rejete', color: '#ef4444' },
+export const STATUT_CONFIG: Record<StatutDossier, { label: string; color: string; bg: string }> = {
+  BROUILLON: { label: 'Brouillon', color: '#475569', bg: '#f1f5f9' },
+  EN_VERIFICATION: { label: 'En verification', color: '#d97706', bg: '#fffbeb' },
+  VALIDE: { label: 'Valide', color: '#059669', bg: '#ecfdf5' },
+  REJETE: { label: 'Rejete', color: '#dc2626', bg: '#fef2f2' },
 }
 
 export const CHECK_ICONS: Record<StatutCheck, { icon: string; color: string }> = {

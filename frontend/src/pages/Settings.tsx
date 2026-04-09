@@ -14,6 +14,12 @@ const AI_MODELS = [
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Leger, economique' },
 ]
 
+const OCR_ENGINES = [
+  { name: 'Apache Tika 3.0', tag: 'TIKA', priority: 1, color: 'var(--teal-700)', desc: 'Extraction texte natif pour PDF numeriques. Instantane.' },
+  { name: 'PaddleOCR 3.4', tag: 'PADDLE', priority: 2, color: 'var(--blue-600)', desc: 'OCR deep learning. Francais + Arabe, 300 DPI.' },
+  { name: 'Tesseract 5', tag: 'TESS', priority: 3, color: 'var(--amber-600)', desc: 'Fallback local avec preprocessing d\'image.' },
+]
+
 const SHORTCUTS = [
   { keys: 'Ctrl+K', desc: 'Recherche globale' },
   { keys: 'Esc', desc: 'Fermer modale/recherche' },
@@ -55,52 +61,59 @@ export default function Settings() {
     } finally { setAiSaving(false) }
   }
 
-  const PasswordField = ({ value, onChange, show, onToggle, placeholder }: {
-    value: string; onChange: (v: string) => void; show: boolean; onToggle: () => void; placeholder?: string
-  }) => (
-    <div style={{ position: 'relative' }}>
-      <input type={show ? 'text' : 'password'} className="form-input" value={value}
-        onChange={e => onChange(e.target.value)} placeholder={placeholder || '***'}
-        style={{ paddingRight: 36, fontFamily: 'var(--mono)' }} />
-      <button type="button" onClick={onToggle} style={{
-        position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-        background: 'none', border: 'none', cursor: 'pointer', color: 'var(--ink-faint)', padding: 2
-      }}>
-        {show ? <EyeOff size={14} /> : <Eye size={14} />}
-      </button>
-    </div>
-  )
-
   return (
     <div>
       <div className="page-header"><h1><SettingsIcon size={22} /> Parametres</h1></div>
 
-      {/* ===== Extraction IA ===== */}
+      {/* AI Extraction */}
       <div className="card">
         <h2><Brain size={14} /> Extraction IA</h2>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: 'var(--ink-muted)', margin: 0, maxWidth: 500 }}>
-            L'IA Claude analyse les documents PDF et extrait les donnees structurees (montants, references, fournisseurs).
+          <p style={{ fontSize: 13, color: 'var(--slate-500)', margin: 0, maxWidth: 520 }}>
+            L'IA Claude analyse les documents PDF et extrait les donnees structurees.
+            Sans IA, seuls les patterns regex sont utilises.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {aiSettings?.apiKeyConfigured ? (
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--accent)', display: 'flex', alignItems: 'center', gap: 4 }}><CheckCircle size={12} /> Configure</span>
-            ) : (
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 4 }}><XCircle size={12} /> Non configure</span>
-            )}
-            <label style={{ position: 'relative', display: 'inline-block', width: 40, height: 22, cursor: 'pointer' }}>
-              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} style={{ opacity: 0, width: 0, height: 0 }} />
-              <span style={{ position: 'absolute', inset: 0, borderRadius: 11, background: aiEnabled ? 'var(--accent)' : 'var(--border)', transition: 'background 0.2s' }}>
-                <span style={{ position: 'absolute', top: 3, left: aiEnabled ? 21 : 3, width: 16, height: 16, borderRadius: '50%', background: '#fff', transition: 'left 0.2s', boxShadow: '0 1px 3px rgba(0,0,0,0.2)' }} />
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--emerald-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <CheckCircle size={12} /> Configure
               </span>
+            ) : (
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--red-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <XCircle size={12} /> Non configure
+              </span>
+            )}
+            <label className="toggle">
+              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} />
+              <span className="toggle-track" />
+              <span className="toggle-thumb" />
             </label>
           </div>
         </div>
         <div style={{ opacity: aiEnabled ? 1 : 0.4, pointerEvents: aiEnabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, marginBottom: 16 }}>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
             <div>
               <label className="form-label"><Key size={11} /> Cle API Anthropic</label>
-              <PasswordField value={aiApiKey} onChange={setAiApiKey} show={showApiKey} onToggle={() => setShowApiKey(!showApiKey)} placeholder="sk-ant-..." />
+              <div style={{ position: 'relative' }}>
+                <input
+                  type={showApiKey ? 'text' : 'password'}
+                  className="form-input"
+                  value={aiApiKey}
+                  onChange={e => setAiApiKey(e.target.value)}
+                  placeholder="sk-ant-..."
+                  style={{ paddingRight: 36, fontFamily: 'var(--font-mono)', fontSize: 12 }}
+                />
+                <button
+                  type="button"
+                  onClick={() => setShowApiKey(!showApiKey)}
+                  style={{
+                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
+                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)', padding: 2
+                  }}
+                >
+                  {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
+                </button>
+              </div>
             </div>
             <div>
               <label className="form-label"><Cpu size={11} /> Modele</label>
@@ -110,7 +123,12 @@ export default function Settings() {
             </div>
             <div style={{ gridColumn: '1 / -1' }}>
               <label className="form-label"><Globe size={11} /> URL de base</label>
-              <input type="text" className="form-input" value={aiBaseUrl} onChange={e => setAiBaseUrl(e.target.value)} placeholder="https://api.anthropic.com" style={{ fontFamily: 'var(--mono)' }} />
+              <input
+                type="text" className="form-input" value={aiBaseUrl}
+                onChange={e => setAiBaseUrl(e.target.value)}
+                placeholder="https://api.anthropic.com"
+                style={{ fontFamily: 'var(--font-mono)', fontSize: 12 }}
+              />
             </div>
           </div>
         </div>
@@ -119,30 +137,27 @@ export default function Settings() {
         </button>
       </div>
 
-      {/* ===== Pipeline OCR ===== */}
+      {/* OCR Pipeline */}
       <div className="card">
         <h2><ScanLine size={14} /> Pipeline OCR</h2>
-        <p style={{ fontSize: 13, color: 'var(--ink-muted)', marginBottom: 20 }}>
+        <p style={{ fontSize: 13, color: 'var(--slate-500)', marginBottom: 16 }}>
           Les documents PDF sont traites par une cascade de 3 moteurs OCR.
         </p>
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
-          {[
-            { name: 'Apache Tika 3.0', tag: 'TIKA', priority: 1, color: 'var(--accent)', desc: 'Extraction texte natif pour PDF numeriques. Instantane.' },
-            { name: 'PaddleOCR 3.4', tag: 'PADDLE', priority: 2, color: '#3b7dd8', desc: 'OCR deep learning. Francais + Arabe, 300 DPI.' },
-            { name: 'Tesseract 5', tag: 'TESS', priority: 3, color: 'var(--warning)', desc: 'Fallback local avec preprocessing d\'image.' },
-          ].map(engine => (
-            <div key={engine.tag} style={{ border: '1px solid var(--border)', borderRadius: 2, padding: 20, borderLeft: `3px solid ${engine.color}` }}>
+          {OCR_ENGINES.map(engine => (
+            <div key={engine.tag} className="engine-card">
               <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-                <span style={{ fontSize: 10, fontWeight: 700, letterSpacing: 0.8, textTransform: 'uppercase' as const, color: engine.color, background: `${engine.color}12`, padding: '2px 8px', borderRadius: 2 }}>{engine.tag}</span>
-                <span style={{ fontSize: 10, color: 'var(--ink-faint)', fontWeight: 600 }}>Priorite {engine.priority}</span>
+                <span className="tag" style={{ color: engine.color }}>{engine.tag}</span>
+                <span style={{ fontSize: 10, color: 'var(--slate-400)', fontWeight: 600 }}>Priorite {engine.priority}</span>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink)', marginBottom: 6 }}>{engine.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--ink-muted)', lineHeight: 1.5 }}>{engine.desc}</div>
+              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--slate-900)', marginBottom: 4 }}>{engine.name}</div>
+              <div style={{ fontSize: 12, color: 'var(--slate-500)', lineHeight: 1.5 }}>{engine.desc}</div>
             </div>
           ))}
         </div>
-        <div style={{ marginTop: 16, padding: '12px 16px', background: 'var(--surface)', borderRadius: 2, fontSize: 12, color: 'var(--ink-muted)', display: 'flex', gap: 8, alignItems: 'flex-start', lineHeight: 1.6 }}>
-          <Info size={14} style={{ flexShrink: 0, marginTop: 2 }} />
+
+        <div className="alert alert-info" style={{ marginTop: 14 }}>
+          <Info size={14} style={{ flexShrink: 0 }} />
           <span>
             <strong>Cascade intelligente :</strong> Tika extrait le texte natif. Si insuffisant (&lt;20 mots),
             PaddleOCR prend le relai. Si PaddleOCR est indisponible, Tesseract sert de fallback.
@@ -151,15 +166,15 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* ===== Raccourcis clavier ===== */}
+      {/* Raccourcis clavier */}
       <div className="card">
         <h2><Keyboard size={14} /> Raccourcis clavier</h2>
-        <table className="invoice-table">
+        <table className="data-table">
           <thead><tr><th>Raccourci</th><th>Action</th></tr></thead>
           <tbody>
             {SHORTCUTS.map(s => (
               <tr key={s.keys}>
-                <td><kbd style={{ fontSize: 11, background: 'var(--surface)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--border)', fontFamily: 'var(--mono)' }}>{s.keys}</kbd></td>
+                <td><kbd style={{ fontSize: 11, background: 'var(--slate-100)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--slate-200)', fontFamily: 'var(--font-mono)' }}>{s.keys}</kbd></td>
                 <td>{s.desc}</td>
               </tr>
             ))}
@@ -167,24 +182,24 @@ export default function Settings() {
         </table>
       </div>
 
-      {/* ===== About ===== */}
+      {/* About */}
       <div className="card">
         <h2><Info size={14} /> A propos</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', gap: 24, fontSize: 13 }}>
+        <div className="info-grid">
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase' as const, letterSpacing: 0.8, marginBottom: 6 }}>Plateforme</div>
-            <div style={{ fontWeight: 700, color: 'var(--ink)' }}>ReconDoc MADAEF</div>
-            <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 2 }}>Reconciliation documentaire des dossiers de paiement</div>
+            <div className="info-block-label">Plateforme</div>
+            <div className="info-block-value">ReconDoc MADAEF</div>
+            <div className="info-block-desc">Reconciliation documentaire des dossiers de paiement</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase' as const, letterSpacing: 0.8, marginBottom: 6 }}>Organisation</div>
-            <div style={{ fontWeight: 700, color: 'var(--ink)' }}>MADAEF — Groupe CDG</div>
-            <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 2 }}>Gestion des dossiers fournisseurs</div>
+            <div className="info-block-label">Organisation</div>
+            <div className="info-block-value">MADAEF — Groupe CDG</div>
+            <div className="info-block-desc">Gestion des dossiers fournisseurs</div>
           </div>
           <div>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-faint)', textTransform: 'uppercase' as const, letterSpacing: 0.8, marginBottom: 6 }}>Version</div>
-            <div style={{ fontWeight: 700, color: 'var(--ink)', fontFamily: 'var(--mono)' }}>1.2.0</div>
-            <div style={{ color: 'var(--ink-muted)', fontSize: 12, marginTop: 2 }}>Kotlin + React + Claude IA</div>
+            <div className="info-block-label">Version</div>
+            <div className="info-block-value mono">1.2.0</div>
+            <div className="info-block-desc">Kotlin + React + Claude IA</div>
           </div>
         </div>
       </div>
