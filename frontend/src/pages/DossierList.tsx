@@ -5,7 +5,7 @@ import type { DossierListItem, PageResponse, DossierType } from '../api/dossierT
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
-import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, Trash2 } from 'lucide-react'
+import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2 } from 'lucide-react'
 
 export default function DossierList() {
   const { toast } = useToast()
@@ -60,35 +60,35 @@ export default function DossierList() {
     }
   }
 
-  const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '—'
+  const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
+  const hasFilters = filterStatut || filterType || filterFournisseur
 
   return (
     <div>
       <div className="page-header">
-        <h1><FolderOpen size={24} /> Dossiers de paiement</h1>
+        <h1><FolderOpen size={22} /> Dossiers de paiement</h1>
         <div className="header-actions">
-          <button className="btn btn-secondary" onClick={load}><RefreshCw size={16} /> Rafraichir</button>
-          <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}><Plus size={16} /> Nouveau dossier</button>
+          <button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /></button>
+          <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}><Plus size={15} /> Nouveau</button>
         </div>
       </div>
 
-      {error && <div className="result-banner error mb-3">{error}</div>}
+      {error && <div className="alert alert-error mb-3">{error}</div>}
 
-      {/* Delete confirmation modal */}
       <Modal
         open={!!deleteTarget}
         title="Supprimer le dossier"
         message={`Etes-vous sur de vouloir supprimer le dossier ${deleteTarget?.reference || ''} ? Cette action est irreversible.`}
         confirmLabel="Supprimer"
-        confirmColor="#ef4444"
+        confirmColor="var(--red-600)"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
 
       {showCreate && (
         <div className="card mb-3">
-          <h2>Nouveau dossier</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 16 }}>
+          <h2><Plus size={14} /> Nouveau dossier</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
             <div>
               <label className="form-label">Type</label>
               <select className="form-select full-width" value={newType} onChange={e => setNewType(e.target.value as DossierType)}>
@@ -106,12 +106,12 @@ export default function DossierList() {
             <input className="form-input" placeholder="Ex: Atelier cartographie des risques" value={newDesc} onChange={e => setNewDesc(e.target.value)} />
           </div>
           <button className="btn btn-primary" disabled={creating} onClick={handleCreate}>
-            {creating ? <><Loader2 size={16} className="spin" /> Creation...</> : <><Plus size={16} /> Creer</>}
+            {creating ? <><Loader2 size={15} className="spin" /> Creation...</> : <><Plus size={15} /> Creer le dossier</>}
           </button>
         </div>
       )}
 
-      <div className="card mb-3" style={{ display: 'flex', gap: 12, alignItems: 'center', flexWrap: 'wrap' }}>
+      <div className="card mb-3" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '14px 20px' }}>
         <select className="form-select" value={filterStatut} onChange={e => { setFilterStatut(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
           <option value="">Tous les statuts</option>
           <option value="BROUILLON">Brouillon</option>
@@ -131,15 +131,15 @@ export default function DossierList() {
           onChange={e => { setFilterFournisseur(e.target.value); setPage(0) }}
           style={{ width: 200 }}
         />
-        {(filterStatut || filterType || filterFournisseur) && (
-          <button className="btn btn-secondary" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setPage(0) }}>
-            Effacer filtres
+        {hasFilters && (
+          <button className="btn btn-secondary btn-sm" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setPage(0) }}>
+            <X size={14} /> Effacer
           </button>
         )}
       </div>
 
       <div className="card">
-        <table className="invoice-table">
+        <table className="data-table">
           <thead>
             <tr>
               <th>Reference</th>
@@ -159,18 +159,17 @@ export default function DossierList() {
               return (
                 <tr key={d.id}>
                   <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
-                  <td>{d.fournisseur || '—'}</td>
-                  <td><span className="preprocess-tag">{d.type}</span></td>
-                  <td className="cell-amount">{fmt(d.montantTtc)} MAD</td>
+                  <td>{d.fournisseur || '\u2014'}</td>
+                  <td><span className="tag">{d.type}</span></td>
+                  <td className="cell-mono">{fmt(d.montantTtc)} MAD</td>
                   <td>{d.nbDocuments}</td>
-                  <td>{d.nbChecksTotal > 0 ? `${d.nbChecksConformes}/${d.nbChecksTotal}` : '—'}</td>
-                  <td><span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color }}>{cfg.label}</span></td>
-                  <td>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                  <td>{d.nbChecksTotal > 0 ? `${d.nbChecksConformes}/${d.nbChecksTotal}` : '\u2014'}</td>
+                  <td><span className="status-badge" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span></td>
+                  <td style={{ color: 'var(--slate-500)', fontSize: 12 }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
                   <td>
                     {d.statut === 'BROUILLON' && (
                       <button
-                        className="btn btn-secondary"
-                        style={{ padding: '4px 8px', color: '#ef4444' }}
+                        className="btn btn-danger btn-sm"
                         onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
                         title="Supprimer"
                       >
@@ -187,9 +186,9 @@ export default function DossierList() {
 
         {data && data.totalPages > 1 && (
           <div className="pagination">
-            <button className="btn btn-secondary" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft size={16} /></button>
+            <button className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft size={15} /></button>
             <span>Page {page + 1} / {data.totalPages}</span>
-            <button className="btn btn-secondary" disabled={page >= data.totalPages - 1} onClick={() => setPage(p => p + 1)}><ChevronRight size={16} /></button>
+            <button className="btn btn-secondary btn-sm" disabled={page >= data.totalPages - 1} onClick={() => setPage(p => p + 1)}><ChevronRight size={15} /></button>
           </div>
         )}
       </div>
