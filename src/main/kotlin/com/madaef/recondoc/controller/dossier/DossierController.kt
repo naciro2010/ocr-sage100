@@ -105,6 +105,16 @@ class DossierController(private val dossierService: DossierService) {
         return dossierService.getDossierResponse(id).documents.first { it.id == docId }
     }
 
+    @PatchMapping("/{id}/documents/{docId}/type")
+    fun changeDocumentType(
+        @PathVariable id: UUID, @PathVariable docId: UUID,
+        @RequestBody body: Map<String, String>
+    ): DocumentResponse {
+        val newType = TypeDocument.valueOf(body["typeDocument"] ?: throw IllegalArgumentException("typeDocument required"))
+        dossierService.changeDocumentType(docId, newType)
+        return dossierService.getDossierResponse(id).documents.first { it.id == docId }
+    }
+
     @GetMapping("/{id}/audit")
     fun getAudit(@PathVariable id: UUID): List<AuditLogResponse> {
         return dossierService.getAuditLog(id)

@@ -24,6 +24,7 @@ WORKDIR /app
 
 RUN apk add --no-cache \
     tesseract-ocr \
+    tesseract-ocr-data-eng \
     tesseract-ocr-data-fra \
     tesseract-ocr-data-ara \
     leptonica-dev \
