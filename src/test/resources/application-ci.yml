@@ -21,12 +21,6 @@ claude:
 
 storage:
   upload-dir: /tmp/recondoc-ci-uploads
-  s3:
-    endpoint:
-    bucket:
-    access-key:
-    secret-key:
-    region: auto
 
 app:
   tolerance-montant: 0.05
