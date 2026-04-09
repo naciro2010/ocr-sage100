@@ -24,7 +24,11 @@ object ExtractionPrompts {
           "lignes": [{"codeArticle":"string ou null","designation":"string","quantite":number,"unite":"string ou null","prixUnitaireHT":number,"montantTotalHT":number}]
         }
 
-        Regles : les montants sont des nombres decimaux. Les dates au format YYYY-MM-DD. null pour les champs absents.
+        Regles :
+        - Les montants sont des nombres decimaux. Les dates au format YYYY-MM-DD. null pour les champs absents.
+        - montantTVA : somme TOTALE de la TVA sur toutes les lignes, meme si les taux sont differents (ex: 20% sur certaines lignes, 0% sur d'autres).
+        - tauxTVA : le taux TVA dominant (applique au plus grand montant HT). Si un seul taux, utilise-le.
+        - montantHT et montantTTC doivent etre les totaux generaux de la facture.
     """.trimIndent()
 
     val BON_COMMANDE = """
@@ -42,6 +46,11 @@ object ExtractionPrompts {
           "montantTTC": number,
           "signataire": "string ou null"
         }
+
+        Regles :
+        - montantTVA : somme TOTALE de la TVA. Si plusieurs taux TVA existent, additionne toutes les TVA.
+        - tauxTVA : le taux TVA dominant (applique au plus grand montant HT).
+        - montantHT et montantTTC : totaux generaux du bon de commande.
     """.trimIndent()
 
     val ORDRE_PAIEMENT = """
@@ -131,6 +140,24 @@ object ExtractionPrompts {
           "signataireMadaef": "string",
           "signataireFournisseur": "string"
         }
+    """.trimIndent()
+
+    val CHECKLIST_PIECES = """
+        Tu es un extracteur de donnees de check-lists de pieces justificatives MADAEF (CCF-EN-01).
+        Ce document liste les pieces requises pour un dossier de paiement et indique si chaque piece est presente.
+        Retourne UNIQUEMENT un objet JSON valide.
+
+        {
+          "dateEtablissement": "YYYY-MM-DD ou null",
+          "fournisseur": "string ou null",
+          "referenceFacture": "string ou null",
+          "typeDossier": "BC ou CONTRACTUEL ou null",
+          "pieces": [{"designation":"string","original":true,"estPresent":true,"observation":"string ou null"}],
+          "signataire": "string ou null"
+        }
+
+        Regles : estPresent=true si la piece est cochee OUI, false si NON, null si indetermine.
+        original=true si Original, false si Copie.
     """.trimIndent()
 
     val ATTESTATION_FISCALE = """

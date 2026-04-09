@@ -244,6 +244,7 @@ class DossierService(
         TypeDocument.TABLEAU_CONTROLE -> ExtractionPrompts.TABLEAU_CONTROLE
         TypeDocument.PV_RECEPTION -> ExtractionPrompts.PV_RECEPTION
         TypeDocument.ATTESTATION_FISCALE -> ExtractionPrompts.ATTESTATION_FISCALE
+        TypeDocument.CHECKLIST_PIECES -> ExtractionPrompts.CHECKLIST_PIECES
         else -> null
     }
 
@@ -258,6 +259,7 @@ class DossierService(
                 TypeDocument.TABLEAU_CONTROLE -> saveTableau(dossier, doc, data)
                 TypeDocument.PV_RECEPTION -> savePvReception(dossier, doc, data)
                 TypeDocument.ATTESTATION_FISCALE -> saveAttestationFiscale(dossier, doc, data)
+                TypeDocument.CHECKLIST_PIECES -> log.info("CHECKLIST_PIECES stored in donneesExtraites for dossier {}", dossier.reference)
                 else -> log.debug("No entity mapping for type {}", type)
             }
         } catch (e: Exception) {
