@@ -8,7 +8,6 @@ import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.validation.ValidationEngine
-import org.apache.tika.Tika
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.data.domain.Page
@@ -39,13 +38,13 @@ class DossierService(
     private val arfRepo: AttestationFiscaleRepository,
     private val classificationService: ClassificationService,
     private val llmService: LlmExtractionService,
+    private val ocrService: OcrService,
     private val validationEngine: ValidationEngine,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
-    private val tika = Tika()
     private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
 
     @Transactional
@@ -164,13 +163,27 @@ class DossierService(
             val filePath = uploadPath.resolve(fileName)
             file.transferTo(filePath)
 
+            // Extract text immediately from the MultipartFile before it's gone
+            val rawText = try {
+                file.inputStream.use { ocrService.extractText(it, file.originalFilename ?: "doc.pdf") }
+            } catch (e: Exception) {
+                log.warn("Immediate text extraction failed for {}, will retry from disk: {}", file.originalFilename, e.message)
+                ""
+            }
+
             val doc = Document(
                 dossier = dossier,
                 typeDocument = typeDocument ?: TypeDocument.FACTURE,
                 nomFichier = file.originalFilename ?: "unknown",
-                cheminFichier = filePath.toString()
+                cheminFichier = filePath.toString(),
+                texteExtrait = rawText.ifBlank { null }
             )
             documentRepo.save(doc)
+
+            // Process immediately (classify + LLM extract) using the text we already have
+            processDocumentWithText(doc, rawText)
+
+            doc
         }.also {
             audit(dossierId, "UPLOAD_DOCUMENTS", "${files.size} document(s)")
         }
@@ -191,10 +204,36 @@ class DossierService(
     @Transactional
     fun processDocument(documentId: UUID) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+
+        // Try to read text: first from DB (already extracted), then from file
+        val rawText = if (!doc.texteExtrait.isNullOrBlank()) {
+            log.info("Using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
+            doc.texteExtrait!!
+        } else {
+            val path = Path.of(doc.cheminFichier)
+            if (Files.exists(path)) {
+                Files.newInputStream(path).use { ocrService.extractText(it, doc.nomFichier) }
+            } else {
+                log.error("No stored text and file not found for {}", doc.nomFichier)
+                doc.statutExtraction = StatutExtraction.ERREUR
+                doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
+                return
+            }
+        }
+
+        processDocumentWithText(doc, rawText)
+    }
+
+    private fun processDocumentWithText(doc: Document, rawText: String) {
         doc.statutExtraction = StatutExtraction.EN_COURS
 
         try {
-            val rawText = Files.newInputStream(Path.of(doc.cheminFichier)).use { tika.parseToString(it) }
+            if (rawText.isBlank()) {
+                doc.statutExtraction = StatutExtraction.ERREUR
+                doc.erreurExtraction = "Aucun texte extrait du document"
+                return
+            }
+
             doc.texteExtrait = rawText
 
             val detectedType = classificationService.classify(rawText)
