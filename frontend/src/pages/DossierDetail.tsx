@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
+import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import { STATUT_CONFIG, TYPE_DOCUMENT_LABELS, CHECK_ICONS } from '../api/dossierTypes'
 import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes'
@@ -147,6 +147,18 @@ export default function DossierDetail() {
       load()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Reprocess failed')
+    }
+  }
+
+  const handleChangeType = async (docId: string, newType: string) => {
+    if (!id) return
+    try {
+      await changeDocumentType(id, docId, newType)
+      toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
+      load()
+      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
     }
   }
 
@@ -383,16 +395,27 @@ export default function DossierDetail() {
           {dossier.documents.map(doc => (
             <div key={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
               onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false) }}>
-              <div style={{ fontWeight: 700, fontSize: 13, color: 'var(--slate-800)', marginBottom: 4 }}>
-                {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
+              <div style={{ marginBottom: 2 }}>
+                <select
+                  className="form-select"
+                  value={doc.typeDocument}
+                  title="Cliquez pour corriger le type"
+                  style={{ fontSize: 11, fontWeight: 700, padding: '0 2px', border: 'none', background: 'transparent', color: 'var(--slate-800)', cursor: 'pointer', width: '100%' }}
+                  onClick={e => e.stopPropagation()}
+                  onChange={e => { e.stopPropagation(); handleChangeType(doc.id, e.target.value) }}
+                >
+                  {Object.entries(TYPE_DOCUMENT_LABELS).map(([k, v]) => (
+                    <option key={k} value={k}>{v}</option>
+                  ))}
+                </select>
               </div>
-              <div style={{ fontSize: 12, color: 'var(--slate-500)', marginBottom: 8 }}>{doc.nomFichier}</div>
+              <div style={{ fontSize: 11, color: 'var(--slate-500)', marginBottom: 6 }}>{doc.nomFichier}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {extractionBadge(doc.statutExtraction)}
                 {doc.statutExtraction === 'EN_COURS' && <Loader2 size={12} className="spin" style={{ color: 'var(--blue-600)' }} />}
               </div>
               {doc.statutExtraction === 'ERREUR' && (
-                <button className="btn btn-secondary btn-sm" style={{ marginTop: 8 }}
+                <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }}
                   onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}>
                   <RefreshCw size={12} /> Relancer
                 </button>

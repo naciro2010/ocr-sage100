@@ -5,6 +5,7 @@ import org.apache.pdfbox.Loader
 import org.apache.pdfbox.rendering.PDFRenderer
 import org.apache.pdfbox.rendering.ImageType
 import org.apache.tika.Tika
+import org.apache.tika.config.TikaConfig
 import org.apache.tika.metadata.Metadata
 import org.apache.tika.metadata.TikaCoreProperties
 import org.slf4j.LoggerFactory
@@ -35,7 +36,20 @@ class OcrService(
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
-    private val tika = Tika()
+    private val tika: Tika = try {
+        val configStream = javaClass.getResourceAsStream("/tika-config.xml")
+        if (configStream != null) {
+            val config = TikaConfig(configStream)
+            log.info("Tika initialized with custom config (TesseractOCR disabled)")
+            Tika(config)
+        } else {
+            log.info("Tika initialized with default config")
+            Tika()
+        }
+    } catch (e: Exception) {
+        log.warn("Failed to load tika-config.xml, using defaults: {}", e.message)
+        Tika()
+    }
 
     private var tesseractAvailable: Boolean = false
     private var resolvedTessDataPath: String = tessDataPath

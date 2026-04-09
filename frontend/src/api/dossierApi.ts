@@ -86,6 +86,15 @@ export async function reprocessDocument(dossierId: string, docId: string): Promi
   return handleResponse(res)
 }
 
+export async function changeDocumentType(dossierId: string, docId: string, typeDocument: string): Promise<DocumentInfo> {
+  const res = await fetch(`${BASE}/${dossierId}/documents/${docId}/type`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ typeDocument }),
+  })
+  return handleResponse(res)
+}
+
 export async function getAuditLog(dossierId: string): Promise<AuditEntry[]> {
   const res = await fetch(`${BASE}/${dossierId}/audit`)
   return handleResponse(res)

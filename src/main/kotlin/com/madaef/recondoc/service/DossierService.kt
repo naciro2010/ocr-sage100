@@ -177,6 +177,18 @@ class DossierService(
     }
 
     @Transactional
+    fun changeDocumentType(documentId: UUID, newType: TypeDocument) {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        log.info("Changing document {} type from {} to {}", doc.nomFichier, doc.typeDocument, newType)
+        doc.typeDocument = newType
+        doc.statutExtraction = StatutExtraction.EN_ATTENTE
+        doc.donneesExtraites = null
+        doc.erreurExtraction = null
+        documentRepo.save(doc)
+        processDocument(documentId)
+    }
+
+    @Transactional
     fun processDocument(documentId: UUID) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         doc.statutExtraction = StatutExtraction.EN_COURS
