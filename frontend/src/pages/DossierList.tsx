@@ -1,11 +1,11 @@
-import { useEffect, useState } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers, deleteDossier } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
-import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2 } from 'lucide-react'
+import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2, Upload } from 'lucide-react'
 
 export default function DossierList() {
   const { toast } = useToast()
@@ -21,6 +21,9 @@ export default function DossierList() {
   const [filterType, setFilterType] = useState('')
   const [filterFournisseur, setFilterFournisseur] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DossierListItem | null>(null)
+  const [dragging, setDragging] = useState(false)
+  const [quickUploading, setQuickUploading] = useState(false)
+  const dropInputRef = useRef<HTMLInputElement>(null)
   const navigate = useNavigate()
 
   const load = () => {
@@ -60,6 +63,26 @@ export default function DossierList() {
     }
   }
 
+  const handleQuickUpload = async (files: File[]) => {
+    if (files.length === 0) return
+    setQuickUploading(true)
+    try {
+      const d = await createDossier(newType || 'BC', newFournisseur || undefined)
+      await uploadDocuments(d.id, files)
+      toast('success', `Dossier ${d.reference} cree avec ${files.length} document(s)`)
+      navigate(`/dossiers/${d.id}`)
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    } finally { setQuickUploading(false) }
+  }
+
+  const handleDrop = (e: React.DragEvent) => {
+    e.preventDefault(); setDragging(false)
+    const files = Array.from(e.dataTransfer.files).filter(f => f.name.toLowerCase().endsWith('.pdf'))
+    if (files.length > 0) handleQuickUpload(files)
+    else toast('warning', 'Seuls les fichiers PDF sont acceptes')
+  }
+
   const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
   const hasFilters = filterStatut || filterType || filterFournisseur
 
@@ -71,6 +94,31 @@ export default function DossierList() {
           <button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /></button>
           <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}><Plus size={15} /> Nouveau</button>
         </div>
+      </div>
+
+      {/* Quick upload drop zone */}
+      <div
+        className={`hero-drop ${dragging ? 'dragging' : ''}`}
+        style={{ padding: '16px 20px', marginBottom: 12 }}
+        onDragOver={e => { e.preventDefault(); setDragging(true) }}
+        onDragLeave={() => setDragging(false)}
+        onDrop={handleDrop}
+        onClick={() => dropInputRef.current?.click()}
+      >
+        <input ref={dropInputRef} type="file" accept=".pdf" multiple hidden onChange={e => {
+          const files = Array.from(e.target.files || [])
+          if (files.length > 0) handleQuickUpload(files)
+        }} />
+        {quickUploading ? (
+          <Loader2 size={18} className="spin" style={{ color: 'var(--teal-600)' }} />
+        ) : (
+          <>
+            <Upload size={16} style={{ color: 'var(--slate-400)', display: 'inline', marginRight: 8 }} />
+            <span style={{ fontSize: 12, color: 'var(--slate-500)' }}>
+              Deposez des PDFs ici pour creer un dossier rapidement
+            </span>
+          </>
+        )}
       </div>
 
       {error && <div className="alert alert-error mb-3">{error}</div>}
