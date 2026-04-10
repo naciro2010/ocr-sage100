@@ -86,6 +86,11 @@ export async function reprocessDocument(dossierId: string, docId: string): Promi
   return handleResponse(res)
 }
 
+export async function deleteDocument(dossierId: string, docId: string): Promise<void> {
+  const res = await fetch(`${BASE}/${dossierId}/documents/${docId}`, { method: 'DELETE' })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
 export async function changeDocumentType(dossierId: string, docId: string, typeDocument: string): Promise<DocumentInfo> {
   const res = await fetch(`${BASE}/${dossierId}/documents/${docId}/type`, {
     method: 'PATCH',

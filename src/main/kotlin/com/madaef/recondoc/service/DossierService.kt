@@ -210,6 +210,17 @@ class DossierService(
     }
 
     @Transactional
+    fun deleteDocument(dossierId: UUID, documentId: UUID) {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        if (doc.dossier.id != dossierId) throw NoSuchElementException("Document does not belong to this dossier")
+        log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
+        // Delete file on disk if exists
+        try { val path = Path.of(doc.cheminFichier); if (Files.exists(path)) Files.delete(path) } catch (_: Exception) {}
+        documentRepo.delete(doc)
+        audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
+    }
+
+    @Transactional
     fun changeDocumentType(documentId: UUID, newType: TypeDocument) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         log.info("Changing document {} type from {} to {}", doc.nomFichier, doc.typeDocument, newType)
@@ -218,11 +229,11 @@ class DossierService(
         doc.donneesExtraites = null
         doc.erreurExtraction = null
         documentRepo.save(doc)
-        processDocument(documentId)
+        processDocument(documentId, skipClassification = true)
     }
 
     @Transactional
-    fun processDocument(documentId: UUID) {
+    fun processDocument(documentId: UUID, skipClassification: Boolean = false) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
 
         // Try to extract text: from file first (full OCR cascade), then from stored text
@@ -241,10 +252,10 @@ class DossierService(
             return
         }
 
-        processDocumentWithText(doc, rawText)
+        processDocumentWithText(doc, rawText, skipClassification)
     }
 
-    private fun processDocumentWithText(doc: Document, rawText: String) {
+    private fun processDocumentWithText(doc: Document, rawText: String, skipClassification: Boolean = false) {
         doc.statutExtraction = StatutExtraction.EN_COURS
 
         try {
@@ -256,9 +267,15 @@ class DossierService(
 
             doc.texteExtrait = rawText
 
-            val detectedType = classificationService.classify(rawText)
-            doc.typeDocument = detectedType
-            log.info("Document {} classified as {}", doc.nomFichier, detectedType)
+            val detectedType = if (skipClassification) {
+                log.info("Skipping classification for {} (manual type: {})", doc.nomFichier, doc.typeDocument)
+                doc.typeDocument
+            } else {
+                val classified = classificationService.classify(rawText)
+                doc.typeDocument = classified
+                log.info("Document {} classified as {}", doc.nomFichier, classified)
+                classified
+            }
 
             if (detectedType == TypeDocument.INCONNU) {
                 doc.statutExtraction = StatutExtraction.EXTRAIT

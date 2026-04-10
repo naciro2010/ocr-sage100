@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
+import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, deleteDocument, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import { STATUT_CONFIG, TYPE_DOCUMENT_LABELS, CHECK_ICONS } from '../api/dossierTypes'
 import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes'
@@ -9,7 +9,7 @@ import Modal from '../components/Modal'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
   Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye, Clock,
-  ExternalLink, Download, Pencil, Save, X, Columns2, Copy,
+  ExternalLink, Download, Pencil, Save, X, Columns2, Copy, Trash2,
 } from 'lucide-react'
 
 export default function DossierDetail() {
@@ -155,6 +155,19 @@ export default function DossierDetail() {
     try {
       await changeDocumentType(id, docId, newType)
       toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
+      load()
+      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    }
+  }
+
+  const handleDeleteDoc = async (docId: string, docName: string) => {
+    if (!id || !confirm(`Supprimer ${docName} ?`)) return
+    try {
+      await deleteDocument(id, docId)
+      toast('success', `${docName} supprime`)
+      if (selectedDoc?.id === docId) setSelectedDoc(null)
       load()
       if (id) getAuditLog(id).then(setAudit).catch(() => {})
     } catch (e: unknown) {
@@ -431,12 +444,18 @@ export default function DossierDetail() {
               {doc.erreurExtraction && (
                 <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4, lineHeight: 1.3 }}>{doc.erreurExtraction}</div>
               )}
-              {doc.statutExtraction === 'ERREUR' && (
-                <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }}
-                  onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}>
-                  <RefreshCw size={12} /> Relancer
+              <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
+                {doc.statutExtraction === 'ERREUR' && (
+                  <button className="btn btn-secondary btn-sm"
+                    onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}>
+                    <RefreshCw size={11} /> Relancer
+                  </button>
+                )}
+                <button className="btn btn-danger btn-sm"
+                  onClick={(e) => { e.stopPropagation(); handleDeleteDoc(doc.id, doc.nomFichier) }}>
+                  <Trash2 size={11} />
                 </button>
-              )}
+              </div>
             </div>
           ))}
 

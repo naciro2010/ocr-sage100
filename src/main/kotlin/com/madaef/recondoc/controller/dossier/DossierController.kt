@@ -108,6 +108,12 @@ class DossierController(private val dossierService: DossierService) {
         return dossierService.getDossierResponse(id).documents.first { it.id == docId }
     }
 
+    @DeleteMapping("/{id}/documents/{docId}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun deleteDocument(@PathVariable id: UUID, @PathVariable docId: UUID) {
+        dossierService.deleteDocument(id, docId)
+    }
+
     @GetMapping("/{id}/audit")
     fun getAudit(@PathVariable id: UUID): List<AuditLogResponse> {
         return dossierService.getAuditLog(id)
