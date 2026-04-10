@@ -141,9 +141,9 @@ class DossierService(
     fun changeStatut(id: UUID, request: ChangeStatutRequest): DossierPaiement {
         val dossier = getDossier(id)
         val allowed = when (dossier.statut) {
-            StatutDossier.BROUILLON -> setOf(StatutDossier.EN_VERIFICATION, StatutDossier.REJETE)
+            StatutDossier.BROUILLON -> setOf(StatutDossier.EN_VERIFICATION, StatutDossier.VALIDE, StatutDossier.REJETE)
             StatutDossier.EN_VERIFICATION -> setOf(StatutDossier.VALIDE, StatutDossier.REJETE, StatutDossier.BROUILLON)
-            StatutDossier.VALIDE -> setOf<StatutDossier>()
+            StatutDossier.VALIDE -> setOf(StatutDossier.BROUILLON)
             StatutDossier.REJETE -> setOf(StatutDossier.BROUILLON)
         }
         require(request.statut in allowed) {

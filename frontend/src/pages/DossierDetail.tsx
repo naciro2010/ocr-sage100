@@ -252,14 +252,20 @@ export default function DossierDetail() {
           <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
             {validating ? <><Loader2 size={15} className="spin" /> Verification...</> : <><ShieldCheck size={15} /> Verifier</>}
           </button>
-          {dossier.statut === 'EN_VERIFICATION' && nbNonConformes === 0 && (
-            <button className="btn btn-success" onClick={() => handleStatut('VALIDE')}>
+          {dossier.statut !== 'VALIDE' && (
+            <button className="btn btn-success" onClick={() => handleStatut('VALIDE')}
+              title={nbNonConformes > 0 ? `${nbNonConformes} controle(s) non conforme(s)` : ''}>
               <CheckCircle size={15} /> Valider
             </button>
           )}
-          {dossier.statut !== 'REJETE' && dossier.statut !== 'VALIDE' && (
+          {dossier.statut !== 'REJETE' && (
             <button className="btn btn-danger" onClick={() => setRejectModal(true)}>
               <Ban size={15} /> Rejeter
+            </button>
+          )}
+          {(dossier.statut === 'VALIDE' || dossier.statut === 'REJETE') && (
+            <button className="btn btn-secondary" onClick={() => handleStatut('BROUILLON')}>
+              Reouvrir
             </button>
           )}
         </div>
