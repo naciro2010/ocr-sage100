@@ -26,6 +26,7 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
             use_angle_cls=True,
             lang=lang,
             use_gpu=False,
+            show_log=False,
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
     return _ocr_instances[lang]
@@ -39,7 +40,7 @@ async def lifespan(application: FastAPI):
     yield
 
 
-app = FastAPI(title="OCR Service", version="2.2.0", lifespan=lifespan)
+app = FastAPI(title="OCR Service", version="2.3.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -48,7 +49,7 @@ async def health():
     return {
         "status": "ok",
         "engine": "paddleocr",
-        "version": "3.4.0",
+        "version": "2.9.1",
         "dpi": DPI,
         "loaded_languages": loaded_langs,
         "available_languages": ["fr", "ar", "en", "latin"],

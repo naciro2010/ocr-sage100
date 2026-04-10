@@ -1,4 +1,4 @@
-FROM python:3.12-slim
+FROM python:3.10-slim
 
 WORKDIR /app
 
@@ -11,10 +11,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY main.py .
 
-ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
-
-# Pre-download French model at build time
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='fr', use_gpu=False)"
+# Models will be downloaded at first startup
 
 EXPOSE 8000
 
