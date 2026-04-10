@@ -45,7 +45,7 @@ ocr:
     lang: ${PADDLE_OCR_LANG:fr}
   tesseract:
     data-path: ${TESSDATA_PREFIX:/usr/share/tessdata}
-    languages: ${OCR_LANGUAGES:fra+ara}
+    languages: ${OCR_LANGUAGES:fra+ara+eng}
     dpi: ${OCR_DPI:300}
     oem: ${OCR_OEM:1}
     psm: ${OCR_PSM:6}
