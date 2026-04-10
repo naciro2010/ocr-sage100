@@ -35,6 +35,16 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
         AND (:fournisseur IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :fournisseur, '%')))
     """)
     fun search(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<DossierPaiement>
+
+    @Query("""
+        SELECT d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
+               d.montantTtc, d.montantNetAPayer, d.dateCreation,
+               (SELECT COUNT(doc) FROM Document doc WHERE doc.dossier = d),
+               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier = d AND rv.statut = 'CONFORME'),
+               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier = d)
+        FROM DossierPaiement d
+    """)
+    fun findAllProjected(pageable: Pageable): Page<Array<Any>>
 }
 
 interface DocumentRepository : JpaRepository<Document, UUID> {

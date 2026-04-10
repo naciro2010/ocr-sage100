@@ -81,7 +81,22 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun listDossiers(pageable: Pageable): Page<DossierListResponse> {
-        return dossierRepo.findAll(pageable).map { it.toListResponse() }
+        return dossierRepo.findAllProjected(pageable).map { row ->
+            DossierListResponse(
+                id = row[0] as UUID,
+                reference = row[1] as String,
+                type = row[2] as DossierType,
+                statut = row[3] as StatutDossier,
+                fournisseur = row[4] as? String,
+                description = row[5] as? String,
+                montantTtc = row[6] as? BigDecimal,
+                montantNetAPayer = row[7] as? BigDecimal,
+                dateCreation = row[8] as java.time.LocalDateTime,
+                nbDocuments = (row[9] as Number).toInt(),
+                nbChecksConformes = (row[10] as Number).toInt(),
+                nbChecksTotal = (row[11] as Number).toInt()
+            )
+        }
     }
 
     @Transactional(readOnly = true)
@@ -288,13 +303,23 @@ class DossierService(
     }
 
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {
-        return try {
+        // Try direct parse first
+        try {
             @Suppress("UNCHECKED_CAST")
-            objectMapper.readValue(jsonText, Map::class.java) as Map<String, Any?>
-        } catch (e: Exception) {
-            log.error("Failed to parse LLM JSON: {}", e.message)
-            null
+            return objectMapper.readValue(jsonText, Map::class.java) as Map<String, Any?>
+        } catch (_: Exception) {}
+
+        // Extract JSON from text (LLM sometimes wraps JSON in explanation)
+        val jsonMatch = Regex("\\{[\\s\\S]*\\}").find(jsonText)
+        if (jsonMatch != null) {
+            try {
+                @Suppress("UNCHECKED_CAST")
+                return objectMapper.readValue(jsonMatch.value, Map::class.java) as Map<String, Any?>
+            } catch (_: Exception) {}
         }
+
+        log.error("Failed to parse LLM JSON: no valid JSON found in response ({} chars)", jsonText.length)
+        return null
     }
 
     private fun getPromptForType(type: TypeDocument): String? = when (type) {
@@ -394,6 +419,7 @@ class DossierService(
     private fun saveOrdrePaiement(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
         val existing = opRepo.findByDossierId(dossier.id!!)
         val op = existing ?: OrdrePaiement(dossier = dossier, document = doc)
+        if (op.document.id == null) op.document = doc
         op.numeroOp = data["numeroOp"] as? String
         op.dateEmission = parseDate(data["dateEmission"] as? String)
         op.emetteur = data["emetteur"] as? String

@@ -125,7 +125,7 @@ class DossierController(private val dossierService: DossierService) {
         }
         return ResponseEntity.ok()
             .contentType(contentType)
-            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"$fileName\"")
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"${java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20")}\"")
             .body(resource)
     }
 
