@@ -165,15 +165,16 @@ class DossierService(
 
     @Transactional
     fun deleteDossier(id: UUID) {
-        // Clean up child entities manually to avoid FK issues with corrupted data
-        factureRepo.findByDossierId(id)?.let { factureRepo.delete(it) }
-        bcRepo.findByDossierId(id)?.let { bcRepo.delete(it) }
-        contratRepo.findByDossierId(id)?.let { contratRepo.delete(it) }
-        opRepo.findByDossierId(id)?.let { opRepo.delete(it) }
-        checklistRepo.findByDossierId(id)?.let { checklistRepo.delete(it) }
-        tableauRepo.findByDossierId(id)?.let { tableauRepo.delete(it) }
-        pvRepo.findByDossierId(id)?.let { pvRepo.delete(it) }
-        arfRepo.findByDossierId(id)?.let { arfRepo.delete(it) }
+        // Clean child entities first to avoid FK issues with corrupted data (null document_id)
+        factureRepo.findByDossierId(id)?.let { factureRepo.delete(it); factureRepo.flush() }
+        bcRepo.findByDossierId(id)?.let { bcRepo.delete(it); bcRepo.flush() }
+        contratRepo.findByDossierId(id)?.let { contratRepo.delete(it); contratRepo.flush() }
+        opRepo.findByDossierId(id)?.let { opRepo.delete(it); opRepo.flush() }
+        checklistRepo.findByDossierId(id)?.let { checklistRepo.delete(it); checklistRepo.flush() }
+        tableauRepo.findByDossierId(id)?.let { tableauRepo.delete(it); tableauRepo.flush() }
+        pvRepo.findByDossierId(id)?.let { pvRepo.delete(it); pvRepo.flush() }
+        arfRepo.findByDossierId(id)?.let { arfRepo.delete(it); arfRepo.flush() }
+        // Now safe to delete dossier (remaining children cascade via ON DELETE CASCADE in DB)
         dossierRepo.deleteById(id)
     }
 

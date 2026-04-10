@@ -38,7 +38,7 @@ export default function DossierDetail() {
       setDossier(d)
       const processing = d.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
       if (processing) {
-        setTimeout(() => load(), 5000)
+        setTimeout(() => load(), 3000)
       }
     }).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
   }, [id])
@@ -206,23 +206,28 @@ export default function DossierDetail() {
     const hasData = doc.donneesExtraites && Object.keys(doc.donneesExtraites).length > 0
     const fieldCount = hasData ? Object.values(doc.donneesExtraites!).filter(v => v !== null).length : 0
 
-    if (statut === 'EXTRAIT' && !hasData) {
-      return <span className="status-badge" style={{ background: 'var(--amber-50)', color: 'var(--amber-600)' }}>Texte seul</span>
-    }
-    if (statut === 'EXTRAIT' && hasData) {
-      return <span className="status-badge" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}>{fieldCount} champs</span>
-    }
-    if (statut === 'ERREUR') {
-      return (
-        <span className="status-badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }} title={doc.erreurExtraction || ''}>
-          Erreur
-        </span>
-      )
-    }
-    if (statut === 'EN_COURS') {
-      return <span className="status-badge" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>Extraction...</span>
-    }
-    return <span className="status-badge" style={{ background: 'var(--ink-05)', color: 'var(--ink-40)' }}>En attente</span>
+    const badge = (() => {
+      if (statut === 'EXTRAIT' && !hasData)
+        return <span className="status-badge" style={{ background: 'var(--amber-50)', color: 'var(--amber-600)' }}>Texte seul</span>
+      if (statut === 'EXTRAIT' && hasData)
+        return <span className="status-badge" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}>{fieldCount} champs</span>
+      if (statut === 'ERREUR')
+        return <span className="status-badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }} title={doc.erreurExtraction || ''}>Erreur</span>
+      if (statut === 'EN_COURS')
+        return <span className="status-badge badge-processing" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>Analyse en cours</span>
+      return <span className="status-badge badge-processing" style={{ background: 'var(--ink-05)', color: 'var(--ink-40)' }}>En file d'attente</span>
+    })()
+
+    const progressClass = statut === 'EXTRAIT' ? 'done' : statut === 'ERREUR' ? 'error' : statut === 'EN_COURS' ? 'processing' : 'pending'
+
+    return (
+      <>
+        {badge}
+        <div className="doc-card-progress">
+          <div className={`doc-card-progress-bar ${progressClass}`} />
+        </div>
+      </>
+    )
   }
 
   const factureData = dossier.facture
