@@ -694,8 +694,42 @@ export default function DossierDetail() {
         </div>
         )})()}
 
-      {/* Validation results */}
-      {dossier.resultatsValidation.length > 0 && (
+      {/* Validation results with provenance popover */}
+      {dossier.resultatsValidation.length > 0 && (() => {
+        const RULE_PROVENANCE: Record<string, { docs: string[]; fields: string[]; desc: string }> = {
+          R01: { docs: ['Facture', 'Bon de commande'], fields: ['montantTtc'], desc: 'Compare le TTC de la facture avec le BC' },
+          R02: { docs: ['Facture', 'Bon de commande'], fields: ['montantHt'], desc: 'Compare le HT de la facture avec le BC' },
+          R03: { docs: ['Facture', 'Bon de commande'], fields: ['montantTva'], desc: 'Compare la TVA de la facture avec le BC' },
+          R03b: { docs: ['Facture', 'Bon de commande'], fields: ['tauxTva'], desc: 'Verifie si les taux TVA correspondent' },
+          R04: { docs: ['Facture', 'Ordre de paiement'], fields: ['montantTtc', 'montantOperation'], desc: 'OP = TTC facture (sans retenues)' },
+          R05: { docs: ['Facture', 'Ordre de paiement'], fields: ['montantTtc', 'retenues'], desc: 'OP = TTC - retenues a la source' },
+          R06: { docs: ['Ordre de paiement'], fields: ['retenues.base', 'retenues.taux'], desc: 'Calcul arithmetique des retenues' },
+          R07: { docs: ['Facture', 'Ordre de paiement'], fields: ['numeroFacture', 'referenceFacture'], desc: 'N° facture cite dans l\'OP' },
+          R08: { docs: ['BC / Contrat', 'Ordre de paiement'], fields: ['reference', 'referenceBcOuContrat'], desc: 'N° BC/contrat cite dans l\'OP' },
+          R09: { docs: ['Facture', 'Attestation fiscale'], fields: ['ice'], desc: 'ICE identique entre documents' },
+          R10: { docs: ['Facture', 'Attestation fiscale'], fields: ['identifiantFiscal'], desc: 'IF identique entre documents' },
+          R11: { docs: ['Facture', 'Ordre de paiement'], fields: ['rib'], desc: 'RIB identique (espaces ignores)' },
+          R12: { docs: ['Checklist autocontrole'], fields: ['points[].estValide'], desc: 'Tous les points de la checklist valides' },
+          R13: { docs: ['Tableau de controle'], fields: ['points[].observation'], desc: 'Tous les points Conforme ou NA' },
+          R14: { docs: ['Facture', 'BC', 'OP', 'Checklist'], fields: ['fournisseur'], desc: 'Nom fournisseur coherent partout' },
+          R15: { docs: ['Contrat/Avenant', 'Facture', 'PV reception'], fields: ['grillesTarifaires', 'montantHt', 'periode'], desc: 'Grille tarifaire x duree = HT facture' },
+          R17a: { docs: ['BC / Contrat', 'Facture'], fields: ['date'], desc: 'Date BC/contrat <= date facture' },
+          R17b: { docs: ['Facture', 'Ordre de paiement'], fields: ['date'], desc: 'Date facture <= date OP' },
+          R18: { docs: ['Attestation fiscale'], fields: ['dateEdition'], desc: 'Attestation valide 6 mois' },
+          R20: { docs: ['Tous les documents'], fields: ['typeDocument'], desc: 'Pieces obligatoires presentes' },
+        }
+
+        // Sort by rule code, deduplicate
+        const seen = new Set<string>()
+        const sorted = [...dossier.resultatsValidation]
+          .sort((a, b) => {
+            const na = parseInt(a.regle.replace(/\D/g, '')) || 0
+            const nb = parseInt(b.regle.replace(/\D/g, '')) || 0
+            return na !== nb ? na - nb : a.regle.localeCompare(b.regle)
+          })
+          .filter(r => { const k = `${r.regle}:${r.libelle}`; if (seen.has(k)) return false; seen.add(k); return true })
+
+        return (
         <div className="card">
           <h2>
             <ShieldCheck size={14} /> Verification croisee
@@ -704,11 +738,12 @@ export default function DossierDetail() {
             </span>
           </h2>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 4 }}>
-            {dossier.resultatsValidation.map((r, i) => {
+            {sorted.map((r, i) => {
               const chk = CHECK_ICONS[r.statut]
               const cls = r.statut === 'NON_CONFORME' ? 'fail' : r.statut === 'AVERTISSEMENT' ? 'warn' : ''
+              const prov = RULE_PROVENANCE[r.regle]
               return (
-                <div key={i} className={`validation-item ${cls}`}>
+                <div key={i} className={`validation-item ${cls} provenance-trigger`} tabIndex={0}>
                   <span style={{ color: chk.color, fontWeight: 800, fontSize: 15, width: 22, flexShrink: 0, textAlign: 'center' }}>{chk.icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>
@@ -716,19 +751,47 @@ export default function DossierDetail() {
                       {r.libelle}
                     </div>
                     {r.detail && <div style={{ fontSize: 12, color: 'var(--ink-50)', marginTop: 2 }}>{r.detail}</div>}
-                    {r.valeurAttendue && r.valeurTrouvee && r.statut === 'NON_CONFORME' && (
+                    {r.valeurAttendue != null && r.valeurTrouvee != null && r.statut === 'NON_CONFORME' && (
                       <div style={{ fontSize: 11, marginTop: 4, color: 'var(--danger)', fontFamily: 'var(--font-mono)' }}>
                         Attendu: {r.valeurAttendue} | Trouve: {r.valeurTrouvee}
                       </div>
                     )}
                   </div>
-                  <span className="tag" style={{ fontSize: 9 }}>{r.source}</span>
+                  <span className={`prov-badge ${r.source.toLowerCase()}`}>{r.source}</span>
+
+                  {/* Provenance popover */}
+                  {prov && (
+                    <div className="provenance-pop">
+                      <div className="provenance-pop-title">Provenance — {r.regle}</div>
+                      <div className="provenance-row">
+                        <span className="provenance-row-label">Regle</span>
+                        <span className="provenance-row-value">{prov.desc}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="provenance-row-label">Source</span>
+                        <span className="provenance-row-value">{prov.docs.join(' ↔ ')}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="provenance-row-label">Champs</span>
+                        <span className="provenance-row-value">{prov.fields.map(f => <code key={f} style={{ background: 'rgba(255,255,255,0.06)', padding: '1px 4px', borderRadius: 3, marginRight: 4, fontSize: 10 }}>{f}</code>)}</span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="provenance-row-label">Moteur</span>
+                        <span className="provenance-row-value"><span className={`prov-badge ${r.source.toLowerCase()}`}>{r.source}</span></span>
+                      </div>
+                      <div className="provenance-row">
+                        <span className="provenance-row-label">Resultat</span>
+                        <span className="provenance-row-value"><span className={`prov-badge ${r.statut === 'CONFORME' ? 'conforme' : r.statut === 'NON_CONFORME' ? 'non-conforme' : 'avertissement'}`}>{r.statut}</span></span>
+                      </div>
+                    </div>
+                  )}
                 </div>
               )
             })}
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Audit log */}
       {audit.length > 0 && (
