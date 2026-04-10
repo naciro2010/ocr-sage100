@@ -105,6 +105,28 @@ export async function getAuditLog(dossierId: string): Promise<AuditEntry[]> {
   return handleResponse(res)
 }
 
+export async function finalizeDossier(dossierId: string, data: {
+  points: Array<{ description: string; observation: string; commentaire?: string }>
+  signataire: string
+  signatureBase64?: string
+  commentaireGeneral?: string
+}): Promise<{ tcDocId: string; opDocId: string; reference: string }> {
+  const res = await fetch(`${BASE}/${dossierId}/finalize`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(data),
+  })
+  return handleResponse(res)
+}
+
+export function getExportTCUrl(dossierId: string): string {
+  return `${API_URL}/api/dossiers/${dossierId}/export/tc`
+}
+
+export function getExportOPUrl(dossierId: string): string {
+  return `${API_URL}/api/dossiers/${dossierId}/export/op`
+}
+
 export function getDocumentFileUrl(dossierId: string, docId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file`
 }

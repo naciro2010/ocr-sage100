@@ -5,6 +5,7 @@ import com.madaef.recondoc.entity.dossier.DossierType
 import com.madaef.recondoc.entity.dossier.StatutDossier
 import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.service.DossierService
+import com.madaef.recondoc.service.FinalizeRequest
 import com.madaef.recondoc.service.DocumentProgressService
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
@@ -154,5 +155,28 @@ class DossierController(
         @PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable
     ): Page<DossierListResponse> {
         return dossierService.searchDossiers(statut, type, fournisseur, pageable)
+    }
+
+    @PostMapping("/{id}/finalize")
+    fun finalize(@PathVariable id: UUID, @RequestBody request: FinalizeRequest): Map<String, Any> {
+        return dossierService.finalizeDossier(id, request)
+    }
+
+    @GetMapping("/{id}/export/tc", produces = [MediaType.APPLICATION_PDF_VALUE])
+    fun exportTC(@PathVariable id: UUID): ResponseEntity<ByteArray> {
+        val pdf = dossierService.exportTC(id)
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"TC_${id}.pdf\"")
+            .body(pdf)
+    }
+
+    @GetMapping("/{id}/export/op", produces = [MediaType.APPLICATION_PDF_VALUE])
+    fun exportOP(@PathVariable id: UUID): ResponseEntity<ByteArray> {
+        val pdf = dossierService.exportOP(id)
+        return ResponseEntity.ok()
+            .contentType(MediaType.APPLICATION_PDF)
+            .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"OP_${id}.pdf\"")
+            .body(pdf)
     }
 }

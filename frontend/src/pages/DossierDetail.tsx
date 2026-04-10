@@ -292,6 +292,11 @@ export default function DossierDetail() {
               <Ban size={15} /> Rejeter
             </button>
           )}
+          {dossier.resultatsValidation.length > 0 && dossier.statut !== 'VALIDE' && (
+            <Link to={`/dossiers/${id}/finalize`} className="btn btn-primary" style={{ textDecoration: 'none', background: 'linear-gradient(135deg, var(--accent-deep), var(--accent))' }}>
+              <FileText size={15} /> Finaliser
+            </Link>
+          )}
           {(dossier.statut === 'VALIDE' || dossier.statut === 'REJETE') && (
             <button className="btn btn-secondary" onClick={() => handleStatut('BROUILLON')}>
               Reouvrir

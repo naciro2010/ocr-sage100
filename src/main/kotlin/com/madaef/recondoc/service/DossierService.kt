@@ -43,6 +43,7 @@ class DossierService(
     private val validationEngine: ValidationEngine,
     private val eventPublisher: ApplicationEventPublisher,
     private val progressService: DocumentProgressService,
+    private val pdfGenerator: PdfGeneratorService,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
@@ -333,6 +334,66 @@ class DossierService(
         val results = validationEngine.validate(dossier)
         audit(dossierId, "VALIDATION", "${results.size} regles executees")
         return results
+    }
+
+    @Transactional
+    fun finalizeDossier(dossierId: UUID, request: FinalizeRequest): Map<String, Any> {
+        val dossier = getDossierFull(dossierId)
+        log.info("Finalizing dossier {} with {} points", dossier.reference, request.points.size)
+
+        // Generate TC PDF
+        val tcPdf = pdfGenerator.generateTC(dossier, request)
+        val tcPath = Path.of(uploadDir, dossierId.toString(), "TC_${dossier.reference}.pdf")
+        Files.createDirectories(tcPath.parent)
+        Files.write(tcPath, tcPdf)
+        val tcDoc = Document(
+            dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE,
+            nomFichier = "TC_${dossier.reference}.pdf", cheminFichier = tcPath.toString(),
+            statutExtraction = StatutExtraction.EXTRAIT
+        )
+        documentRepo.save(tcDoc)
+
+        // Generate OP PDF
+        val opPdf = pdfGenerator.generateOP(dossier, request)
+        val opPath = Path.of(uploadDir, dossierId.toString(), "OP_${dossier.reference}.pdf")
+        Files.write(opPath, opPdf)
+        val opDoc = Document(
+            dossier = dossier, typeDocument = TypeDocument.ORDRE_PAIEMENT,
+            nomFichier = "OP_${dossier.reference}.pdf", cheminFichier = opPath.toString(),
+            statutExtraction = StatutExtraction.EXTRAIT
+        )
+        documentRepo.save(opDoc)
+
+        // Update dossier status
+        dossier.statut = StatutDossier.VALIDE
+        dossier.dateValidation = java.time.LocalDateTime.now()
+        dossier.validePar = request.signataire
+
+        audit(dossierId, "FINALISATION", "TC + OP generes, signe par ${request.signataire}")
+
+        return mapOf(
+            "tcDocId" to tcDoc.id.toString(),
+            "opDocId" to opDoc.id.toString(),
+            "reference" to dossier.reference
+        )
+    }
+
+    fun exportTC(dossierId: UUID): ByteArray {
+        val dossier = getDossierFull(dossierId)
+        val defaultRequest = FinalizeRequest(
+            points = dossier.resultatsValidation.map { ControlPoint(it.libelle, it.statut.name, it.detail) },
+            signataire = dossier.validePar ?: "Non signe"
+        )
+        return pdfGenerator.generateTC(dossier, defaultRequest)
+    }
+
+    fun exportOP(dossierId: UUID): ByteArray {
+        val dossier = getDossierFull(dossierId)
+        val defaultRequest = FinalizeRequest(
+            points = emptyList(),
+            signataire = dossier.validePar ?: "Non signe"
+        )
+        return pdfGenerator.generateOP(dossier, defaultRequest)
     }
 
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {

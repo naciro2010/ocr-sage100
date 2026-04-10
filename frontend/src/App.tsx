@@ -7,6 +7,7 @@ const Dashboard = lazy(() => import('./pages/Dashboard'))
 const DossierList = lazy(() => import('./pages/DossierList'))
 const DossierDetail = lazy(() => import('./pages/DossierDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
+const Finalize = lazy(() => import('./pages/Finalize'))
 
 export default function App() {
   return (
@@ -18,6 +19,7 @@ export default function App() {
               <Route path="/" element={<Dashboard />} />
               <Route path="/dossiers" element={<DossierList />} />
               <Route path="/dossiers/:id" element={<DossierDetail />} />
+              <Route path="/dossiers/:id/finalize" element={<Finalize />} />
               <Route path="/settings" element={<Settings />} />
             </Route>
           </Routes>
