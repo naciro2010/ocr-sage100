@@ -21,7 +21,7 @@ export default function Dashboard() {
   useEffect(() => {
     const ctrl = new AbortController()
     getDashboardStats(ctrl.signal).then(setStats).catch(() => setStats({ total: 0, brouillons: 0, enVerification: 0, valides: 0, rejetes: 0, montantTotal: 0 }))
-    listDossiers(0, 5).then(d => setRecent(d.content)).catch(() => {})
+    listDossiers(0, 5).then(d => { if (!ctrl.signal.aborted) setRecent(d.content) }).catch(() => {})
     return () => ctrl.abort()
   }, [])
 
