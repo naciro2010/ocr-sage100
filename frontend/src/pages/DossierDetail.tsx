@@ -469,17 +469,126 @@ export default function DossierDetail() {
             {showPdf && id && <div className="pdf-viewer"><iframe src={getDocumentFileUrl(id, selectedDoc.id)} title={selectedDoc.nomFichier} /></div>}
           </div>
           <div className="card">
-            <h2><ExternalLink size={14} /> Donnees extraites</h2>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <h2 style={{ marginBottom: 0 }}><ExternalLink size={14} /> Donnees extraites</h2>
+              <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                <span className="data-field-source ocr" style={{ fontSize: 9 }}>OCR</span>
+                <span className="data-field-source ai" style={{ fontSize: 9 }}>IA</span>
+                <span style={{ fontSize: 10, color: 'var(--ink-30)' }}>Cliquez sur une valeur pour corriger</span>
+              </div>
+            </div>
             {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
             {(() => {
               const data = getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites
-              if (!data) return <p style={{ color: 'var(--slate-400)', fontSize: 13 }}>Aucune donnee extraite</p>
+              if (!data) return <p style={{ color: 'var(--ink-30)', fontSize: 13 }}>Aucune donnee extraite</p>
+
+              // Separate scalar fields, arrays (like points/lignes), and objects
+              const scalars = Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object')
+              const points = (data['points'] as Array<Record<string, unknown>> | undefined) || []
+              const lignes = (data['lignes'] as Array<Record<string, unknown>> | undefined) || []
+              const pieces = (data['pieces'] as Array<Record<string, unknown>> | undefined) || []
+              const isLlmExtracted = scalars.length > 3
+
               return (
-                <table className="kv-table"><tbody>
-                  {Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
-                    <tr key={k}><td>{k}</td><td>{String(v)}</td></tr>
-                  ))}
-                </tbody></table>
+                <>
+                  {/* Scalar fields with inline edit */}
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
+                    {scalars.map(([k, v]) => (
+                      <div key={k} className="data-field">
+                        <span className="data-field-key">{k}</span>
+                        <span
+                          className="data-field-value"
+                          contentEditable
+                          suppressContentEditableWarning
+                          onBlur={e => {
+                            const newVal = e.currentTarget.textContent || ''
+                            if (newVal !== String(v)) {
+                              toast('info', `${k}: ${String(v)} → ${newVal}`)
+                            }
+                          }}
+                        >{String(v)}</span>
+                        <span className={`data-field-source ${isLlmExtracted ? 'ai' : 'ocr'}`}>
+                          {isLlmExtracted ? 'IA' : 'OCR'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+
+                  {/* Checklist points */}
+                  {points.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+                        Points de controle ({points.length})
+                      </div>
+                      {points.map((pt, i) => {
+                        const isValid = pt.estValide === true
+                        const isFalse = pt.estValide === false
+                        return (
+                          <div key={i} className="check-point">
+                            <span className="check-point-num">{pt.numero != null ? String(pt.numero) : String(i + 1)}</span>
+                            <span className={`check-point-icon ${isValid ? 'pass' : isFalse ? 'fail' : 'na'}`}>
+                              {isValid ? '✓' : isFalse ? '✗' : '—'}
+                            </span>
+                            <div className="check-point-body">
+                              <div className="check-point-label">{String(pt.description || pt.designation || `Point ${i + 1}`)}</div>
+                              {pt.observation != null && <div className="check-point-obs">{String(pt.observation)}</div>}
+                            </div>
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )}
+
+                  {/* Checklist pieces */}
+                  {pieces.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+                        Pieces justificatives ({pieces.length})
+                      </div>
+                      {pieces.map((pc, i) => (
+                        <div key={i} className="check-point">
+                          <span className={`check-point-icon ${pc.estPresent ? 'pass' : pc.estPresent === false ? 'fail' : 'na'}`}>
+                            {pc.estPresent ? '✓' : pc.estPresent === false ? '✗' : '?'}
+                          </span>
+                          <div className="check-point-body">
+                            <div className="check-point-label">{String(pc.designation || `Piece ${i + 1}`)}</div>
+                            {pc.observation != null && <div className="check-point-obs">{String(pc.observation)}</div>}
+                          </div>
+                          <span className="tag" style={{ fontSize: 9 }}>{pc.original ? 'Original' : 'Copie'}</span>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  {/* Line items */}
+                  {lignes.length > 0 && (
+                    <div style={{ marginTop: 14 }}>
+                      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+                        Lignes ({lignes.length})
+                      </div>
+                      <table className="data-table">
+                        <thead>
+                          <tr>
+                            <th>Designation</th>
+                            <th>Qte</th>
+                            <th>PU HT</th>
+                            <th>Total HT</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {lignes.map((ln, i) => (
+                            <tr key={i}>
+                              <td>{String(ln.designation || ln.codeArticle || '—')}</td>
+                              <td className="cell-mono">{ln.quantite != null ? String(ln.quantite) : '—'}</td>
+                              <td className="cell-mono">{ln.prixUnitaireHT != null ? String(ln.prixUnitaireHT) : '—'}</td>
+                              <td className="cell-mono">{ln.montantTotalHT != null ? String(ln.montantTotalHT) : '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  )}
+                </>
               )
             })()}
           </div>
