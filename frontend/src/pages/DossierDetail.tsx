@@ -179,6 +179,35 @@ export default function DossierDetail() {
     }
   }
 
+  const fmt = useCallback((n: number | null | undefined) => n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014', [])
+
+  const { nbConformes, nbNonConformes, nbWarn } = useMemo(() => {
+    if (!dossier) return { nbConformes: 0, nbNonConformes: 0, nbWarn: 0 }
+    let conformes = 0, nonConformes = 0, warn = 0
+    for (const r of dossier.resultatsValidation) {
+      if (r.statut === 'CONFORME') conformes++
+      else if (r.statut === 'NON_CONFORME') nonConformes++
+      else if (r.statut === 'AVERTISSEMENT') warn++
+    }
+    return { nbConformes: conformes, nbNonConformes: nonConformes, nbWarn: warn }
+  }, [dossier])
+
+  const hasProcessing = useMemo(() => dossier?.documents.some(d => d.statutExtraction === 'EN_COURS') ?? false, [dossier])
+
+  const dataTypeMap = useMemo<Record<string, Record<string, unknown> | null>>(() => {
+    if (!dossier) return {} as Record<string, Record<string, unknown> | null>
+    return {
+      FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
+      CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
+      CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
+      PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
+    }
+  }, [dossier])
+
+  const getDataForType = useCallback((type: TypeDocument): Record<string, unknown> | null => {
+    return dataTypeMap[type] || null
+  }, [dataTypeMap])
+
   const copyRef = () => {
     if (!dossier) return
     navigator.clipboard.writeText(dossier.reference)
@@ -189,30 +218,6 @@ export default function DossierDetail() {
   if (!dossier) return <div className="loading">Chargement...</div>
 
   const cfg = STATUT_CONFIG[dossier.statut]
-  const fmt = useCallback((n: number | null | undefined) => n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014', [])
-
-  const { nbConformes, nbNonConformes, nbWarn } = useMemo(() => {
-    let conformes = 0, nonConformes = 0, warn = 0
-    for (const r of dossier.resultatsValidation) {
-      if (r.statut === 'CONFORME') conformes++
-      else if (r.statut === 'NON_CONFORME') nonConformes++
-      else if (r.statut === 'AVERTISSEMENT') warn++
-    }
-    return { nbConformes: conformes, nbNonConformes: nonConformes, nbWarn: warn }
-  }, [dossier.resultatsValidation])
-
-  const hasProcessing = useMemo(() => dossier.documents.some(d => d.statutExtraction === 'EN_COURS'), [dossier.documents])
-
-  const dataTypeMap = useMemo<Record<string, Record<string, unknown> | null>>(() => ({
-    FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
-    CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
-    CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
-    PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
-  }), [dossier.facture, dossier.bonCommande, dossier.contratAvenant, dossier.ordrePaiement, dossier.checklistAutocontrole, dossier.tableauControle, dossier.pvReception, dossier.attestationFiscale])
-
-  const getDataForType = useCallback((type: TypeDocument): Record<string, unknown> | null => {
-    return dataTypeMap[type] || null
-  }, [dataTypeMap])
 
   const extractionBadge = (doc: DocumentInfo) => {
     const statut = doc.statutExtraction
