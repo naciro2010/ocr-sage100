@@ -721,6 +721,114 @@ body {
 .doc-card-progress-bar.done { width: 100%; background: var(--success); }
 .doc-card-progress-bar.error { width: 100%; background: var(--danger); }
 
+/* ===== Document Pipeline ===== */
+.doc-pipeline {
+  padding: 10px 12px;
+  border: 1px solid var(--ink-05);
+  border-radius: 8px;
+  background: #fff;
+  transition: all 0.15s;
+}
+.doc-pipeline:hover {
+  border-color: var(--ink-10);
+  box-shadow: 0 2px 12px rgba(0,0,0,0.03);
+}
+.doc-pipeline-header {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  margin-bottom: 10px;
+}
+.doc-pipeline-name {
+  font-size: 11px; font-weight: 600;
+  color: var(--ink); max-width: 200px;
+  overflow: hidden; text-overflow: ellipsis;
+  white-space: nowrap;
+}
+.doc-pipeline-type {
+  font-size: 9px; font-weight: 700;
+  font-family: var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--accent-deep);
+  background: var(--accent-muted);
+  padding: 1px 6px; border-radius: 3px;
+}
+.doc-pipeline-steps {
+  display: flex; align-items: center;
+}
+.doc-pipeline-step-wrap {
+  display: flex; align-items: center;
+}
+.doc-pipeline-connector {
+  width: 20px; height: 2px;
+  background: var(--ink-10);
+  position: relative; overflow: visible;
+  transition: background 0.3s;
+}
+.doc-pipeline-connector.done {
+  background: var(--success);
+}
+.doc-pipeline-connector.active {
+  background: var(--ink-10);
+}
+@keyframes pipelinePulse {
+  0% { left: -6px; opacity: 0; }
+  30% { opacity: 1; }
+  100% { left: calc(100% + 2px); opacity: 0; }
+}
+.doc-pipeline-pulse {
+  position: absolute;
+  top: -2px; left: -6px;
+  width: 6px; height: 6px;
+  border-radius: 50%;
+  background: var(--accent);
+  box-shadow: 0 0 6px var(--accent), 0 0 12px rgba(16,185,129,0.3);
+  animation: pipelinePulse 1.2s ease infinite;
+}
+.doc-pipeline-step {
+  display: flex; align-items: center; gap: 4px;
+  padding: 3px 8px; border-radius: 12px;
+  font-size: 10px; font-weight: 600;
+  font-family: var(--font-mono);
+  letter-spacing: 0.3px;
+  transition: all 0.25s;
+  white-space: nowrap;
+}
+.doc-pipeline-step.pending {
+  color: var(--ink-30);
+  background: transparent;
+}
+.doc-pipeline-step.active {
+  color: var(--info);
+  background: var(--info-bg);
+  box-shadow: 0 0 0 1px rgba(59,130,246,0.1);
+}
+.doc-pipeline-step.done {
+  color: var(--success);
+  background: var(--success-bg);
+}
+.doc-pipeline-step.error {
+  color: var(--danger);
+  background: var(--danger-bg);
+}
+.doc-pipeline-icon {
+  display: flex; align-items: center;
+}
+.doc-pipeline-label {
+  display: none;
+}
+.doc-pipeline-step.active .doc-pipeline-label,
+.doc-pipeline-step.done .doc-pipeline-label,
+.doc-pipeline-step.error .doc-pipeline-label {
+  display: inline;
+}
+.doc-pipeline-error {
+  margin-top: 6px;
+  font-size: 10px; color: var(--danger);
+  display: flex; align-items: center; gap: 4px;
+  line-height: 1.3;
+}
+
 /* ===== Provenance Popover ===== */
 .provenance-trigger {
   position: relative; cursor: pointer;

@@ -7,6 +7,7 @@ import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import ValidationPanel from '../components/ValidationPanel'
+import DocumentPipeline from '../components/DocumentPipeline'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
   Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye, Clock,
@@ -457,6 +458,15 @@ export default function DossierDetail() {
             <Upload size={32} /><div style={{ marginTop: 8 }}>Deposez vos PDFs ici</div>
           </div>
         )}
+        {/* Processing pipelines */}
+        {dossier.documents.some(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS') && (
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
+            {dossier.documents
+              .filter(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS')
+              .map(doc => <DocumentPipeline key={doc.id} doc={doc} />)}
+          </div>
+        )}
+
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
           {dossier.documents.map(doc => (
             <div key={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
