@@ -163,7 +163,15 @@ class DossierService(
 
     @Transactional
     fun deleteDossier(id: UUID) {
-        audit(id, "SUPPRESSION")
+        // Clean up child entities manually to avoid FK issues with corrupted data
+        factureRepo.findByDossierId(id)?.let { factureRepo.delete(it) }
+        bcRepo.findByDossierId(id)?.let { bcRepo.delete(it) }
+        contratRepo.findByDossierId(id)?.let { contratRepo.delete(it) }
+        opRepo.findByDossierId(id)?.let { opRepo.delete(it) }
+        checklistRepo.findByDossierId(id)?.let { checklistRepo.delete(it) }
+        tableauRepo.findByDossierId(id)?.let { tableauRepo.delete(it) }
+        pvRepo.findByDossierId(id)?.let { pvRepo.delete(it) }
+        arfRepo.findByDossierId(id)?.let { arfRepo.delete(it) }
         dossierRepo.deleteById(id)
     }
 
