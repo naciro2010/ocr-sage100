@@ -10,6 +10,7 @@ import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
+import org.springframework.context.ApplicationEventPublisher
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.stereotype.Service
@@ -40,6 +41,7 @@ class DossierService(
     private val llmService: LlmExtractionService,
     private val ocrService: OcrService,
     private val validationEngine: ValidationEngine,
+    private val eventPublisher: ApplicationEventPublisher,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
@@ -186,30 +188,16 @@ class DossierService(
             val filePath = uploadPath.resolve(fileName)
             file.transferTo(filePath)
 
-            // Extract text from the file on disk (not from stream - already consumed by transferTo)
-            // This uses the full OCR cascade: Tika → PaddleOCR → Tesseract
-            val rawText = try {
-                val result = ocrService.extractWithDetails(
-                    Files.newInputStream(filePath), file.originalFilename ?: "doc.pdf", filePath
-                )
-                log.info("Extracted {} chars from {} via {}", result.text.length, file.originalFilename, result.engine)
-                result.text
-            } catch (e: Exception) {
-                log.warn("Text extraction failed for {}: {}", file.originalFilename, e.message)
-                ""
-            }
-
             val doc = Document(
                 dossier = dossier,
-                typeDocument = typeDocument ?: TypeDocument.FACTURE,
+                typeDocument = typeDocument ?: TypeDocument.INCONNU,
                 nomFichier = file.originalFilename ?: "unknown",
-                cheminFichier = filePath.toString(),
-                texteExtrait = rawText.ifBlank { null }
+                cheminFichier = filePath.toString()
             )
             documentRepo.save(doc)
 
-            // Process immediately (classify + LLM extract) using the text we already have
-            processDocumentWithText(doc, rawText)
+            // Publish event — processing happens async in DocumentEventListener
+            eventPublisher.publishEvent(DocumentUploadedEvent(doc.id!!, dossierId))
 
             doc
         }.also {
