@@ -245,6 +245,12 @@ class DossierService(
             doc.typeDocument = detectedType
             log.info("Document {} classified as {}", doc.nomFichier, detectedType)
 
+            if (detectedType == TypeDocument.INCONNU) {
+                doc.statutExtraction = StatutExtraction.EXTRAIT
+                doc.erreurExtraction = "Type de document non reconnu - a classer manuellement"
+                return
+            }
+
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
@@ -516,8 +522,31 @@ class DossierService(
 
     private fun toBigDecimal(v: Any?): BigDecimal? = when (v) {
         is Number -> BigDecimal(v.toString())
-        is String -> v.toBigDecimalOrNull()
+        is String -> parseMonetaryAmount(v)
         else -> null
+    }
+
+    private fun parseMonetaryAmount(raw: String): BigDecimal? {
+        if (raw.isBlank()) return null
+        // Strip currency symbols, spaces (including non-breaking), and thousands separators
+        var s = raw.trim()
+            .replace(Regex("[\\s\\u00A0]+"), "") // all whitespace including non-breaking
+            .replace(Regex("[A-Za-z]"), "")       // currency letters (MAD, DH, EUR)
+            .replace("'", "")                     // Swiss thousands separator
+            .trim()
+        if (s.isEmpty()) return null
+        // Determine decimal separator: if both , and . exist, last one is decimal
+        val lastComma = s.lastIndexOf(',')
+        val lastDot = s.lastIndexOf('.')
+        if (lastComma > lastDot) {
+            // 1.234,56 or 1234,56 → comma is decimal
+            s = s.replace(".", "").replace(",", ".")
+        } else if (lastDot > lastComma) {
+            // 1,234.56 or 1234.56 → dot is decimal
+            s = s.replace(",", "")
+        }
+        // else: only one or neither → standard parse
+        return s.toBigDecimalOrNull()
     }
 
     private inline fun <reified T : Enum<T>> parseEnum(value: String?, default: T): T {
@@ -530,9 +559,10 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
-    fun getDocumentFile(documentId: UUID): Pair<String, String> {
+    fun getDocumentFile(dossierId: UUID, documentId: UUID): Pair<String, String> {
         val doc = documentRepo.findById(documentId)
             .orElseThrow { NoSuchElementException("Document not found: $documentId") }
+        if (doc.dossier.id != dossierId) throw NoSuchElementException("Document $documentId does not belong to dossier $dossierId")
         val path = Path.of(doc.cheminFichier)
         if (!Files.exists(path)) throw NoSuchElementException("File not found on disk: ${doc.cheminFichier}")
         return Pair(doc.cheminFichier, doc.nomFichier)

@@ -73,14 +73,7 @@ class DossierController(private val dossierService: DossierService) {
         @RequestParam("files") files: List<MultipartFile>,
         @RequestParam("type", required = false) type: TypeDocument?
     ): List<DocumentResponse> {
-        val docs = dossierService.uploadDocuments(id, files, type)
-        for (doc in docs) {
-            try {
-                dossierService.processDocument(doc.id!!)
-            } catch (e: Exception) {
-                log.error("Processing failed for document {} in dossier {}: {}", doc.nomFichier, id, e.message)
-            }
-        }
+        dossierService.uploadDocuments(id, files, type)
         return dossierService.getDossierResponse(id).documents
     }
 
@@ -122,7 +115,7 @@ class DossierController(private val dossierService: DossierService) {
 
     @GetMapping("/{id}/documents/{docId}/file")
     fun downloadDocumentFile(@PathVariable id: UUID, @PathVariable docId: UUID): ResponseEntity<Resource> {
-        val (filePath, fileName) = dossierService.getDocumentFile(docId)
+        val (filePath, fileName) = dossierService.getDocumentFile(id, docId)
         val resource = FileSystemResource(filePath)
         val contentType = when {
             fileName.endsWith(".pdf", true) -> MediaType.APPLICATION_PDF

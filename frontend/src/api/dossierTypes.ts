@@ -1,6 +1,6 @@
 export type DossierType = 'BC' | 'CONTRACTUEL'
 export type StatutDossier = 'BROUILLON' | 'EN_VERIFICATION' | 'VALIDE' | 'REJETE'
-export type TypeDocument = 'FACTURE' | 'BON_COMMANDE' | 'CONTRAT_AVENANT' | 'ORDRE_PAIEMENT' | 'CHECKLIST_AUTOCONTROLE' | 'CHECKLIST_PIECES' | 'TABLEAU_CONTROLE' | 'PV_RECEPTION' | 'ATTESTATION_FISCALE' | 'FORMULAIRE_FOURNISSEUR'
+export type TypeDocument = 'FACTURE' | 'BON_COMMANDE' | 'CONTRAT_AVENANT' | 'ORDRE_PAIEMENT' | 'CHECKLIST_AUTOCONTROLE' | 'CHECKLIST_PIECES' | 'TABLEAU_CONTROLE' | 'PV_RECEPTION' | 'ATTESTATION_FISCALE' | 'FORMULAIRE_FOURNISSEUR' | 'INCONNU'
 export type StatutExtraction = 'EN_ATTENTE' | 'EN_COURS' | 'EXTRAIT' | 'ERREUR'
 export type StatutCheck = 'CONFORME' | 'NON_CONFORME' | 'AVERTISSEMENT' | 'NON_APPLICABLE'
 
@@ -101,6 +101,7 @@ export const TYPE_DOCUMENT_LABELS: Record<TypeDocument, string> = {
   PV_RECEPTION: 'PV de reception',
   ATTESTATION_FISCALE: 'Attestation fiscale',
   FORMULAIRE_FOURNISSEUR: 'Formulaire fournisseur',
+  INCONNU: 'A classer',
 }
 
 export const STATUT_CONFIG: Record<StatutDossier, { label: string; color: string; bg: string }> = {

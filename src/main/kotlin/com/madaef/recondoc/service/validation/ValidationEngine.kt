@@ -37,6 +37,40 @@ class ValidationEngine(
         val results = mutableListOf<ResultatValidation>()
         val tol = BigDecimal(toleranceMontant)
 
+        // R20 — Completude dossier: verification des pieces obligatoires
+        run {
+            val docTypes = dossier.documents.map { it.typeDocument }.toSet()
+            val required = when (dossier.type) {
+                DossierType.BC -> listOf(
+                    TypeDocument.FACTURE to "Facture",
+                    TypeDocument.BON_COMMANDE to "Bon de commande",
+                    TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
+                    TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
+                    TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
+                )
+                DossierType.CONTRACTUEL -> listOf(
+                    TypeDocument.FACTURE to "Facture",
+                    TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
+                    TypeDocument.PV_RECEPTION to "PV de reception",
+                    TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
+                    TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
+                )
+            }
+            val missing = required.filter { it.first !in docTypes }
+            val present = required.size - missing.size
+            results += ResultatValidation(
+                dossier = dossier, regle = "R20",
+                libelle = "Completude dossier (${present}/${required.size} pieces)",
+                statut = when {
+                    missing.isEmpty() -> StatutCheck.CONFORME
+                    missing.size <= 2 -> StatutCheck.AVERTISSEMENT
+                    else -> StatutCheck.NON_CONFORME
+                },
+                detail = if (missing.isEmpty()) "Toutes les pieces obligatoires sont presentes"
+                    else "Manquant: ${missing.joinToString(", ") { it.second }}"
+            )
+        }
+
         val facture = dossier.facture
         val bc = dossier.bonCommande
         val op = dossier.ordrePaiement

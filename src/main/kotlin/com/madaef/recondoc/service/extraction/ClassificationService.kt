@@ -55,8 +55,8 @@ class ClassificationService(
             log.warn("LLM classification failed: {}", e.message)
         }
 
-        log.warn("Could not classify document, defaulting to FACTURE")
-        return TypeDocument.FACTURE
+        log.warn("Could not classify document, marking as INCONNU for manual review")
+        return TypeDocument.INCONNU
     }
 
     private fun classifyByKeywords(text: String): TypeDocument? {
