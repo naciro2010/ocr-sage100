@@ -168,6 +168,7 @@ class DossierController(
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_PDF)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"TC_${id}.pdf\"")
+            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
             .body(pdf)
     }
 
@@ -177,6 +178,7 @@ class DossierController(
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_PDF)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"OP_${id}.pdf\"")
+            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
             .body(pdf)
     }
 }

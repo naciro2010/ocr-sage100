@@ -24,7 +24,7 @@ export default function Finalize() {
   const [submitting, setSubmitting] = useState(false)
   const [result, setResult] = useState<{ tcDocId: string; opDocId: string } | null>(null)
   const canvasRef = useRef<HTMLCanvasElement>(null)
-  const [isDrawing, setIsDrawing] = useState(false)
+  const isDrawingRef = useRef(false)
   const [hasSigned, setHasSigned] = useState(false)
 
   useEffect(() => {
@@ -64,11 +64,11 @@ export default function Finalize() {
     const rect = canvas.getBoundingClientRect()
     ctx.beginPath()
     ctx.moveTo(e.clientX - rect.left, e.clientY - rect.top)
-    setIsDrawing(true)
+    isDrawingRef.current = true
   }, [])
 
   const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
-    if (!isDrawing) return
+    if (!isDrawingRef.current) return
     const canvas = canvasRef.current; if (!canvas) return
     const ctx = canvas.getContext('2d'); if (!ctx) return
     const rect = canvas.getBoundingClientRect()
@@ -76,7 +76,7 @@ export default function Finalize() {
     ctx.lineTo(e.clientX - rect.left, e.clientY - rect.top)
     ctx.stroke()
     setHasSigned(true)
-  }, [isDrawing])
+  }, [])
 
   const clearSignature = () => {
     const canvas = canvasRef.current; if (!canvas) return
@@ -135,22 +135,14 @@ export default function Finalize() {
                   className="form-input"
                   placeholder="Commentaire..."
                   value={pt.commentaire}
-                  onChange={e => {
-                    const updated = [...points]
-                    updated[i] = { ...updated[i], commentaire: e.target.value }
-                    setPoints(updated)
-                  }}
+                  onChange={e => setPoints(prev => prev.map((p, j) => j === i ? { ...p, commentaire: e.target.value } : p))}
                   style={{ fontSize: 11, padding: '4px 8px' }}
                 />
               </div>
               <select
                 className="form-select"
                 value={pt.observation}
-                onChange={e => {
-                  const updated = [...points]
-                  updated[i] = { ...updated[i], observation: e.target.value }
-                  setPoints(updated)
-                }}
+                onChange={e => setPoints(prev => prev.map((p, j) => j === i ? { ...p, observation: e.target.value } : p))}
                 style={{ fontSize: 11, width: 'auto', padding: '4px 8px', flexShrink: 0 }}
               >
                 <option value="Conforme">Conforme</option>
@@ -223,8 +215,8 @@ export default function Finalize() {
               }}
               onMouseDown={startDraw}
               onMouseMove={draw}
-              onMouseUp={() => setIsDrawing(false)}
-              onMouseLeave={() => setIsDrawing(false)}
+              onMouseUp={() => { isDrawingRef.current = false }}
+              onMouseLeave={() => { isDrawingRef.current = false }}
             />
             {hasSigned && (
               <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }} onClick={clearSignature}>
