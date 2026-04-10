@@ -39,7 +39,7 @@ async def lifespan(application: FastAPI):
     yield
 
 
-app = FastAPI(title="OCR Service", version="2.0.0", lifespan=lifespan)
+app = FastAPI(title="OCR Service", version="2.1.0", lifespan=lifespan)
 
 
 @app.get("/health")
