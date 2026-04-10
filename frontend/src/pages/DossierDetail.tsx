@@ -188,14 +188,28 @@ export default function DossierDetail() {
     return map[type] || null
   }
 
-  const extractionBadge = (statut: string) => {
-    const styles: Record<string, { bg: string; color: string; label: string }> = {
-      EXTRAIT: { bg: 'var(--emerald-50)', color: 'var(--emerald-600)', label: 'Extrait' },
-      ERREUR: { bg: 'var(--red-50)', color: 'var(--red-600)', label: 'Erreur' },
-      EN_COURS: { bg: 'var(--blue-50)', color: 'var(--blue-600)', label: 'En cours' },
+  const extractionBadge = (doc: DocumentInfo) => {
+    const statut = doc.statutExtraction
+    const hasData = doc.donneesExtraites && Object.keys(doc.donneesExtraites).length > 0
+    const fieldCount = hasData ? Object.values(doc.donneesExtraites!).filter(v => v !== null).length : 0
+
+    if (statut === 'EXTRAIT' && !hasData) {
+      return <span className="status-badge" style={{ background: 'var(--amber-50)', color: 'var(--amber-600)' }}>Texte seul</span>
     }
-    const s = styles[statut] || { bg: 'var(--slate-100)', color: 'var(--slate-500)', label: 'En attente' }
-    return <span className="status-badge" style={{ background: s.bg, color: s.color }}>{s.label}</span>
+    if (statut === 'EXTRAIT' && hasData) {
+      return <span className="status-badge" style={{ background: 'var(--success-bg)', color: 'var(--success)' }}>{fieldCount} champs</span>
+    }
+    if (statut === 'ERREUR') {
+      return (
+        <span className="status-badge" style={{ background: 'var(--danger-bg)', color: 'var(--danger)' }} title={doc.erreurExtraction || ''}>
+          Erreur
+        </span>
+      )
+    }
+    if (statut === 'EN_COURS') {
+      return <span className="status-badge" style={{ background: 'var(--info-bg)', color: 'var(--info)' }}>Extraction...</span>
+    }
+    return <span className="status-badge" style={{ background: 'var(--ink-05)', color: 'var(--ink-40)' }}>En attente</span>
   }
 
   const factureData = dossier.facture
@@ -411,9 +425,12 @@ export default function DossierDetail() {
               </div>
               <div style={{ fontSize: 11, color: 'var(--slate-500)', marginBottom: 6 }}>{doc.nomFichier}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
-                {extractionBadge(doc.statutExtraction)}
+                {extractionBadge(doc)}
                 {doc.statutExtraction === 'EN_COURS' && <Loader2 size={12} className="spin" style={{ color: 'var(--blue-600)' }} />}
               </div>
+              {doc.erreurExtraction && (
+                <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4, lineHeight: 1.3 }}>{doc.erreurExtraction}</div>
+              )}
               {doc.statutExtraction === 'ERREUR' && (
                 <button className="btn btn-secondary btn-sm" style={{ marginTop: 6 }}
                   onClick={(e) => { e.stopPropagation(); handleReprocess(doc.id) }}>
