@@ -228,15 +228,13 @@ export default function DossierList() {
                   <td><span className="status-badge" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span></td>
                   <td style={{ color: 'var(--slate-500)', fontSize: 12 }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
                   <td>
-                    {d.statut === 'BROUILLON' && (
-                      <button
-                        className="btn btn-danger btn-sm"
-                        onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
-                        title="Supprimer"
-                      >
-                        <Trash2 size={14} />
-                      </button>
-                    )}
+                    <button
+                      className="btn btn-danger btn-sm"
+                      onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
+                      title="Supprimer"
+                    >
+                      <Trash2 size={14} />
+                    </button>
                   </td>
                 </tr>
               )
