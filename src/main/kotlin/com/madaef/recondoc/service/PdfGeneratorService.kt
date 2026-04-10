@@ -56,9 +56,9 @@ class PdfGeneratorService {
             )
             for ((label, value) in headerData) {
                 cs.setFont(helveticaBold, 8f)
-                cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(label); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe(label)); cs.endText()
                 cs.setFont(helvetica, 9f)
-                cs.beginText(); cs.newLineAtOffset(margin + 130f, y); cs.showText(value); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin + 130f, y); cs.showText(safe(value)); cs.endText()
                 y -= 14f
             }
             y -= 15f
@@ -69,9 +69,9 @@ class PdfGeneratorService {
             cs.fill()
             cs.setNonStrokingColor(Color.WHITE)
             cs.setFont(helveticaBold, 7f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 10f); cs.showText("ELEMENTS CONTROLES"); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 170f, y - 10f); cs.showText("OBSERVATIONS"); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 80f, y - 10f); cs.showText("COMMENTAIRE"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 10f); cs.showText(safe("ELEMENTS CONTROLES")); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(w - margin - 170f, y - 10f); cs.showText(safe("OBSERVATIONS")); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(w - margin - 80f, y - 10f); cs.showText(safe("COMMENTAIRE")); cs.endText()
             cs.setNonStrokingColor(Color.BLACK)
             y -= 18f
 
@@ -97,18 +97,18 @@ class PdfGeneratorService {
                 cs.setFont(helveticaBold, 7f)
                 var textY = y - 10f
                 for (line in descLines) {
-                    cs.beginText(); cs.newLineAtOffset(margin + 4f, textY); cs.showText("${if (textY == y - 10f) "Point ${i + 1} : " else ""}$line"); cs.endText()
+                    cs.beginText(); cs.newLineAtOffset(margin + 4f, textY); cs.showText(safe("${if (textY == y - 10f) "Point ${i + 1} : " else ""}$line")); cs.endText()
                     textY -= 10f
                 }
 
                 // Observation
                 cs.setFont(helvetica, 8f)
-                cs.beginText(); cs.newLineAtOffset(w - margin - 160f, y - 10f); cs.showText(point.observation); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(w - margin - 160f, y - 10f); cs.showText(safe(point.observation)); cs.endText()
 
                 // Commentaire
                 if (!point.commentaire.isNullOrBlank()) {
                     cs.setFont(helvetica, 7f)
-                    cs.beginText(); cs.newLineAtOffset(w - margin - 75f, y - 10f); cs.showText(point.commentaire); cs.endText()
+                    cs.beginText(); cs.newLineAtOffset(w - margin - 75f, y - 10f); cs.showText(safe(point.commentaire)); cs.endText()
                 }
 
                 // Border
@@ -122,12 +122,12 @@ class PdfGeneratorService {
             // Signature
             y -= 20f
             cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText("Nom et Prenom"); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText("Signature"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Nom et Prenom")); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText(safe("Signature")); cs.endText()
             y -= 14f
             cs.setFont(helvetica, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(request.signataire); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText("Signe electroniquement le ${LocalDate.now().format(dateFormatter)}"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe(request.signataire)); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText(safe("Signe electroniquement le ${LocalDate.now().format(dateFormatter)}")); cs.endText()
 
             // Signature image
             if (!request.signatureBase64.isNullOrBlank()) {
@@ -169,8 +169,8 @@ class PdfGeneratorService {
             val opNum = op?.numeroOp ?: "___/____"
             val opDate = op?.dateEmission?.format(dateFormatter) ?: LocalDate.now().format(dateFormatter)
             cs.setFont(helveticaBold, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText("OP N° : $opNum"); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 150f, y); cs.showText("Date d'emission : $opDate"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("OP N° : $opNum")); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(w - margin - 150f, y); cs.showText(safe("Date d'emission : $opDate")); cs.endText()
             y -= 20f
 
             // Green header: Emetteur
@@ -179,7 +179,7 @@ class PdfGeneratorService {
             cs.fill()
             cs.setNonStrokingColor(Color.BLACK)
             cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText("Emetteur : Direction Comptabilite, Consolidation et Fiscalite"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText(safe("Emetteur : Direction Comptabilite, Consolidation et Fiscalite")); cs.endText()
             y -= 24f
 
             // Main content table
@@ -195,16 +195,16 @@ class PdfGeneratorService {
             )
             for ((label, value) in rows) {
                 cs.setFont(helveticaBold, 8f)
-                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(label); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(safe(label)); cs.endText()
                 cs.setFont(helvetica, 9f)
-                cs.beginText(); cs.newLineAtOffset(margin + 100f, y); cs.showText(value); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin + 100f, y); cs.showText(safe(value)); cs.endText()
                 y -= 14f
             }
             y -= 10f
 
             // Pieces justificatives
             cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText("Pieces justificatives jointes :"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Pieces justificatives jointes :")); cs.endText()
             y -= 12f
             cs.setFont(helvetica, 8f)
             val pieces = mutableListOf<String>()
@@ -214,7 +214,7 @@ class PdfGeneratorService {
             pieces.add("Check list d'auto controle + Check list des pieces justificatives")
             pieces.add("Tableau de controle")
             for (p in pieces) {
-                cs.beginText(); cs.newLineAtOffset(margin + 10f, y); cs.showText("- $p"); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin + 10f, y); cs.showText(safe("- $p")); cs.endText()
                 y -= 12f
             }
             y -= 10f
@@ -225,25 +225,25 @@ class PdfGeneratorService {
             cs.fill()
             cs.setNonStrokingColor(Color.BLACK)
             cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText("Synthese du Controleur Financier DCCF"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText(safe("Synthese du Controleur Financier DCCF")); cs.endText()
             y -= 28f
 
             cs.setFont(helvetica, 8f)
             val synthese = request.commentaireGeneral ?: op?.conclusionControleur ?: "Paiement valide"
             for (line in wrapText(synthese, 90)) {
-                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(line); cs.endText()
+                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(safe(line)); cs.endText()
                 y -= 11f
             }
             y -= 8f
 
             // Conclusion
             cs.setFont(helveticaBold, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText("Conclusion : Paiement valide"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Conclusion : Paiement valide")); cs.endText()
             y -= 20f
 
             // Signature
             cs.setFont(helvetica, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText("Signe electroniquement par ${request.signataire} le ${LocalDate.now().format(dateFormatter)}"); cs.endText()
+            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Signe electroniquement par ${request.signataire} le ${LocalDate.now().format(dateFormatter)}")); cs.endText()
 
             if (!request.signatureBase64.isNullOrBlank()) {
                 try {
@@ -268,7 +268,7 @@ class PdfGeneratorService {
         val textWidth = font.getStringWidth(text) / 1000f * size
         cs.beginText()
         cs.newLineAtOffset((pageWidth - textWidth) / 2f, y)
-        cs.showText(text)
+        cs.showText(safe(text))
         cs.endText()
         cs.setNonStrokingColor(Color.BLACK)
         return y - size - 4f
@@ -290,5 +290,27 @@ class PdfGeneratorService {
     private fun formatMontant(amount: java.math.BigDecimal?): String {
         if (amount == null) return ""
         return String.format("%,.2f DH", amount).replace(",", " ").replace(".", ",").replace(" ", " ")
+    }
+
+    // PDFBox Standard14 fonts only support WinAnsiEncoding — strip/replace unsupported chars
+    private fun safe(text: String): String {
+        return text
+            .replace("\u00e9", "e").replace("\u00e8", "e").replace("\u00ea", "e").replace("\u00eb", "e")
+            .replace("\u00e0", "a").replace("\u00e2", "a").replace("\u00e4", "a")
+            .replace("\u00f4", "o").replace("\u00f6", "o")
+            .replace("\u00fb", "u").replace("\u00fc", "u").replace("\u00f9", "u")
+            .replace("\u00ee", "i").replace("\u00ef", "i")
+            .replace("\u00e7", "c")
+            .replace("\u00c9", "E").replace("\u00c8", "E").replace("\u00ca", "E")
+            .replace("\u00c0", "A").replace("\u00c2", "A")
+            .replace("\u00d4", "O")
+            .replace("\u00db", "U")
+            .replace("\u00ce", "I")
+            .replace("\u00c7", "C")
+            .replace("\u2019", "'").replace("\u2018", "'")
+            .replace("\u201c", "\"").replace("\u201d", "\"")
+            .replace("\u2013", "-").replace("\u2014", "-")
+            .replace("\u2026", "...")
+            .replace(Regex("[^\\x00-\\xFF]"), "")
     }
 }
