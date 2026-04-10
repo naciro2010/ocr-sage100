@@ -19,7 +19,16 @@ export default function Modal({ open, title, message, confirmLabel = 'Confirmer'
         {children}
         <div className="modal-actions">
           <button className="btn btn-secondary" onClick={onCancel}>Annuler</button>
-          <button className="btn btn-primary" onClick={onConfirm} style={confirmColor ? { background: confirmColor } : undefined}>
+          <button
+            className="btn"
+            onClick={onConfirm}
+            style={{
+              background: confirmColor || 'var(--accent)',
+              color: '#fff',
+              border: 'none',
+              boxShadow: `0 2px 8px ${confirmColor ? 'rgba(239,68,68,0.25)' : 'rgba(16,185,129,0.25)'}`,
+            }}
+          >
             {confirmLabel}
           </button>
         </div>
