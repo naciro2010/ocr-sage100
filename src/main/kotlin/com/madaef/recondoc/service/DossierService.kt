@@ -163,11 +163,16 @@ class DossierService(
             val filePath = uploadPath.resolve(fileName)
             file.transferTo(filePath)
 
-            // Extract text immediately from the MultipartFile before it's gone
+            // Extract text from the file on disk (not from stream - already consumed by transferTo)
+            // This uses the full OCR cascade: Tika → PaddleOCR → Tesseract
             val rawText = try {
-                file.inputStream.use { ocrService.extractText(it, file.originalFilename ?: "doc.pdf") }
+                val result = ocrService.extractWithDetails(
+                    Files.newInputStream(filePath), file.originalFilename ?: "doc.pdf", filePath
+                )
+                log.info("Extracted {} chars from {} via {}", result.text.length, file.originalFilename, result.engine)
+                result.text
             } catch (e: Exception) {
-                log.warn("Immediate text extraction failed for {}, will retry from disk: {}", file.originalFilename, e.message)
+                log.warn("Text extraction failed for {}: {}", file.originalFilename, e.message)
                 ""
             }
 
@@ -205,20 +210,20 @@ class DossierService(
     fun processDocument(documentId: UUID) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
 
-        // Try to read text: first from DB (already extracted), then from file
-        val rawText = if (!doc.texteExtrait.isNullOrBlank()) {
-            log.info("Using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
+        // Try to extract text: from file first (full OCR cascade), then from stored text
+        val path = Path.of(doc.cheminFichier)
+        val rawText = if (Files.exists(path)) {
+            val result = ocrService.extractWithDetails(Files.newInputStream(path), doc.nomFichier, path)
+            log.info("Re-extracted {} chars from {} via {}", result.text.length, doc.nomFichier, result.engine)
+            result.text
+        } else if (!doc.texteExtrait.isNullOrBlank()) {
+            log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
             doc.texteExtrait!!
         } else {
-            val path = Path.of(doc.cheminFichier)
-            if (Files.exists(path)) {
-                Files.newInputStream(path).use { ocrService.extractText(it, doc.nomFichier) }
-            } else {
-                log.error("No stored text and file not found for {}", doc.nomFichier)
-                doc.statutExtraction = StatutExtraction.ERREUR
-                doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
-                return
-            }
+            log.error("No file and no stored text for {}", doc.nomFichier)
+            doc.statutExtraction = StatutExtraction.ERREUR
+            doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
+            return
         }
 
         processDocumentWithText(doc, rawText)

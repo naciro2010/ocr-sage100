@@ -61,17 +61,36 @@ class ClassificationService(
 
     private fun classifyByKeywords(text: String): TypeDocument? {
         val lower = text.lowercase()
+        // Order matters: most specific patterns first, broadest last
         return when {
+            // Checklists (very specific codes)
             lower.contains("ccf-en-04") || (lower.contains("autocontr") && lower.contains("check")) -> TypeDocument.CHECKLIST_AUTOCONTROLE
-            lower.contains("ccf-en-01") || lower.contains("pieces justificatives") -> TypeDocument.CHECKLIST_PIECES
-            lower.contains("ordre de paiement") || lower.contains("synth\u00e8se du contr\u00f4leur") -> TypeDocument.ORDRE_PAIEMENT
-            lower.contains("proc\u00e8s-verbal") || lower.contains("pv de r\u00e9ception") || lower.contains("service fait") -> TypeDocument.PV_RECEPTION
-            lower.contains("attestation de r\u00e9gularit\u00e9 fiscale") || lower.contains("direction g\u00e9n\u00e9rale des imp\u00f4ts") -> TypeDocument.ATTESTATION_FISCALE
-            lower.contains("tableau de contr\u00f4le") && lower.contains("conforme") -> TypeDocument.TABLEAU_CONTROLE
-            lower.contains("contrat") && (lower.contains("avenant") || lower.contains("article")) -> TypeDocument.CONTRAT_AVENANT
-            lower.contains("bon de commande") || Regex("cf\\s*sie\\d+", RegexOption.IGNORE_CASE).containsMatchIn(text) -> TypeDocument.BON_COMMANDE
-            lower.contains("ouverture de compte") -> TypeDocument.FORMULAIRE_FOURNISSEUR
-            lower.contains("facture") && (lower.contains("montant") || lower.contains("ttc") || lower.contains("tva")) -> TypeDocument.FACTURE
+            lower.contains("ccf-en-01") || (lower.contains("liasse") && lower.contains("pieces")) || (lower.contains("check") && lower.contains("pieces justificatives")) -> TypeDocument.CHECKLIST_PIECES
+
+            // Tableau de controle BEFORE PV_RECEPTION (TC contains "reception" in its points)
+            (lower.contains("tableau de contr") || lower.contains("tableau de controle")) && (lower.contains("conforme") || lower.contains("observation")) -> TypeDocument.TABLEAU_CONTROLE
+
+            // Ordre de paiement
+            lower.contains("ordre de paiement") || lower.contains("synthese du controleur") || lower.contains("synth\u00e8se du contr\u00f4leur") -> TypeDocument.ORDRE_PAIEMENT
+
+            // PV de reception (strict: must have "proces-verbal" or "pv de reception" explicitly)
+            lower.contains("proc\u00e8s-verbal") || lower.contains("proces-verbal") || lower.contains("pv de reception") || lower.contains("pv de r\u00e9ception") -> TypeDocument.PV_RECEPTION
+
+            // Attestation fiscale
+            lower.contains("regularite fiscale") || lower.contains("r\u00e9gularit\u00e9 fiscale") || lower.contains("direction generale des impots") || lower.contains("direction g\u00e9n\u00e9rale des imp\u00f4ts") -> TypeDocument.ATTESTATION_FISCALE
+
+            // Contrat/Avenant
+            lower.contains("contrat") && (lower.contains("avenant") || lower.contains("convention")) -> TypeDocument.CONTRAT_AVENANT
+
+            // Bon de commande
+            lower.contains("bon de commande") || Regex("cf\\s*sie\\s*\\d+", RegexOption.IGNORE_CASE).containsMatchIn(text) -> TypeDocument.BON_COMMANDE
+
+            // Formulaire fournisseur
+            lower.contains("ouverture de compte") || lower.contains("formulaire fournisseur") -> TypeDocument.FORMULAIRE_FOURNISSEUR
+
+            // Facture (last - broadest match)
+            lower.contains("facture") && (lower.contains("montant") || lower.contains("ttc") || lower.contains("tva") || lower.contains("net a payer")) -> TypeDocument.FACTURE
+
             else -> null
         }
     }
