@@ -106,11 +106,14 @@ object ExtractionPrompts {
           "nomProjet": "string",
           "referenceFacture": "string",
           "prestataire": "string",
-          "points": [{"numero":1,"estValide":true,"observation":"string ou null"}],
+          "points": [{"numero":1,"description":"string","estValide":true,"observation":"string ou null"}],
           "signataires": [{"nom":"string","date":"YYYY-MM-DD ou null","aSignature":true}]
         }
 
-        Points numerotes de 1 a 10. estValide=true si coche, false si vide, null si indetermine.
+        Regles :
+        - Points numerotes de 1 a 10. Extrais la description de chaque point (ex: "Concordance facture / BC", "Verification arithmetique", etc.)
+        - estValide=true si coche/valide, false si non coche/non valide, null si indetermine ou NA
+        - Pour les signataires, extrais le nom complet, la date de signature si presente, et aSignature=true si la signature est apposee
     """.trimIndent()
 
     val TABLEAU_CONTROLE = """

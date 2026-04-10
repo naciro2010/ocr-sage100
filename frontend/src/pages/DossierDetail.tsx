@@ -537,7 +537,7 @@ export default function DossierDetail() {
                   {points.length > 0 && (
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-                        Points de controle ({points.length})
+                        Points de controle ({points.filter(p => p.estValide === true).length}/{points.length} valides)
                       </div>
                       {points.map((pt, i) => {
                         const isValid = pt.estValide === true
@@ -557,6 +557,32 @@ export default function DossierDetail() {
                       })}
                     </div>
                   )}
+
+                  {/* Signataires */}
+                  {(() => {
+                    const signataires = (data['signataires'] as Array<Record<string, unknown>> | undefined) || []
+                    const signataire = data['signataire'] as string | undefined
+                    if (signataires.length === 0 && !signataire) return null
+                    return (
+                      <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--ink-02)', borderRadius: 6 }}>
+                        <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+                          Signatures
+                        </div>
+                        {signataires.length > 0 ? signataires.map((sig, i) => (
+                          <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+                            <span className={`check-point-icon ${sig.aSignature ? 'pass' : 'na'}`} style={{ width: 16, height: 16, fontSize: 10 }}>
+                              {sig.aSignature ? '✓' : '—'}
+                            </span>
+                            <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>{String(sig.nom || 'Inconnu')}</span>
+                            {sig.date != null && <span style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>{String(sig.date)}</span>}
+                            {sig.aSignature === true && <span className="tag" style={{ fontSize: 8, background: 'var(--success-bg)', color: 'var(--success)' }}>Signe</span>}
+                          </div>
+                        )) : (
+                          <div style={{ fontSize: 12, color: 'var(--ink-50)' }}>{signataire}</div>
+                        )}
+                      </div>
+                    )
+                  })()}
 
                   {/* Checklist pieces */}
                   {pieces.length > 0 && (
@@ -614,12 +640,55 @@ export default function DossierDetail() {
         </>
       )}
 
+      {/* Pre-validation: rules that will run */}
+      {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (
+        <div className="card">
+          <h2><ShieldCheck size={14} /> Controles a effectuer</h2>
+          <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 10 }}>
+            Ces regles seront verifiees lors de la validation croisee :
+          </div>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {[
+              { code: 'R20', label: 'Completude du dossier', desc: `Toutes les pieces obligatoires (${dossier.type === 'BC' ? 'BC, Facture, Checklist, TC, OP' : 'Contrat, Facture, PV, Checklist, OP'})` },
+              ...(dossier.type === 'BC' ? [
+                { code: 'R01-R03', label: 'Concordance montants BC / Facture', desc: 'HT, TVA, TTC' },
+              ] : [
+                { code: 'R15', label: 'Grille tarifaire x duree = HT', desc: 'Prix mensuel avenant x nombre de mois' },
+              ]),
+              { code: 'R04/R05', label: 'Montant OP = TTC (- retenues)', desc: 'Avec ou sans retenues a la source' },
+              { code: 'R07-R08', label: 'References croisees', desc: 'N° facture et BC/contrat cites dans l\'OP' },
+              { code: 'R09-R10', label: 'Coherence identifiants fiscaux', desc: 'ICE et IF entre facture et ARF' },
+              { code: 'R11', label: 'Coherence RIB', desc: 'RIB facture = RIB ordre de paiement' },
+              { code: 'R12-R13', label: 'Checklist et Tableau de controle', desc: 'Tous les points valides' },
+              { code: 'R17', label: 'Chronologie des dates', desc: 'BC/Contrat <= Facture <= OP' },
+              { code: 'R18', label: 'Validite attestation fiscale', desc: '6 mois de validite' },
+            ].map(rule => (
+              <div key={rule.code} className="check-point" style={{ padding: '6px 10px' }}>
+                <span className="check-point-icon na" style={{ width: 18, height: 18, fontSize: 10 }}>—</span>
+                <div className="check-point-body">
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>
+                    <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 10, fontFamily: 'var(--font-mono)' }}>[{rule.code}]</span>
+                    {rule.label}
+                  </div>
+                  <div style={{ fontSize: 11, color: 'var(--ink-30)' }}>{rule.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
+              {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
+            </button>
+          </div>
+        </div>
+      )}
+
       {/* Validation results */}
       {dossier.resultatsValidation.length > 0 && (
         <div className="card">
           <h2>
             <ShieldCheck size={14} /> Verification croisee
-            <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--slate-400)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+            <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--ink-40)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
               {nbConformes} conformes, {nbNonConformes} non conformes, {nbWarn} avertissements
             </span>
           </h2>
@@ -632,12 +701,12 @@ export default function DossierDetail() {
                   <span style={{ color: chk.color, fontWeight: 800, fontSize: 15, width: 22, flexShrink: 0, textAlign: 'center' }}>{chk.icon}</span>
                   <div style={{ flex: 1 }}>
                     <div style={{ fontWeight: 600, fontSize: 13 }}>
-                      <span style={{ color: 'var(--slate-400)', marginRight: 6, fontSize: 11 }}>[{r.regle}]</span>
+                      <span style={{ color: 'var(--ink-40)', marginRight: 6, fontSize: 11, fontFamily: 'var(--font-mono)' }}>[{r.regle}]</span>
                       {r.libelle}
                     </div>
-                    {r.detail && <div style={{ fontSize: 12, color: 'var(--slate-500)', marginTop: 2 }}>{r.detail}</div>}
+                    {r.detail && <div style={{ fontSize: 12, color: 'var(--ink-50)', marginTop: 2 }}>{r.detail}</div>}
                     {r.valeurAttendue && r.valeurTrouvee && r.statut === 'NON_CONFORME' && (
-                      <div style={{ fontSize: 11, marginTop: 4, color: 'var(--red-600)', fontFamily: 'var(--font-mono)' }}>
+                      <div style={{ fontSize: 11, marginTop: 4, color: 'var(--danger)', fontFamily: 'var(--font-mono)' }}>
                         Attendu: {r.valeurAttendue} | Trouve: {r.valeurTrouvee}
                       </div>
                     )}
