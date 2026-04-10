@@ -534,10 +534,12 @@ export default function DossierDetail() {
                   </div>
 
                   {/* Checklist points */}
-                  {points.length > 0 && (
+                  {points.length > 0 && (() => {
+                    const nbValides = points.filter(p => p.estValide === true).length
+                    return (
                     <div style={{ marginTop: 14 }}>
                       <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-                        Points de controle ({points.filter(p => p.estValide === true).length}/{points.length} valides)
+                        Points de controle ({nbValides}/{points.length} valides)
                       </div>
                       {points.map((pt, i) => {
                         const isValid = pt.estValide === true
@@ -556,7 +558,7 @@ export default function DossierDetail() {
                         )
                       })}
                     </div>
-                  )}
+                    )})()}
 
                   {/* Signataires */}
                   {(() => {
@@ -641,28 +643,31 @@ export default function DossierDetail() {
       )}
 
       {/* Pre-validation: rules that will run */}
-      {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (
+      {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (() => {
+        const COMMON_RULES = [
+          { code: 'R04/R05', label: 'Montant OP = TTC (- retenues)', desc: 'Avec ou sans retenues a la source' },
+          { code: 'R07-R08', label: 'References croisees', desc: 'N° facture et BC/contrat cites dans l\'OP' },
+          { code: 'R09-R10', label: 'Coherence identifiants fiscaux', desc: 'ICE et IF entre facture et ARF' },
+          { code: 'R11', label: 'Coherence RIB', desc: 'RIB facture = RIB ordre de paiement' },
+          { code: 'R12-R13', label: 'Checklist et Tableau de controle', desc: 'Tous les points valides' },
+          { code: 'R17', label: 'Chronologie des dates', desc: 'BC/Contrat <= Facture <= OP' },
+          { code: 'R18', label: 'Validite attestation fiscale', desc: '6 mois de validite' },
+        ]
+        const rules = [
+          { code: 'R20', label: 'Completude du dossier', desc: `Pieces obligatoires (${dossier.type === 'BC' ? 'BC, Facture, Checklist, TC, OP' : 'Contrat, Facture, PV, Checklist, OP'})` },
+          ...(dossier.type === 'BC'
+            ? [{ code: 'R01-R03', label: 'Concordance montants BC / Facture', desc: 'HT, TVA, TTC' }]
+            : [{ code: 'R15', label: 'Grille tarifaire x duree = HT', desc: 'Prix mensuel avenant x nombre de mois' }]),
+          ...COMMON_RULES,
+        ]
+        return (
         <div className="card">
           <h2><ShieldCheck size={14} /> Controles a effectuer</h2>
           <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 10 }}>
             Ces regles seront verifiees lors de la validation croisee :
           </div>
           <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {[
-              { code: 'R20', label: 'Completude du dossier', desc: `Toutes les pieces obligatoires (${dossier.type === 'BC' ? 'BC, Facture, Checklist, TC, OP' : 'Contrat, Facture, PV, Checklist, OP'})` },
-              ...(dossier.type === 'BC' ? [
-                { code: 'R01-R03', label: 'Concordance montants BC / Facture', desc: 'HT, TVA, TTC' },
-              ] : [
-                { code: 'R15', label: 'Grille tarifaire x duree = HT', desc: 'Prix mensuel avenant x nombre de mois' },
-              ]),
-              { code: 'R04/R05', label: 'Montant OP = TTC (- retenues)', desc: 'Avec ou sans retenues a la source' },
-              { code: 'R07-R08', label: 'References croisees', desc: 'N° facture et BC/contrat cites dans l\'OP' },
-              { code: 'R09-R10', label: 'Coherence identifiants fiscaux', desc: 'ICE et IF entre facture et ARF' },
-              { code: 'R11', label: 'Coherence RIB', desc: 'RIB facture = RIB ordre de paiement' },
-              { code: 'R12-R13', label: 'Checklist et Tableau de controle', desc: 'Tous les points valides' },
-              { code: 'R17', label: 'Chronologie des dates', desc: 'BC/Contrat <= Facture <= OP' },
-              { code: 'R18', label: 'Validite attestation fiscale', desc: '6 mois de validite' },
-            ].map(rule => (
+            {rules.map(rule => (
               <div key={rule.code} className="check-point" style={{ padding: '6px 10px' }}>
                 <span className="check-point-icon na" style={{ width: 18, height: 18, fontSize: 10 }}>—</span>
                 <div className="check-point-body">
@@ -681,7 +686,7 @@ export default function DossierDetail() {
             </button>
           </div>
         </div>
-      )}
+        )})()}
 
       {/* Validation results */}
       {dossier.resultatsValidation.length > 0 && (
