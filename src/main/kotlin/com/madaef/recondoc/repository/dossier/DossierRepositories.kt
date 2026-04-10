@@ -39,10 +39,14 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     @Query("""
         SELECT d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
                d.montantTtc, d.montantNetAPayer, d.dateCreation,
-               (SELECT COUNT(doc) FROM Document doc WHERE doc.dossier = d),
-               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier = d AND rv.statut = 'CONFORME'),
-               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier = d)
+               COUNT(DISTINCT doc.id),
+               COUNT(DISTINCT CASE WHEN rv.statut = 'CONFORME' THEN rv.id END),
+               COUNT(DISTINCT rv.id)
         FROM DossierPaiement d
+        LEFT JOIN d.documents doc
+        LEFT JOIN d.resultatsValidation rv
+        GROUP BY d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
+                 d.montantTtc, d.montantNetAPayer, d.dateCreation
     """)
     fun findAllProjected(pageable: Pageable): Page<Array<Any>>
 }

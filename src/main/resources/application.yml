@@ -6,8 +6,8 @@ spring:
     username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:recondoc}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:recondoc}}
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:5}
-      minimum-idle: ${DB_POOL_MIN_IDLE:2}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:15}
+      minimum-idle: ${DB_POOL_MIN_IDLE:5}
       connection-timeout: ${DB_CONNECTION_TIMEOUT:10000}
       idle-timeout: ${DB_IDLE_TIMEOUT:300000}
       max-lifetime: ${DB_MAX_LIFETIME:900000}
@@ -17,6 +17,13 @@ spring:
     hibernate:
       ddl-auto: validate
     open-in-view: false
+    properties:
+      hibernate:
+        default_batch_fetch_size: 16
+        order_inserts: true
+        order_updates: true
+        jdbc:
+          batch_size: 25
   flyway:
     enabled: true
     clean-disabled: true
@@ -71,8 +78,22 @@ management:
     health:
       show-details: never
 
+  jackson:
+    default-property-inclusion: non_null
+  task:
+    execution:
+      pool:
+        core-size: 5
+        max-size: 20
+        queue-capacity: 100
+      thread-name-prefix: ocr-async-
+
 server:
   port: ${PORT:8080}
+  compression:
+    enabled: true
+    min-response-size: 1024
+    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
   tomcat:
     threads:
       max: 20

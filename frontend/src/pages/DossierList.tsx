@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef } from 'react'
+import { useEffect, useState, useRef, useCallback } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
@@ -20,22 +20,35 @@ export default function DossierList() {
   const [filterStatut, setFilterStatut] = useState('')
   const [filterType, setFilterType] = useState('')
   const [filterFournisseur, setFilterFournisseur] = useState('')
+  const [debouncedFournisseur, setDebouncedFournisseur] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DossierListItem | null>(null)
   const [dragging, setDragging] = useState(false)
   const [quickUploading, setQuickUploading] = useState(false)
   const dropInputRef = useRef<HTMLInputElement>(null)
+  const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const navigate = useNavigate()
 
+  const handleFournisseurChange = useCallback((value: string) => {
+    setFilterFournisseur(value)
+    if (debounceRef.current) clearTimeout(debounceRef.current)
+    debounceRef.current = setTimeout(() => {
+      setDebouncedFournisseur(value)
+      setPage(0)
+    }, 300)
+  }, [])
+
+  useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
+
   const load = () => {
-    const hasFilters = filterStatut || filterType || filterFournisseur
+    const hasFilters = filterStatut || filterType || debouncedFournisseur
     if (hasFilters) {
-      searchDossiers({ page, statut: filterStatut || undefined, type: filterType || undefined, fournisseur: filterFournisseur || undefined })
+      searchDossiers({ page, statut: filterStatut || undefined, type: filterType || undefined, fournisseur: debouncedFournisseur || undefined })
         .then(setData).catch(e => setError(e.message))
     } else {
       listDossiers(page).then(setData).catch(e => setError(e.message))
     }
   }
-  useEffect(load, [page, filterStatut, filterType, filterFournisseur])
+  useEffect(load, [page, filterStatut, filterType, debouncedFournisseur])
 
   const handleCreate = async () => {
     setCreating(true)
@@ -84,7 +97,7 @@ export default function DossierList() {
   }
 
   const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
-  const hasFilters = filterStatut || filterType || filterFournisseur
+  const hasFilters = filterStatut || filterType || debouncedFournisseur
 
   return (
     <div>
@@ -176,11 +189,11 @@ export default function DossierList() {
           className="form-input"
           placeholder="Rechercher fournisseur..."
           value={filterFournisseur}
-          onChange={e => { setFilterFournisseur(e.target.value); setPage(0) }}
+          onChange={e => handleFournisseurChange(e.target.value)}
           style={{ width: 200 }}
         />
         {hasFilters && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setPage(0) }}>
+          <button className="btn btn-secondary btn-sm" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setDebouncedFournisseur(''); setPage(0) }}>
             <X size={14} /> Effacer
           </button>
         )}

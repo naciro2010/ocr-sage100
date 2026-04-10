@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, deleteDocument, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
@@ -31,6 +31,10 @@ export default function DossierDetail() {
   const [showCompare, setShowCompare] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  const loadAudit = useCallback(() => {
+    if (id) getAuditLog(id).then(setAudit).catch(() => {})
+  }, [id])
+
   const load = useCallback(() => {
     if (!id) return
     setError('')
@@ -46,9 +50,9 @@ export default function DossierDetail() {
   useEffect(() => {
     const ctrl = new AbortController()
     if (id) getDossier(id, ctrl.signal).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
-    if (id) getAuditLog(id).then(setAudit).catch(() => {})
+    loadAudit()
     return () => ctrl.abort()
-  }, [id])
+  }, [id, loadAudit])
 
   const startEdit = () => {
     if (!dossier) return
@@ -78,7 +82,7 @@ export default function DossierDetail() {
       toast('success', 'Dossier mis a jour')
       setEditing(false)
       load()
-      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+      loadAudit()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setSaving(false) }
@@ -116,7 +120,7 @@ export default function DossierDetail() {
       await validateDossier(id)
       toast('success', 'Verification terminee')
       load()
-      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+      loadAudit()
     }
     catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Validation failed')
@@ -132,7 +136,7 @@ export default function DossierDetail() {
       setRejectModal(false)
       setMotifRejet('')
       load()
-      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+      loadAudit()
     }
     catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
@@ -156,7 +160,7 @@ export default function DossierDetail() {
       await changeDocumentType(id, docId, newType)
       toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
       load()
-      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+      loadAudit()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     }
@@ -169,7 +173,7 @@ export default function DossierDetail() {
       toast('success', `${docName} supprime`)
       if (selectedDoc?.id === docId) setSelectedDoc(null)
       load()
-      if (id) getAuditLog(id).then(setAudit).catch(() => {})
+      loadAudit()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     }
@@ -185,21 +189,30 @@ export default function DossierDetail() {
   if (!dossier) return <div className="loading">Chargement...</div>
 
   const cfg = STATUT_CONFIG[dossier.statut]
-  const fmt = (n: number | null | undefined) => n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
-  const nbConformes = dossier.resultatsValidation.filter(r => r.statut === 'CONFORME').length
-  const nbNonConformes = dossier.resultatsValidation.filter(r => r.statut === 'NON_CONFORME').length
-  const nbWarn = dossier.resultatsValidation.filter(r => r.statut === 'AVERTISSEMENT').length
-  const hasProcessing = dossier.documents.some(d => d.statutExtraction === 'EN_COURS')
+  const fmt = useCallback((n: number | null | undefined) => n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014', [])
 
-  const getDataForType = (type: TypeDocument): Record<string, unknown> | null => {
-    const map: Record<string, Record<string, unknown> | null> = {
-      FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
-      CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
-      CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
-      PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
+  const { nbConformes, nbNonConformes, nbWarn } = useMemo(() => {
+    let conformes = 0, nonConformes = 0, warn = 0
+    for (const r of dossier.resultatsValidation) {
+      if (r.statut === 'CONFORME') conformes++
+      else if (r.statut === 'NON_CONFORME') nonConformes++
+      else if (r.statut === 'AVERTISSEMENT') warn++
     }
-    return map[type] || null
-  }
+    return { nbConformes: conformes, nbNonConformes: nonConformes, nbWarn: warn }
+  }, [dossier.resultatsValidation])
+
+  const hasProcessing = useMemo(() => dossier.documents.some(d => d.statutExtraction === 'EN_COURS'), [dossier.documents])
+
+  const dataTypeMap = useMemo<Record<string, Record<string, unknown> | null>>(() => ({
+    FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
+    CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
+    CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
+    PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
+  }), [dossier.facture, dossier.bonCommande, dossier.contratAvenant, dossier.ordrePaiement, dossier.checklistAutocontrole, dossier.tableauControle, dossier.pvReception, dossier.attestationFiscale])
+
+  const getDataForType = useCallback((type: TypeDocument): Record<string, unknown> | null => {
+    return dataTypeMap[type] || null
+  }, [dataTypeMap])
 
   const extractionBadge = (doc: DocumentInfo) => {
     const statut = doc.statutExtraction

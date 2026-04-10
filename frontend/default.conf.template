@@ -5,6 +5,14 @@ server {
 
     resolver 8.8.8.8 valid=30s;
 
+    # Enable gzip compression
+    gzip on;
+    gzip_vary on;
+    gzip_proxied any;
+    gzip_comp_level 6;
+    gzip_min_length 1024;
+    gzip_types text/plain text/css application/json application/javascript text/xml application/xml application/xml+rss text/javascript image/svg+xml;
+
     # Proxy API requests to the backend service
     location /api/ {
         set $backend ${BACKEND_URL};
@@ -34,9 +42,10 @@ server {
         proxy_read_timeout 10s;
     }
 
-    # SPA fallback
+    # SPA fallback - no cache for HTML (so new deployments are picked up)
     location / {
         try_files $uri $uri/ /index.html;
+        add_header Cache-Control "no-cache";
     }
 
     # Cache static assets

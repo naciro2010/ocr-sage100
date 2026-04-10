@@ -132,6 +132,7 @@ class DossierController(private val dossierService: DossierService) {
         return ResponseEntity.ok()
             .contentType(contentType)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"${java.net.URLEncoder.encode(fileName, "UTF-8").replace("+", "%20")}\"")
+            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=86400")
             .body(resource)
     }
 
