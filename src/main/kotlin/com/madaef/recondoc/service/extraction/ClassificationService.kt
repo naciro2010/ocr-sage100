@@ -67,11 +67,11 @@ class ClassificationService(
             lower.contains("ccf-en-04") || (lower.contains("autocontr") && lower.contains("check")) -> TypeDocument.CHECKLIST_AUTOCONTROLE
             lower.contains("ccf-en-01") || (lower.contains("liasse") && lower.contains("pieces")) || (lower.contains("check") && lower.contains("pieces justificatives")) -> TypeDocument.CHECKLIST_PIECES
 
-            // Tableau de controle BEFORE PV_RECEPTION (TC contains "reception" in its points)
-            (lower.contains("tableau de contr") || lower.contains("tableau de controle")) && (lower.contains("conforme") || lower.contains("observation")) -> TypeDocument.TABLEAU_CONTROLE
-
-            // Ordre de paiement
+            // Ordre de paiement BEFORE Tableau de controle (OP cites "tableau de controle" in its pieces)
             lower.contains("ordre de paiement") || lower.contains("synthese du controleur") || lower.contains("synth\u00e8se du contr\u00f4leur") -> TypeDocument.ORDRE_PAIEMENT
+
+            // Tableau de controle (must NOT contain "ordre de paiement" — already caught above)
+            (lower.contains("tableau de contr") || lower.contains("tableau de controle")) && (lower.contains("conforme") || lower.contains("observation")) -> TypeDocument.TABLEAU_CONTROLE
 
             // PV de reception (strict: must have "proces-verbal" or "pv de reception" explicitly)
             lower.contains("proc\u00e8s-verbal") || lower.contains("proces-verbal") || lower.contains("pv de reception") || lower.contains("pv de r\u00e9ception") -> TypeDocument.PV_RECEPTION
