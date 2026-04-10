@@ -42,6 +42,7 @@ class DossierService(
     private val ocrService: OcrService,
     private val validationEngine: ValidationEngine,
     private val eventPublisher: ApplicationEventPublisher,
+    private val progressService: DocumentProgressService,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
@@ -252,18 +253,32 @@ class DossierService(
         processDocumentWithText(doc, rawText, skipClassification)
     }
 
+    private fun emitProgress(doc: Document, step: String, statut: String, detail: String? = null) {
+        try {
+            progressService.emit(doc.dossier.id!!, DocumentProgress(
+                documentId = doc.id.toString(),
+                nomFichier = doc.nomFichier,
+                step = step, statut = statut, detail = detail
+            ))
+        } catch (_: Exception) {}
+    }
+
     private fun processDocumentWithText(doc: Document, rawText: String, skipClassification: Boolean = false) {
         doc.statutExtraction = StatutExtraction.EN_COURS
+        emitProgress(doc, "ocr", "active", "Extraction du texte...")
 
         try {
             if (rawText.isBlank()) {
                 doc.statutExtraction = StatutExtraction.ERREUR
                 doc.erreurExtraction = "Aucun texte extrait du document"
+                emitProgress(doc, "ocr", "error", "Aucun texte extrait")
                 return
             }
 
             doc.texteExtrait = rawText
+            emitProgress(doc, "ocr", "done", "${rawText.length} caracteres")
 
+            emitProgress(doc, "classify", "active", "Classification...")
             val detectedType = if (skipClassification) {
                 log.info("Skipping classification for {} (manual type: {})", doc.nomFichier, doc.typeDocument)
                 doc.typeDocument
@@ -273,13 +288,16 @@ class DossierService(
                 log.info("Document {} classified as {}", doc.nomFichier, classified)
                 classified
             }
+            emitProgress(doc, "classify", "done", detectedType.name)
 
             if (detectedType == TypeDocument.INCONNU) {
                 doc.statutExtraction = StatutExtraction.EXTRAIT
                 doc.erreurExtraction = "Type de document non reconnu - a classer manuellement"
+                emitProgress(doc, "extract", "error", "Type inconnu")
                 return
             }
 
+            emitProgress(doc, "extract", "active", "Extraction des donnees...")
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
@@ -296,6 +314,7 @@ class DossierService(
 
             doc.statutExtraction = StatutExtraction.EXTRAIT
             doc.erreurExtraction = null
+            emitProgress(doc, "extract", "done", "Termine")
 
             if (detectedType == TypeDocument.FACTURE) {
                 updateDossierFromFacture(doc.dossier)

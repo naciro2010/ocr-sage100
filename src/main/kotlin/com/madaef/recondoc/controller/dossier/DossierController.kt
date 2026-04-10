@@ -5,6 +5,8 @@ import com.madaef.recondoc.entity.dossier.DossierType
 import com.madaef.recondoc.entity.dossier.StatutDossier
 import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.service.DossierService
+import com.madaef.recondoc.service.DocumentProgressService
+import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
@@ -22,7 +24,10 @@ import java.util.UUID
 
 @RestController
 @RequestMapping("/api/dossiers")
-class DossierController(private val dossierService: DossierService) {
+class DossierController(
+    private val dossierService: DossierService,
+    private val progressService: DocumentProgressService
+) {
 
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -112,6 +117,11 @@ class DossierController(private val dossierService: DossierService) {
     @ResponseStatus(HttpStatus.NO_CONTENT)
     fun deleteDocument(@PathVariable id: UUID, @PathVariable docId: UUID) {
         dossierService.deleteDocument(id, docId)
+    }
+
+    @GetMapping("/{id}/events", produces = [MediaType.TEXT_EVENT_STREAM_VALUE])
+    fun streamEvents(@PathVariable id: UUID): SseEmitter {
+        return progressService.subscribe(id)
     }
 
     @GetMapping("/{id}/audit")

@@ -1,5 +1,6 @@
 import type { DocumentInfo } from '../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../api/dossierTypes'
+import type { DocProgress } from '../hooks/useDocumentEvents'
 import { FileText, ScanLine, Brain, CheckCircle, AlertTriangle, Loader2, XCircle } from 'lucide-react'
 
 const STEPS = [
@@ -9,24 +10,33 @@ const STEPS = [
   { key: 'extract', label: 'Extraction', icon: CheckCircle },
 ]
 
-function getStepState(doc: DocumentInfo) {
-  const statut = doc.statutExtraction
-  const hasText = doc.donneesExtraites != null || (statut === 'EXTRAIT')
+const STEP_INDEX: Record<string, number> = { upload: 0, ocr: 1, classify: 2, extract: 3 }
 
+function getStepState(doc: DocumentInfo, liveProgress?: DocProgress) {
+  // Use live SSE progress if available
+  if (liveProgress) {
+    const idx = STEP_INDEX[liveProgress.step] ?? 0
+    if (liveProgress.statut === 'active') return { current: idx, error: false, detail: liveProgress.detail }
+    if (liveProgress.statut === 'done') return { current: idx + 1, error: false, detail: liveProgress.detail }
+    if (liveProgress.statut === 'error') return { current: idx, error: true, detail: liveProgress.detail }
+  }
+
+  // Fallback to document status
+  const statut = doc.statutExtraction
   if (statut === 'EN_ATTENTE') return { current: 0, error: false }
   if (statut === 'EN_COURS') return { current: 2, error: false }
-  if (statut === 'ERREUR') return { current: 2, error: true }
-  if (statut === 'EXTRAIT' && hasText) return { current: 4, error: false }
-  if (statut === 'EXTRAIT') return { current: 3, error: false }
+  if (statut === 'ERREUR') return { current: 2, error: true, detail: doc.erreurExtraction }
+  if (statut === 'EXTRAIT') return { current: 4, error: false }
   return { current: 0, error: false }
 }
 
 interface Props {
   doc: DocumentInfo
+  liveProgress?: DocProgress
 }
 
-export default function DocumentPipeline({ doc }: Props) {
-  const { current, error } = getStepState(doc)
+export default function DocumentPipeline({ doc, liveProgress }: Props) {
+  const { current, error, detail } = getStepState(doc, liveProgress)
   const typeLabel = TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument
 
   return (
@@ -67,10 +77,16 @@ export default function DocumentPipeline({ doc }: Props) {
         })}
       </div>
 
-      {/* Error message */}
-      {error && doc.erreurExtraction && (
+      {/* Live detail or error */}
+      {detail && !error && (
+        <div style={{ marginTop: 6, fontSize: 10, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 4 }}>
+          {current < 4 && <Loader2 size={9} className="spin" />}
+          {detail}
+        </div>
+      )}
+      {error && (detail || doc.erreurExtraction) && (
         <div className="doc-pipeline-error">
-          <AlertTriangle size={10} /> {doc.erreurExtraction}
+          <AlertTriangle size={10} /> {detail || doc.erreurExtraction}
         </div>
       )}
     </div>

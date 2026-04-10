@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import ValidationPanel from '../components/ValidationPanel'
 import DocumentPipeline from '../components/DocumentPipeline'
+import { useDocumentEvents } from '../hooks/useDocumentEvents'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
   Loader2, ShieldCheck, Banknote, FileCheck, Ban, FolderOpen, Eye, Clock,
@@ -33,6 +34,9 @@ export default function DossierDetail() {
   const [showCompare, setShowCompare] = useState(false)
   const inputRef = useRef<HTMLInputElement>(null)
 
+  // SSE: real-time document processing progress
+  const liveProgress = useDocumentEvents(id, () => load())
+
   const loadAudit = useCallback(() => {
     if (id) getAuditLog(id).then(setAudit).catch(() => {})
   }, [id])
@@ -44,7 +48,7 @@ export default function DossierDetail() {
       setDossier(d)
       const processing = d.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
       if (processing) {
-        setTimeout(() => load(), 3000)
+        setTimeout(() => load(), 10000) // Fallback poll — SSE handles real-time
       }
     }).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
   }, [id])
@@ -463,7 +467,7 @@ export default function DossierDetail() {
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
             {dossier.documents
               .filter(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS')
-              .map(doc => <DocumentPipeline key={doc.id} doc={doc} />)}
+              .map(doc => <DocumentPipeline key={doc.id} doc={doc} liveProgress={liveProgress[doc.id]} />)}
           </div>
         )}
 
