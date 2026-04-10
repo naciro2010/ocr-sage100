@@ -14,7 +14,7 @@ COPY main.py .
 ENV PADDLE_PDX_DISABLE_MODEL_SOURCE_CHECK=True
 
 # Pre-download French model at build time
-RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_textline_orientation=True, lang='fr', device='cpu')"
+RUN python -c "from paddleocr import PaddleOCR; PaddleOCR(use_angle_cls=True, lang='fr', use_gpu=False)"
 
 EXPOSE 8000
 

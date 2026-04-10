@@ -23,9 +23,9 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
     if lang not in _ocr_instances:
         logger.info("Initializing PaddleOCR for lang=%s", lang)
         _ocr_instances[lang] = PaddleOCR(
-            use_textline_orientation=True,
+            use_angle_cls=True,
             lang=lang,
-            device="cpu",
+            use_gpu=False,
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
     return _ocr_instances[lang]
@@ -39,7 +39,7 @@ async def lifespan(application: FastAPI):
     yield
 
 
-app = FastAPI(title="OCR Service", version="2.1.0", lifespan=lifespan)
+app = FastAPI(title="OCR Service", version="2.2.0", lifespan=lifespan)
 
 
 @app.get("/health")
@@ -154,58 +154,23 @@ def ocr_image(content: bytes, lang: str) -> list[dict]:
 
 def ocr_array(img_array: np.ndarray, lang: str) -> dict:
     ocr = get_ocr(lang)
-
-    # PaddleOCR 3.x: use predict() instead of ocr()
-    try:
-        result = ocr.predict(img_array)
-    except TypeError:
-        # Fallback for older API
-        try:
-            result = ocr.ocr(img_array)
-        except TypeError:
-            result = ocr.ocr(img_array, cls=False)
+    result = ocr.ocr(img_array, cls=True)
 
     lines = []
     text_parts = []
 
-    if not result:
-        return {"text": "", "lines": [], "line_count": 0, "avg_confidence": 0.0}
+    if result and result[0]:
+        for line in result[0]:
+            bbox = line[0]
+            text = line[1][0]
+            confidence = float(line[1][1])
 
-    # PaddleOCR 3.x returns dict with 'rec_texts', 'rec_scores', 'dt_polys'
-    if isinstance(result, dict):
-        texts = result.get("rec_texts", [])
-        scores = result.get("rec_scores", [])
-        polys = result.get("dt_polys", [])
-        for i, text in enumerate(texts):
-            conf = float(scores[i]) if i < len(scores) else 0.0
-            bbox = polys[i].tolist() if i < len(polys) else []
-            lines.append({"text": text, "confidence": round(conf, 4), "bbox": bbox})
+            lines.append({
+                "text": text,
+                "confidence": round(confidence, 4),
+                "bbox": [[int(p[0]), int(p[1])] for p in bbox],
+            })
             text_parts.append(text)
-    # PaddleOCR 3.x can also return list of dicts (one per image)
-    elif isinstance(result, list) and len(result) > 0:
-        item = result[0] if isinstance(result[0], dict) else None
-        if item and "rec_texts" in item:
-            texts = item.get("rec_texts", [])
-            scores = item.get("rec_scores", [])
-            polys = item.get("dt_polys", [])
-            for i, text in enumerate(texts):
-                conf = float(scores[i]) if i < len(scores) else 0.0
-                bbox = polys[i].tolist() if i < len(polys) else []
-                lines.append({"text": text, "confidence": round(conf, 4), "bbox": bbox})
-                text_parts.append(text)
-        # Legacy format: list of [bbox, (text, confidence)]
-        elif isinstance(result[0], list):
-            for line in result[0]:
-                if isinstance(line, list) and len(line) >= 2:
-                    bbox = line[0]
-                    text = line[1][0] if isinstance(line[1], (list, tuple)) else str(line[1])
-                    confidence = float(line[1][1]) if isinstance(line[1], (list, tuple)) and len(line[1]) > 1 else 0.0
-                    lines.append({
-                        "text": text,
-                        "confidence": round(confidence, 4),
-                        "bbox": [[int(p[0]), int(p[1])] for p in bbox] if bbox else [],
-                    })
-                    text_parts.append(text)
 
     page_text = "\n".join(text_parts)
     avg_confidence = (
