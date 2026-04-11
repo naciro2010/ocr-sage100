@@ -26,6 +26,7 @@ export default function DossierDetail() {
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
   const [showPdf, setShowPdf] = useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
+  const [loadingPdf, setLoadingPdf] = useState(false)
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [rejectModal, setRejectModal] = useState(false)
   const [motifRejet, setMotifRejet] = useState('')
@@ -564,9 +565,10 @@ export default function DossierDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ marginBottom: 0 }}><Eye size={14} /> {TYPE_DOCUMENT_LABELS[selectedDoc.typeDocument]} — {selectedDoc.nomFichier}</h2>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-secondary btn-sm" onClick={async () => {
+                <button className="btn btn-secondary btn-sm" disabled={loadingPdf} onClick={async () => {
                   if (showPdf) { setShowPdf(false); if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(null) }; return }
                   if (!id) return
+                  setLoadingPdf(true)
                   try {
                     const res = await fetch(getDocumentFileUrl(id, selectedDoc.id), { headers: { 'Authorization': `Basic ${localStorage.getItem('recondoc_auth') || ''}` } })
                     if (!res.ok) throw new Error(`HTTP ${res.status}`)
@@ -574,8 +576,9 @@ export default function DossierDetail() {
                     setPdfBlobUrl(URL.createObjectURL(blob))
                     setShowPdf(true)
                   } catch { toast('error', 'Impossible de charger le PDF') }
+                  finally { setLoadingPdf(false) }
                 }}>
-                  {showPdf ? <><XCircle size={14} /> Masquer PDF</> : <><FileText size={14} /> Voir PDF</>}
+                  {loadingPdf ? <><Loader2 size={14} className="spin" /> Chargement...</> : showPdf ? <><XCircle size={14} /> Masquer PDF</> : <><FileText size={14} /> Voir PDF</>}
                 </button>
                 {id && <button className="btn btn-secondary btn-sm"
                   onClick={() => openWithAuth(getDocumentFileUrl(id, selectedDoc.id))}>
@@ -740,8 +743,8 @@ export default function DossierDetail() {
         </>
       )}
 
-      {/* Pre-validation: checklist from document + system rules */}
-      {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (() => {
+      {/* Checklist from document + system rules (always shown when docs exist) */}
+      {dossier.documents.length > 0 && (() => {
         const activeRules = getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL')
         const systemRules = activeRules.filter(r => r.category === 'system')
         const defaultChecklist = activeRules.filter(r => r.category === 'checklist')
@@ -864,11 +867,13 @@ export default function DossierDetail() {
               </div>
             ))}
           </div>
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
-              {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
-            </button>
-          </div>
+          {dossier.resultatsValidation.length === 0 && (
+            <div style={{ marginTop: 12 }}>
+              <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
+                {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
+              </button>
+            </div>
+          )}
         </div>
         </>
         )})()}
