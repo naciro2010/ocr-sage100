@@ -81,23 +81,29 @@ export default function Finalize() {
     }).catch(() => toast('error', 'Dossier introuvable'))
   }, [id])
 
-  // Canvas signature handlers
-  const getCanvasPos = (e: React.MouseEvent<HTMLCanvasElement>) => {
+  // Canvas signature handlers (mouse + touch)
+  const getPos = (e: React.MouseEvent | React.TouchEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect()
-    return { x: e.clientX - rect.left, y: e.clientY - rect.top }
+    if ('touches' in e) {
+      const t = e.touches[0]
+      return { x: t.clientX - rect.left, y: t.clientY - rect.top }
+    }
+    return { x: (e as React.MouseEvent).clientX - rect.left, y: (e as React.MouseEvent).clientY - rect.top }
   }
 
-  const startDraw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const startDraw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
     const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return
-    const { x, y } = getCanvasPos(e)
+    const { x, y } = getPos(e)
     ctx.beginPath(); ctx.moveTo(x, y)
     isDrawingRef.current = true
   }, [])
 
-  const draw = useCallback((e: React.MouseEvent<HTMLCanvasElement>) => {
+  const draw = useCallback((e: React.MouseEvent | React.TouchEvent) => {
+    e.preventDefault()
     if (!isDrawingRef.current) return
     const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return
-    const { x, y } = getCanvasPos(e)
+    const { x, y } = getPos(e)
     ctx.lineWidth = 2; ctx.lineCap = 'round'; ctx.strokeStyle = '#0a0f1a'
     ctx.lineTo(x, y); ctx.stroke()
     setHasSigned(true)
@@ -279,7 +285,8 @@ export default function Finalize() {
             <div style={{ position: 'relative', display: 'inline-block' }}>
               <canvas ref={canvasRef} width={300} height={100}
                 style={{ border: '1px solid var(--ink-10)', borderRadius: 6, background: '#fff', cursor: 'crosshair', display: 'block' }}
-                onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw} />
+                onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
+                onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} />
               {hasSigned && (
                 <button onClick={clearSignature} title="Effacer"
                   style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,0.8)', border: 'none', borderRadius: 4, cursor: 'pointer', padding: 2 }}>

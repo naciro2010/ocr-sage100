@@ -67,7 +67,8 @@
       "mcp__Railway__set-variables",
       "mcp__Railway__list-deployments",
       "mcp__Railway__list-variables",
-      "mcp__Railway__generate-domain"
+      "mcp__Railway__generate-domain",
+      "mcp__Railway__deploy"
     ],
     "deny": []
   },

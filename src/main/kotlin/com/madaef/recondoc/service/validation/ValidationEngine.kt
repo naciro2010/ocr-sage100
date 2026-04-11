@@ -304,6 +304,13 @@ class ValidationEngine(
             )
         }
 
+        // R16 — Verification arithmetique HT + TVA = TTC
+        if (facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
+            val calcTtc = facture.montantHt!!.add(facture.montantTva)
+            results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
+                facture.montantTtc, calcTtc, tol, dossier)
+        }
+
         // R15 — Verification grille tarifaire x duree = HT facture (CONTRACTUEL)
         if (dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
             val grilles = contrat.grillesTarifaires

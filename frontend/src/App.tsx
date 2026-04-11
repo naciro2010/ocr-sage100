@@ -1,30 +1,57 @@
-import { lazy, Suspense } from 'react'
+import { lazy, Suspense, useState } from 'react'
 import { BrowserRouter, Routes, Route } from 'react-router-dom'
 import { ToastProvider } from './components/Toast'
+import ErrorBoundary from './components/ErrorBoundary'
 import Layout from './components/Layout'
+import Login from './pages/Login'
 
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const DossierList = lazy(() => import('./pages/DossierList'))
 const DossierDetail = lazy(() => import('./pages/DossierDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Finalize = lazy(() => import('./pages/Finalize'))
+const NotFound = lazy(() => import('./pages/NotFound'))
+
+interface User { id: number; email: string; nom: string; role: string }
 
 export default function App() {
+  const [user, setUser] = useState<User | null>(() => {
+    try { return JSON.parse(localStorage.getItem('recondoc_user') || 'null') } catch { return null }
+  })
+
+  const handleLogin = (u: User) => setUser(u)
+  const handleLogout = () => {
+    localStorage.removeItem('recondoc_user')
+    localStorage.removeItem('recondoc_auth')
+    setUser(null)
+  }
+
+  if (!user) {
+    return (
+      <ErrorBoundary>
+        <Login onLogin={handleLogin} />
+      </ErrorBoundary>
+    )
+  }
+
   return (
-    <ToastProvider>
-      <BrowserRouter>
-        <Suspense fallback={<div className="loading">Chargement...</div>}>
-          <Routes>
-            <Route element={<Layout />}>
-              <Route path="/" element={<Dashboard />} />
-              <Route path="/dossiers" element={<DossierList />} />
-              <Route path="/dossiers/:id" element={<DossierDetail />} />
-              <Route path="/dossiers/:id/finalize" element={<Finalize />} />
-              <Route path="/settings" element={<Settings />} />
-            </Route>
-          </Routes>
-        </Suspense>
-      </BrowserRouter>
-    </ToastProvider>
+    <ErrorBoundary>
+      <ToastProvider>
+        <BrowserRouter>
+          <Suspense fallback={<div className="loading">Chargement...</div>}>
+            <Routes>
+              <Route element={<Layout user={user} onLogout={handleLogout} />}>
+                <Route path="/" element={<Dashboard />} />
+                <Route path="/dossiers" element={<DossierList />} />
+                <Route path="/dossiers/:id" element={<DossierDetail />} />
+                <Route path="/dossiers/:id/finalize" element={<Finalize />} />
+                <Route path="/settings" element={<Settings />} />
+                <Route path="*" element={<NotFound />} />
+              </Route>
+            </Routes>
+          </Suspense>
+        </BrowserRouter>
+      </ToastProvider>
+    </ErrorBoundary>
   )
 }

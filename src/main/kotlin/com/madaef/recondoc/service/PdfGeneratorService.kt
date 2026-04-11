@@ -30,121 +30,97 @@ data class ControlPoint(
 @Service
 class PdfGeneratorService {
 
-    private val dateFormatter = DateTimeFormatter.ofPattern("dd/MM/yyyy")
-    private val helvetica = PDType1Font(Standard14Fonts.FontName.HELVETICA)
-    private val helveticaBold = PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD)
+    private val dateFmt = DateTimeFormatter.ofPattern("dd/MM/yyyy")
+    private val helvB = PDType1Font(Standard14Fonts.FontName.HELVETICA_BOLD)
+    private val helv = PDType1Font(Standard14Fonts.FontName.HELVETICA)
+    private val blue = Color(0, 51, 102)
 
     fun generateTC(dossier: DossierPaiement, request: FinalizeRequest): ByteArray {
         val doc = PDDocument()
-        val page = PDPage(PDRectangle.A4)
+        var page = PDPage(PDRectangle.A4)
         doc.addPage(page)
         val w = page.mediaBox.width
-        val margin = 40f
-        var y = page.mediaBox.height - 40f
+        val m = 40f
+        var y = page.mediaBox.height - 50f
+        var cs = PDPageContentStream(doc, page)
 
-        PDPageContentStream(doc, page).use { cs ->
-            // Title
-            y = drawCenteredText(cs, "Tableau de Controle financier des depenses d'investissement", w, y, helveticaBold, 11f, Color(0, 51, 102))
-            y -= 20f
+        val facture = dossier.facture
 
-            // Header info
-            val facture = dossier.facture
-            val headerData = listOf(
-                "Societe Geree" to "MADAEF",
-                "Numero et date de Facture" to (facture?.let { "Facture N° ${it.numeroFacture ?: ""} du ${it.dateFacture?.format(dateFormatter) ?: ""}" } ?: ""),
-                "Beneficiaire" to (dossier.fournisseur ?: facture?.fournisseur ?: "")
-            )
-            for ((label, value) in headerData) {
-                cs.setFont(helveticaBold, 8f)
-                cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe(label)); cs.endText()
-                cs.setFont(helvetica, 9f)
-                cs.beginText(); cs.newLineAtOffset(margin + 130f, y); cs.showText(safe(value)); cs.endText()
-                y -= 14f
-            }
-            y -= 15f
+        // Title
+        y = centered(cs, "Tableau de Controle financier des depenses d'investissement", w, y, helvB, 10f, blue)
+        y -= 20f
 
-            // Table header
-            cs.setNonStrokingColor(Color(0, 51, 102))
-            cs.addRect(margin, y - 14f, w - 2 * margin, 16f)
-            cs.fill()
-            cs.setNonStrokingColor(Color.WHITE)
-            cs.setFont(helveticaBold, 7f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 10f); cs.showText(safe("ELEMENTS CONTROLES")); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 170f, y - 10f); cs.showText(safe("OBSERVATIONS")); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 80f, y - 10f); cs.showText(safe("COMMENTAIRE")); cs.endText()
-            cs.setNonStrokingColor(Color.BLACK)
-            y -= 18f
-
-            // Points dynamiques
-            for ((i, point) in request.points.withIndex()) {
-                val descLines = wrapText(point.description, 55)
-                val blockH = (descLines.size * 10f) + 8f
-
-                // Check for page break
-                if (y - blockH < 80f) {
-                    // Would need new page — skip for simplicity, truncate
-                }
-
-                // Row background
-                if (i % 2 == 0) {
-                    cs.setNonStrokingColor(Color(245, 245, 250))
-                    cs.addRect(margin, y - blockH, w - 2 * margin, blockH)
-                    cs.fill()
-                    cs.setNonStrokingColor(Color.BLACK)
-                }
-
-                // Description
-                cs.setFont(helveticaBold, 7f)
-                var textY = y - 10f
-                for (line in descLines) {
-                    cs.beginText(); cs.newLineAtOffset(margin + 4f, textY); cs.showText(safe("${if (textY == y - 10f) "Point ${i + 1} : " else ""}$line")); cs.endText()
-                    textY -= 10f
-                }
-
-                // Observation
-                cs.setFont(helvetica, 8f)
-                cs.beginText(); cs.newLineAtOffset(w - margin - 160f, y - 10f); cs.showText(safe(point.observation)); cs.endText()
-
-                // Commentaire
-                if (!point.commentaire.isNullOrBlank()) {
-                    cs.setFont(helvetica, 7f)
-                    cs.beginText(); cs.newLineAtOffset(w - margin - 75f, y - 10f); cs.showText(safe(point.commentaire)); cs.endText()
-                }
-
-                // Border
-                cs.setStrokingColor(Color(200, 200, 210))
-                cs.addRect(margin, y - blockH, w - 2 * margin, blockH)
-                cs.stroke()
-
-                y -= blockH
-            }
-
-            // Signature
-            y -= 20f
-            cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Nom et Prenom")); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText(safe("Signature")); cs.endText()
+        // Header box
+        val hdr = listOf(
+            "Societe Geree" to "MADAEF",
+            "Numero et date de Facture" to s(facture?.let { "Facture N. ${it.numeroFacture ?: ""} du ${it.dateFacture?.format(dateFmt) ?: ""}" } ?: ""),
+            "Beneficiaire" to s(dossier.fournisseur ?: facture?.fournisseur ?: "")
+        )
+        for ((label, value) in hdr) {
+            text(cs, m, y, helvB, 8f, s(label)); text(cs, m + 130f, y, helv, 9f, value)
             y -= 14f
-            cs.setFont(helvetica, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe(request.signataire)); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w / 2, y); cs.showText(safe("Signe electroniquement le ${LocalDate.now().format(dateFormatter)}")); cs.endText()
+        }
+        y -= 12f
 
-            // Signature image
-            if (!request.signatureBase64.isNullOrBlank()) {
-                try {
-                    val sigBytes = java.util.Base64.getDecoder().decode(
-                        request.signatureBase64.substringAfter(",")
-                    )
-                    val sigImage = PDImageXObject.createFromByteArray(doc, sigBytes, "signature")
-                    cs.drawImage(sigImage, w / 2, y - 50f, 100f, 40f)
-                } catch (_: Exception) {}
+        // Table header
+        cs.setNonStrokingColor(blue)
+        cs.addRect(m, y - 14f, w - 2 * m, 16f); cs.fill()
+        cs.setNonStrokingColor(Color.WHITE)
+        text(cs, m + 4f, y - 10f, helvB, 7f, "ELEMENTS CONTROLES")
+        text(cs, w - m - 170f, y - 10f, helvB, 7f, "OBSERVATIONS")
+        text(cs, w - m - 75f, y - 10f, helvB, 7f, "COMMENTAIRE")
+        cs.setNonStrokingColor(Color.BLACK)
+        y -= 18f
+
+        // Points
+        for ((i, pt) in request.points.withIndex()) {
+            val lines = wrap(s(pt.description), 55)
+            val blockH = (lines.size * 10f) + 8f
+
+            // New page if needed
+            if (y - blockH < 80f) {
+                cs.close()
+                page = PDPage(PDRectangle.A4)
+                doc.addPage(page)
+                cs = PDPageContentStream(doc, page)
+                y = page.mediaBox.height - 50f
             }
+
+            // Zebra stripe
+            if (i % 2 == 0) {
+                cs.setNonStrokingColor(Color(245, 245, 250)); cs.addRect(m, y - blockH, w - 2 * m, blockH); cs.fill()
+                cs.setNonStrokingColor(Color.BLACK)
+            }
+
+            // Description
+            var ty = y - 10f
+            for ((li, line) in lines.withIndex()) {
+                val prefix = if (li == 0) "Point ${i + 1} : " else ""
+                text(cs, m + 4f, ty, if (li == 0) helvB else helv, 7f, s(prefix + line))
+                ty -= 10f
+            }
+
+            // Observation
+            text(cs, w - m - 160f, y - 10f, helv, 8f, s(pt.observation))
+            // Commentaire
+            if (!pt.commentaire.isNullOrBlank()) text(cs, w - m - 72f, y - 10f, helv, 7f, s(pt.commentaire))
+
+            // Border
+            cs.setStrokingColor(Color(200, 200, 210)); cs.addRect(m, y - blockH, w - 2 * m, blockH); cs.stroke()
+            y -= blockH
         }
 
-        val out = ByteArrayOutputStream()
-        doc.save(out)
-        doc.close()
-        return out.toByteArray()
+        // Signature
+        y -= 20f
+        if (y < 80f) { cs.close(); page = PDPage(PDRectangle.A4); doc.addPage(page); cs = PDPageContentStream(doc, page); y = page.mediaBox.height - 50f }
+        text(cs, m, y, helvB, 8f, "Nom et Prenom"); text(cs, w / 2, y, helvB, 8f, "Signature")
+        y -= 14f
+        text(cs, m, y, helv, 9f, s(request.signataire))
+        text(cs, w / 2, y, helv, 8f, "Signe electroniquement le ${LocalDate.now().format(dateFmt)}")
+        drawSignature(doc, cs, request.signatureBase64, w / 2, y - 50f)
+
+        cs.close()
+        return save(doc)
     }
 
     fun generateOP(dossier: DossierPaiement, request: FinalizeRequest): ByteArray {
@@ -152,165 +128,141 @@ class PdfGeneratorService {
         val page = PDPage(PDRectangle.A4)
         doc.addPage(page)
         val w = page.mediaBox.width
-        val margin = 40f
-        var y = page.mediaBox.height - 40f
+        val m = 40f
+        var y = page.mediaBox.height - 50f
 
         val facture = dossier.facture
         val op = dossier.ordrePaiement
         val bc = dossier.bonCommande
         val contrat = dossier.contratAvenant
 
-        PDPageContentStream(doc, page).use { cs ->
-            // Title
-            y = drawCenteredText(cs, "ORDRE DE PAIEMENT", w, y, helveticaBold, 14f, Color(0, 51, 102))
-            y -= 10f
+        val cs = PDPageContentStream(doc, page)
 
-            // OP info
-            val opNum = op?.numeroOp ?: "___/____"
-            val opDate = op?.dateEmission?.format(dateFormatter) ?: LocalDate.now().format(dateFormatter)
-            cs.setFont(helveticaBold, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("OP N° : $opNum")); cs.endText()
-            cs.beginText(); cs.newLineAtOffset(w - margin - 150f, y); cs.showText(safe("Date d'emission : $opDate")); cs.endText()
-            y -= 20f
+        y = centered(cs, "ORDRE DE PAIEMENT", w, y, helvB, 14f, blue)
+        y -= 10f
 
-            // Green header: Emetteur
-            cs.setNonStrokingColor(Color(200, 230, 200))
-            cs.addRect(margin, y - 16f, w - 2 * margin, 18f)
-            cs.fill()
-            cs.setNonStrokingColor(Color.BLACK)
-            cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText(safe("Emetteur : Direction Comptabilite, Consolidation et Fiscalite")); cs.endText()
-            y -= 24f
+        // OP number + date
+        val opNum = op?.numeroOp ?: "___/____"
+        val opDate = op?.dateEmission?.format(dateFmt) ?: LocalDate.now().format(dateFmt)
+        text(cs, m, y, helvB, 9f, "OP N. : $opNum"); text(cs, w - m - 150f, y, helvB, 9f, "Date d'emission : $opDate")
+        y -= 20f
 
-            // Main content table
-            val rows = listOf(
-                "Nature" to (op?.natureOperation ?: (if (dossier.type == DossierType.BC) "Fournitures" else "Prestation de services")),
-                "Description" to (op?.description ?: dossier.description ?: ""),
-                "Ref" to (op?.referenceFacture?.let { "Facture N° $it" } ?: facture?.let { "Facture N° ${it.numeroFacture} du ${it.dateFacture?.format(dateFormatter)}" } ?: ""),
-                "Ref SAGE" to (op?.referenceSage ?: ""),
-                "Beneficiaire" to (op?.beneficiaire ?: dossier.fournisseur ?: ""),
-                "RIB" to (op?.rib ?: facture?.rib ?: ""),
-                "Banque" to (op?.banque ?: ""),
-                "Montant" to formatMontant(op?.montantOperation ?: dossier.montantTtc)
-            )
-            for ((label, value) in rows) {
-                cs.setFont(helveticaBold, 8f)
-                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(safe(label)); cs.endText()
-                cs.setFont(helvetica, 9f)
-                cs.beginText(); cs.newLineAtOffset(margin + 100f, y); cs.showText(safe(value)); cs.endText()
-                y -= 14f
-            }
-            y -= 10f
+        // Emetteur bar
+        cs.setNonStrokingColor(Color(200, 230, 200)); cs.addRect(m, y - 14f, w - 2 * m, 18f); cs.fill()
+        cs.setNonStrokingColor(Color.BLACK)
+        text(cs, m + 4f, y - 10f, helvB, 8f, "Emetteur : Direction Comptabilite, Consolidation et Fiscalite")
+        y -= 24f
 
-            // Pieces justificatives
-            cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Pieces justificatives jointes :")); cs.endText()
-            y -= 12f
-            cs.setFont(helvetica, 8f)
-            val pieces = mutableListOf<String>()
-            facture?.let { pieces.add("Facture N° ${it.numeroFacture ?: ""} du ${it.dateFacture?.format(dateFormatter) ?: ""}") }
-            bc?.let { pieces.add("Bon de commande N° ${it.reference ?: ""} du ${it.dateBc?.format(dateFormatter) ?: ""}") }
-            contrat?.let { pieces.add("${it.referenceContrat ?: "Contrat"} ${it.numeroAvenant?.let { a -> "- Avenant N°$a" } ?: ""}") }
-            pieces.add("Check list d'auto controle + Check list des pieces justificatives")
-            pieces.add("Tableau de controle")
-            for (p in pieces) {
-                cs.beginText(); cs.newLineAtOffset(margin + 10f, y); cs.showText(safe("- $p")); cs.endText()
-                y -= 12f
-            }
-            y -= 10f
-
-            // Synthese controleur
-            cs.setNonStrokingColor(Color(200, 230, 200))
-            cs.addRect(margin, y - 16f, w - 2 * margin, 18f)
-            cs.fill()
-            cs.setNonStrokingColor(Color.BLACK)
-            cs.setFont(helveticaBold, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin + 4f, y - 12f); cs.showText(safe("Synthese du Controleur Financier DCCF")); cs.endText()
-            y -= 28f
-
-            cs.setFont(helvetica, 8f)
-            val synthese = request.commentaireGeneral ?: op?.conclusionControleur ?: "Paiement valide"
-            for (line in wrapText(synthese, 90)) {
-                cs.beginText(); cs.newLineAtOffset(margin + 4f, y); cs.showText(safe(line)); cs.endText()
-                y -= 11f
-            }
-            y -= 8f
-
-            // Conclusion
-            cs.setFont(helveticaBold, 9f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Conclusion : Paiement valide")); cs.endText()
-            y -= 20f
-
-            // Signature
-            cs.setFont(helvetica, 8f)
-            cs.beginText(); cs.newLineAtOffset(margin, y); cs.showText(safe("Signe electroniquement par ${request.signataire} le ${LocalDate.now().format(dateFormatter)}")); cs.endText()
-
-            if (!request.signatureBase64.isNullOrBlank()) {
-                try {
-                    val sigBytes = java.util.Base64.getDecoder().decode(
-                        request.signatureBase64.substringAfter(",")
-                    )
-                    val sigImage = PDImageXObject.createFromByteArray(doc, sigBytes, "signature")
-                    cs.drawImage(sigImage, margin, y - 55f, 100f, 40f)
-                } catch (_: Exception) {}
-            }
+        // Fields
+        val rows = listOf(
+            "Nature" to s(op?.natureOperation ?: if (dossier.type == DossierType.BC) "Fournitures" else "Prestation de services"),
+            "Description" to s(op?.description ?: dossier.description ?: ""),
+            "Ref" to s(op?.referenceFacture?.let { "Facture N. $it" } ?: facture?.let { "Facture N. ${it.numeroFacture} du ${it.dateFacture?.format(dateFmt)}" } ?: ""),
+            "Ref SAGE" to s(op?.referenceSage ?: ""),
+            "Beneficiaire" to s(op?.beneficiaire ?: dossier.fournisseur ?: ""),
+            "RIB" to s(op?.rib ?: facture?.rib ?: ""),
+            "Banque" to s(op?.banque ?: ""),
+            "Montant" to fmtAmount(op?.montantOperation ?: dossier.montantTtc)
+        )
+        for ((label, value) in rows) {
+            text(cs, m + 4f, y, helvB, 8f, label); text(cs, m + 100f, y, helv, 9f, value)
+            y -= 14f
         }
+        y -= 10f
 
-        val out = ByteArrayOutputStream()
-        doc.save(out)
-        doc.close()
-        return out.toByteArray()
+        // Pieces justificatives
+        text(cs, m, y, helvB, 8f, "Pieces justificatives jointes :")
+        y -= 12f
+        val pieces = mutableListOf<String>()
+        facture?.let { pieces.add("Facture N. ${s(it.numeroFacture ?: "")} du ${it.dateFacture?.format(dateFmt) ?: ""}") }
+        bc?.let { pieces.add("Bon de commande N. ${s(it.reference ?: "")} du ${it.dateBc?.format(dateFmt) ?: ""}") }
+        contrat?.let { pieces.add("${s(it.referenceContrat ?: "Contrat")} ${it.numeroAvenant?.let { a -> "- Avenant N.$a" } ?: ""}") }
+        pieces.add("Check list d'auto controle + Check list des pieces justificatives")
+        pieces.add("Tableau de controle")
+        for (p in pieces) { text(cs, m + 10f, y, helv, 8f, "- $p"); y -= 12f }
+        y -= 10f
+
+        // Synthese bar
+        cs.setNonStrokingColor(Color(200, 230, 200)); cs.addRect(m, y - 14f, w - 2 * m, 18f); cs.fill()
+        cs.setNonStrokingColor(Color.BLACK)
+        text(cs, m + 4f, y - 10f, helvB, 8f, "Synthese du Controleur Financier DCCF")
+        y -= 28f
+
+        val synthese = s(request.commentaireGeneral ?: op?.conclusionControleur ?: "Paiement valide")
+        for (line in wrap(synthese, 90)) { text(cs, m + 4f, y, helv, 8f, line); y -= 11f }
+        y -= 8f
+
+        text(cs, m, y, helvB, 9f, "Conclusion : Paiement valide")
+        y -= 20f
+
+        // Signature
+        text(cs, m, y, helv, 8f, "Signe electroniquement par ${s(request.signataire)} le ${LocalDate.now().format(dateFmt)}")
+        drawSignature(doc, cs, request.signatureBase64, m, y - 55f)
+
+        cs.close()
+        return save(doc)
     }
 
-    private fun drawCenteredText(cs: PDPageContentStream, text: String, pageWidth: Float, y: Float, font: PDType1Font, size: Float, color: Color): Float {
-        cs.setFont(font, size)
-        cs.setNonStrokingColor(color)
-        val textWidth = font.getStringWidth(text) / 1000f * size
-        cs.beginText()
-        cs.newLineAtOffset((pageWidth - textWidth) / 2f, y)
-        cs.showText(safe(text))
-        cs.endText()
+    // --- Helpers ---
+
+    private fun text(cs: PDPageContentStream, x: Float, y: Float, font: PDType1Font, size: Float, text: String) {
+        cs.setFont(font, size); cs.beginText(); cs.newLineAtOffset(x, y); cs.showText(text); cs.endText()
+    }
+
+    private fun centered(cs: PDPageContentStream, text: String, pw: Float, y: Float, font: PDType1Font, size: Float, color: Color): Float {
+        cs.setFont(font, size); cs.setNonStrokingColor(color)
+        val tw = font.getStringWidth(text) / 1000f * size
+        cs.beginText(); cs.newLineAtOffset((pw - tw) / 2f, y); cs.showText(text); cs.endText()
         cs.setNonStrokingColor(Color.BLACK)
         return y - size - 4f
     }
 
-    private fun wrapText(text: String, maxChars: Int): List<String> {
-        if (text.length <= maxChars) return listOf(text)
+    private fun drawSignature(doc: PDDocument, cs: PDPageContentStream, base64: String?, x: Float, y: Float) {
+        if (base64.isNullOrBlank()) return
+        try {
+            val bytes = java.util.Base64.getDecoder().decode(base64.substringAfter(","))
+            val img = PDImageXObject.createFromByteArray(doc, bytes, "signature")
+            cs.drawImage(img, x, y, 120f, 45f)
+        } catch (_: Exception) {}
+    }
+
+    private fun save(doc: PDDocument): ByteArray {
+        val out = ByteArrayOutputStream()
+        doc.save(out); doc.close()
+        return out.toByteArray()
+    }
+
+    private fun wrap(text: String, max: Int): List<String> {
+        if (text.length <= max) return listOf(text)
         val lines = mutableListOf<String>()
-        var remaining = text
-        while (remaining.length > maxChars) {
-            val breakAt = remaining.lastIndexOf(' ', maxChars).takeIf { it > 0 } ?: maxChars
-            lines.add(remaining.substring(0, breakAt))
-            remaining = remaining.substring(breakAt).trimStart()
+        var rem = text
+        while (rem.length > max) {
+            val b = rem.lastIndexOf(' ', max).takeIf { it > 0 } ?: max
+            lines.add(rem.substring(0, b)); rem = rem.substring(b).trimStart()
         }
-        if (remaining.isNotBlank()) lines.add(remaining)
+        if (rem.isNotBlank()) lines.add(rem)
         return lines
     }
 
-    private fun formatMontant(amount: java.math.BigDecimal?): String {
-        if (amount == null) return ""
-        return String.format("%,.2f DH", amount).replace(",", " ").replace(".", ",").replace(" ", " ")
+    private fun fmtAmount(a: java.math.BigDecimal?): String {
+        if (a == null) return ""
+        val parts = a.setScale(2, java.math.RoundingMode.HALF_UP).toPlainString().split(".")
+        val intPart = parts[0].reversed().chunked(3).joinToString(" ").reversed()
+        return "$intPart,${parts.getOrElse(1) { "00" }} DH"
     }
 
-    // PDFBox Standard14 fonts only support WinAnsiEncoding — strip/replace unsupported chars
-    private fun safe(text: String): String {
-        return text
-            .replace("\u00e9", "e").replace("\u00e8", "e").replace("\u00ea", "e").replace("\u00eb", "e")
-            .replace("\u00e0", "a").replace("\u00e2", "a").replace("\u00e4", "a")
-            .replace("\u00f4", "o").replace("\u00f6", "o")
-            .replace("\u00fb", "u").replace("\u00fc", "u").replace("\u00f9", "u")
-            .replace("\u00ee", "i").replace("\u00ef", "i")
-            .replace("\u00e7", "c")
-            .replace("\u00c9", "E").replace("\u00c8", "E").replace("\u00ca", "E")
-            .replace("\u00c0", "A").replace("\u00c2", "A")
-            .replace("\u00d4", "O")
-            .replace("\u00db", "U")
-            .replace("\u00ce", "I")
-            .replace("\u00c7", "C")
-            .replace("\u2019", "'").replace("\u2018", "'")
-            .replace("\u201c", "\"").replace("\u201d", "\"")
-            .replace("\u2013", "-").replace("\u2014", "-")
-            .replace("\u2026", "...")
-            .replace(Regex("[^\\x00-\\xFF]"), "")
-    }
+    // Strip non-WinAnsi chars for PDFBox Standard14 fonts
+    private fun s(text: String): String = text
+        .replace('\u00e9', 'e').replace('\u00e8', 'e').replace('\u00ea', 'e').replace('\u00eb', 'e')
+        .replace('\u00e0', 'a').replace('\u00e2', 'a').replace('\u00e4', 'a')
+        .replace('\u00f4', 'o').replace('\u00f6', 'o').replace('\u00f9', 'u')
+        .replace('\u00fb', 'u').replace('\u00fc', 'u').replace('\u00ee', 'i')
+        .replace('\u00ef', 'i').replace('\u00e7', 'c').replace('\u00c9', 'E')
+        .replace('\u00c8', 'E').replace('\u00ca', 'E').replace('\u00c0', 'A')
+        .replace('\u00c2', 'A').replace('\u00d4', 'O').replace('\u00db', 'U')
+        .replace('\u00ce', 'I').replace('\u00c7', 'C')
+        .replace("\u2019", "'").replace("\u2018", "'")
+        .replace("\u201c", "\"").replace("\u201d", "\"")
+        .replace("\u2013", "-").replace("\u2014", "-")
+        .replace(Regex("[^\\x00-\\xFF]"), "")
 }

@@ -1,9 +1,14 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, Shield, Search } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
-export default function Layout() {
+interface Props {
+  user?: { nom: string; role: string; email: string }
+  onLogout?: () => void
+}
+
+export default function Layout({ user, onLogout }: Props) {
   const [searchOpen, setSearchOpen] = useState(false)
 
   useEffect(() => {
@@ -66,6 +71,17 @@ export default function Layout() {
           </button>
         </div>
 
+        {user && (
+          <div style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 11 }}>
+            <div style={{ color: '#fff', fontWeight: 600, marginBottom: 2 }}>{user.nom}</div>
+            <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>{user.role}</div>
+            {onLogout && (
+              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 10, padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
+                <LogOut size={10} /> Deconnexion
+              </button>
+            )}
+          </div>
+        )}
         <div className="sidebar-footer">
           <div className="dot" />
           <span>Systeme operationnel</span>

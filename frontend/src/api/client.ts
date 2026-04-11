@@ -2,6 +2,11 @@ import type { AiSettingsResponse } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
+function authHeaders(): Record<string, string> {
+  const auth = localStorage.getItem('recondoc_auth')
+  return auth ? { 'Authorization': `Basic ${auth}` } : {}
+}
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     let message: string
@@ -19,7 +24,7 @@ async function handleResponse<T>(res: Response): Promise<T> {
 // --- AI Settings ---
 
 export async function getAiSettings(): Promise<AiSettingsResponse> {
-  const res = await fetch(`${API_URL}/api/settings/ai`)
+  const res = await fetch(`${API_URL}/api/settings/ai`, { headers: authHeaders() })
   return handleResponse(res)
 }
 
@@ -31,7 +36,7 @@ export async function saveAiSettings(settings: {
 }): Promise<AiSettingsResponse> {
   const res = await fetch(`${API_URL}/api/settings/ai`, {
     method: 'POST',
-    headers: { 'Content-Type': 'application/json' },
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(settings),
   })
   return handleResponse(res)
