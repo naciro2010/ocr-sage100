@@ -79,7 +79,7 @@ export default function Settings() {
                 <CheckCircle size={12} /> Configure
               </span>
             ) : (
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--red-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
                 <XCircle size={12} /> Non configure
               </span>
             )}

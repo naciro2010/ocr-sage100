@@ -53,7 +53,7 @@ export default function Dashboard() {
     { label: 'Brouillons', value: stats.brouillons, color: 'var(--slate-500)' },
     { label: 'En verification', value: stats.enVerification, color: 'var(--amber-600)' },
     { label: 'Valides', value: stats.valides, color: 'var(--emerald-600)' },
-    { label: 'Rejetes', value: stats.rejetes, color: 'var(--red-600)' },
+    { label: 'Rejetes', value: stats.rejetes, color: 'var(--danger)' },
   ]
   const tauxValidation = stats.total > 0 ? Math.round((stats.valides / stats.total) * 100) : 0
   const tauxRejet = stats.total > 0 ? Math.round((stats.rejetes / stats.total) * 100) : 0
@@ -175,10 +175,10 @@ export default function Dashboard() {
                 <div>
                   <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
                     <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--slate-500)' }}>Rejet</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: 'var(--red-600)' }}>{tauxRejet}%</span>
+                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: 'var(--danger)' }}>{tauxRejet}%</span>
                   </div>
                   <div style={{ height: 4, background: 'var(--slate-100)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${tauxRejet}%`, background: 'var(--red-600)', borderRadius: 2, transition: 'width 0.4s' }} />
+                    <div style={{ height: '100%', width: `${tauxRejet}%`, background: 'var(--danger)', borderRadius: 2, transition: 'width 0.4s' }} />
                   </div>
                 </div>
                 <div style={{ borderTop: '1px solid var(--slate-200)', paddingTop: 12 }}>

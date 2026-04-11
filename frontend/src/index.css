@@ -29,6 +29,18 @@
   --danger: #ef4444;
   --danger-bg: #fef2f2;
   --warning: #f59e0b;
+
+  /* Legacy aliases (used in inline styles across pages) */
+  --slate-950: #020617; --slate-900: var(--ink); --slate-800: var(--ink-80);
+  --slate-700: var(--ink-70); --slate-600: var(--ink-60); --slate-500: var(--ink-50);
+  --slate-400: var(--ink-40); --slate-300: var(--ink-20); --slate-200: var(--ink-10);
+  --slate-100: var(--ink-05); --slate-50: var(--ink-02);
+  --teal-700: var(--accent-deep); --teal-600: var(--accent); --teal-500: #14b8a6;
+  --teal-50: rgba(16,185,129,0.06);
+  --red-600: var(--danger); --red-100: #fee2e2; --red-50: var(--danger-bg);
+  --amber-600: var(--warning); --amber-50: rgba(245,158,11,0.06);
+  --emerald-600: var(--success); --emerald-50: rgba(16,185,129,0.06);
+  --blue-600: var(--info); --blue-50: rgba(59,130,246,0.06);
   --warning-bg: #fffbeb;
   --success: #10b981;
   --success-bg: #ecfdf5;

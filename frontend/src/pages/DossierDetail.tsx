@@ -308,7 +308,7 @@ export default function DossierDetail() {
       {error && <div className="alert alert-error mb-3"><XCircle size={16} /> {error}</div>}
 
       <Modal open={rejectModal} title="Rejeter le dossier" message="Etes-vous sur de vouloir rejeter ce dossier ? Cette action sera enregistree dans l'historique."
-        confirmLabel="Rejeter" confirmColor="var(--red-600)" onConfirm={() => handleStatut('REJETE')} onCancel={() => { setRejectModal(false); setMotifRejet('') }}>
+        confirmLabel="Rejeter" confirmColor="var(--danger)" onConfirm={() => handleStatut('REJETE')} onCancel={() => { setRejectModal(false); setMotifRejet('') }}>
         <div style={{ marginBottom: 16 }}>
           <label className="form-label">Motif de rejet (optionnel)</label>
           <input className="form-input" value={motifRejet} onChange={e => setMotifRejet(e.target.value)} placeholder="Ex: Documents manquants, montants incoherents..." />

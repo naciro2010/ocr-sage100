@@ -141,7 +141,7 @@ export default function DossierList() {
         title="Supprimer le dossier"
         message={`Etes-vous sur de vouloir supprimer le dossier ${deleteTarget?.reference || ''} ? Cette action est irreversible.`}
         confirmLabel="Supprimer"
-        confirmColor="var(--red-600)"
+        confirmColor="var(--danger)"
         onConfirm={handleDelete}
         onCancel={() => setDeleteTarget(null)}
       />
