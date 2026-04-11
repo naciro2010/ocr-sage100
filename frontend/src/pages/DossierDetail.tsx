@@ -701,62 +701,82 @@ export default function DossierDetail() {
         </>
       )}
 
-      {/* Pre-validation: active rules from config */}
+      {/* Pre-validation: checklist autocontrole + system rules */}
       {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (() => {
         const activeRules = getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL')
-        const systemRules = activeRules.filter(r => r.category === 'system')
         const checklistRules = activeRules.filter(r => r.category === 'checklist')
+        const systemRules = activeRules.filter(r => r.category === 'system')
         return (
+        <>
+        {/* Checklist autocontrole — CCF-EN-04-V02 */}
         <div className="card">
-          <h2><ShieldCheck size={14} /> Controles a effectuer ({activeRules.length} regles actives)</h2>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <h2 style={{ marginBottom: 0 }}>
+              <ShieldCheck size={14} /> Check-list d'autocontrole des dossiers de paiement
+            </h2>
+            <span style={{ fontSize: 9, fontFamily: 'var(--font-mono)', color: 'var(--ink-30)' }}>CCF-EN-04-V02</span>
+          </div>
 
-          {systemRules.length > 0 && (
-            <>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
-                Regles systeme ({systemRules.length})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
-                {systemRules.map(rule => (
-                  <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
-                    <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>—</span>
-                    <div className="check-point-body">
-                      <div style={{ fontWeight: 600, fontSize: 11 }}>
-                        <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
-                        {rule.label}
-                      </div>
-                      <div style={{ fontSize: 10, color: 'var(--ink-30)' }}>{rule.desc}</div>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 8, marginBottom: 14, fontSize: 12 }}>
+            <div><span style={{ fontWeight: 700, fontSize: 10, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Prestataire : </span>{dossier.fournisseur || '\u2014'}</div>
+            <div><span style={{ fontWeight: 700, fontSize: 10, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Reference : </span>{dossier.reference}</div>
+          </div>
+
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th style={{ width: 40 }}>#</th>
+                <th>Liste des points de controle</th>
+                <th style={{ width: 50 }}>OK</th>
+              </tr>
+            </thead>
+            <tbody>
+              {checklistRules.map((rule, i) => (
+                <tr key={rule.code}>
+                  <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--ink-30)' }}>
+                    {i + 1}
+                  </td>
+                  <td>
+                    <div style={{ fontSize: 12, lineHeight: 1.5 }}>
+                      <strong>Point {i + 1} : </strong>{rule.desc}
                     </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          {checklistRules.length > 0 && (
-            <>
-              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
-                Points de controle TC ({checklistRules.length})
-              </div>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
-                {checklistRules.map(rule => (
-                  <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
-                    <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>—</span>
-                    <div className="check-point-body">
-                      <div style={{ fontWeight: 600, fontSize: 11 }}>
-                        <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
-                        {rule.label}
-                      </div>
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </>
-          )}
-
-          <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
-            {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
-          </button>
+                  </td>
+                  <td style={{ textAlign: 'center' }}>
+                    <span className="check-point-icon na" style={{ width: 18, height: 18, fontSize: 10, display: 'inline-flex' }}>—</span>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+          <div style={{ fontSize: 10, color: 'var(--ink-30)', marginTop: 8, fontStyle: 'italic' }}>
+            *Les controles doivent etre obligatoirement exhaustifs
+          </div>
         </div>
+
+        {/* System rules - automated verification */}
+        <div className="card">
+          <h2><ShieldCheck size={14} /> Verifications automatiques ({systemRules.length} regles)</h2>
+          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+            {systemRules.map(rule => (
+              <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
+                <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>—</span>
+                <div className="check-point-body">
+                  <div style={{ fontWeight: 600, fontSize: 11 }}>
+                    <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
+                    {rule.label}
+                  </div>
+                  <div style={{ fontSize: 10, color: 'var(--ink-30)' }}>{rule.desc}</div>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div style={{ marginTop: 12 }}>
+            <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
+              {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
+            </button>
+          </div>
+        </div>
+        </>
         )})()}
 
       {/* Validation results */}
