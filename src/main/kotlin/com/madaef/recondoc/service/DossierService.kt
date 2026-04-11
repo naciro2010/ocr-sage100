@@ -380,11 +380,35 @@ class DossierService(
 
     fun exportTC(dossierId: UUID): ByteArray {
         val dossier = getDossierFull(dossierId)
-        val defaultRequest = FinalizeRequest(
-            points = dossier.resultatsValidation.map { ControlPoint(it.libelle, it.statut.name, it.detail) },
+        // Use checklist autocontrole points if available, otherwise use standard 10 points
+        val checklist = dossier.checklistAutocontrole
+        val points = if (checklist != null && checklist.points.isNotEmpty()) {
+            checklist.points.map { pt ->
+                ControlPoint(
+                    description = pt.description ?: "Point ${pt.numero}",
+                    observation = if (pt.estValide == true) "Conforme" else if (pt.estValide == false) "Non conforme" else "NA",
+                    commentaire = pt.observation
+                )
+            }
+        } else {
+            // Default 10 TC points
+            listOf(
+                "Concordance facture / modalites contractuelles / livrables",
+                "Verification arithmetique des montants",
+                "Respect du delai d'execution des prestations",
+                "Modifications / avenants (plafonds et variations)",
+                "Application des retenues et penalites",
+                "Signatures et visas des personnes habilitees",
+                "Conformite reglementaire (ICE, IF, RC, CNSS)",
+                "Conformite du RIB contractuel vs facture",
+                "Conformite BL / PV de reception",
+                "Habilitations des signataires des receptions"
+            ).map { ControlPoint(it, "NA", null) }
+        }
+        return pdfGenerator.generateTC(dossier, FinalizeRequest(
+            points = points,
             signataire = dossier.validePar ?: "Non signe"
-        )
-        return pdfGenerator.generateTC(dossier, defaultRequest)
+        ))
     }
 
     fun exportOP(dossierId: UUID): ByteArray {
