@@ -44,6 +44,7 @@ class DossierService(
     private val eventPublisher: ApplicationEventPublisher,
     private val progressService: DocumentProgressService,
     private val pdfGenerator: PdfGeneratorService,
+    private val resultatRepo: ResultatValidationRepository,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
@@ -167,16 +168,15 @@ class DossierService(
 
     @Transactional
     fun deleteDossier(id: UUID) {
-        // Clean child entities first to avoid FK issues with corrupted data (null document_id)
-        factureRepo.findByDossierId(id)?.let { factureRepo.delete(it); factureRepo.flush() }
+        // Clean child entities — clear nested collections first to avoid FK constraint violations
+        factureRepo.findByDossierId(id)?.let { it.lignes.clear(); factureRepo.delete(it); factureRepo.flush() }
         bcRepo.findByDossierId(id)?.let { bcRepo.delete(it); bcRepo.flush() }
-        contratRepo.findByDossierId(id)?.let { contratRepo.delete(it); contratRepo.flush() }
-        opRepo.findByDossierId(id)?.let { opRepo.delete(it); opRepo.flush() }
-        checklistRepo.findByDossierId(id)?.let { checklistRepo.delete(it); checklistRepo.flush() }
-        tableauRepo.findByDossierId(id)?.let { tableauRepo.delete(it); tableauRepo.flush() }
+        contratRepo.findByDossierId(id)?.let { it.grillesTarifaires.clear(); contratRepo.delete(it); contratRepo.flush() }
+        opRepo.findByDossierId(id)?.let { it.retenues.clear(); opRepo.delete(it); opRepo.flush() }
+        checklistRepo.findByDossierId(id)?.let { it.points.clear(); it.signataires.clear(); checklistRepo.delete(it); checklistRepo.flush() }
+        tableauRepo.findByDossierId(id)?.let { it.points.clear(); tableauRepo.delete(it); tableauRepo.flush() }
         pvRepo.findByDossierId(id)?.let { pvRepo.delete(it); pvRepo.flush() }
         arfRepo.findByDossierId(id)?.let { arfRepo.delete(it); arfRepo.flush() }
-        // Now safe to delete dossier (remaining children cascade via ON DELETE CASCADE in DB)
         dossierRepo.deleteById(id)
     }
 
@@ -394,6 +394,20 @@ class DossierService(
             signataire = dossier.validePar ?: "Non signe"
         )
         return pdfGenerator.generateOP(dossier, defaultRequest)
+    }
+
+    @Transactional
+    fun updateValidationResult(resultId: UUID, updates: Map<String, String>): ResultatValidation {
+        val repo = resultatRepo
+        val result = repo.findById(resultId).orElseThrow { NoSuchElementException("Result not found") }
+        updates["statut"]?.let { newStatut ->
+            if (result.statutOriginal == null) result.statutOriginal = result.statut.name
+            result.statut = StatutCheck.valueOf(newStatut)
+        }
+        updates["commentaire"]?.let { result.commentaire = it }
+        updates["corrigePar"]?.let { result.corrigePar = it }
+        result.dateCorrection = java.time.LocalDateTime.now()
+        return repo.save(result)
     }
 
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {

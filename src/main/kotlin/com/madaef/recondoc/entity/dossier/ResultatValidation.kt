@@ -23,5 +23,9 @@ class ResultatValidation(
     @Column(name = "valeur_attendue", columnDefinition = "TEXT") var valeurAttendue: String? = null,
     @Column(name = "valeur_trouvee", columnDefinition = "TEXT") var valeurTrouvee: String? = null,
     @Column(name = "date_execution", nullable = false) var dateExecution: LocalDateTime = LocalDateTime.now(),
-    @Column(nullable = false) var source: String = "DETERMINISTE"
+    @Column(nullable = false) var source: String = "DETERMINISTE",
+    @Column(columnDefinition = "TEXT") var commentaire: String? = null,
+    @Column(name = "statut_original") var statutOriginal: String? = null,
+    @Column(name = "corrige_par") var corrigePar: String? = null,
+    @Column(name = "date_correction") var dateCorrection: LocalDateTime? = null
 )

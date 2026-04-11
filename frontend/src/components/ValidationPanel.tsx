@@ -1,7 +1,9 @@
 import { useState } from 'react'
 import type { DossierDetail } from '../api/dossierTypes'
 import { CHECK_ICONS } from '../api/dossierTypes'
-import { ShieldCheck, RefreshCw, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
+import { updateValidationResult } from '../api/dossierApi'
+import { useToast } from './Toast'
+import { ShieldCheck, RefreshCw, Loader2, ChevronDown, ChevronUp, Save } from 'lucide-react'
 
 const RULE_PROVENANCE: Record<string, { docs: string[]; fields: string[]; desc: string }> = {
   R01: { docs: ['Facture', 'Bon de commande'], fields: ['montantTtc'], desc: 'Compare le TTC de la facture avec le BC' },
@@ -33,7 +35,10 @@ interface Props {
 }
 
 export default function ValidationPanel({ dossier, onValidate, validating }: Props) {
+  const { toast } = useToast()
   const [expandedRule, setExpandedRule] = useState<string | null>(null)
+  const [editComment, setEditComment] = useState<Record<string, string>>({})
+  const [saving, setSaving] = useState<string | null>(null)
   const results = dossier.resultatsValidation
 
   const nbConformes = results.filter(r => r.statut === 'CONFORME').length
@@ -157,15 +162,69 @@ export default function ValidationPanel({ dossier, onValidate, validating }: Pro
 
                   {/* Source documents & fields */}
                   {prov && (
-                    <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--ink-30)' }}>
+                    <div style={{ display: 'flex', gap: 16, fontSize: 10, color: 'var(--ink-30)', marginBottom: 10 }}>
                       <div>
                         <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Documents : </span>
-                        {prov.docs.join(' ↔ ')}
+                        {prov.docs.join(' \u2194 ')}
                       </div>
                       <div>
                         <span style={{ fontWeight: 700, fontFamily: 'var(--font-mono)', textTransform: 'uppercase', letterSpacing: 0.5 }}>Champs : </span>
                         {prov.fields.join(', ')}
                       </div>
+                    </div>
+                  )}
+
+                  {/* Correction controls */}
+                  {r.id && (
+                    <div style={{ borderTop: '1px solid var(--ink-05)', paddingTop: 10, marginTop: 6 }}>
+                      <div style={{ display: 'flex', gap: 8, alignItems: 'flex-end' }}>
+                        <div style={{ flex: 0 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', marginBottom: 3 }}>Statut</div>
+                          <select className="form-select" value={r.statut}
+                            style={{ fontSize: 11, padding: '4px 6px', width: 'auto' }}
+                            onChange={async (e) => {
+                              setSaving(r.id)
+                              try {
+                                await updateValidationResult(dossier.id, r.id!, { statut: e.target.value })
+                                toast('success', `${r.regle} corrige`)
+                                onValidate()
+                              } catch { toast('error', 'Erreur') }
+                              finally { setSaving(null) }
+                            }}>
+                            <option value="CONFORME">Conforme</option>
+                            <option value="NON_CONFORME">Non conforme</option>
+                            <option value="AVERTISSEMENT">Avertissement</option>
+                            <option value="NON_APPLICABLE">Non applicable</option>
+                          </select>
+                        </div>
+                        <div style={{ flex: 1 }}>
+                          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', marginBottom: 3 }}>Commentaire</div>
+                          <input className="form-input"
+                            placeholder="Commentaire de correction..."
+                            value={editComment[r.id!] ?? r.commentaire ?? ''}
+                            onChange={e => setEditComment(prev => ({ ...prev, [r.id!]: e.target.value }))}
+                            style={{ fontSize: 11, padding: '4px 8px' }}
+                          />
+                        </div>
+                        <button className="btn btn-primary btn-sm"
+                          disabled={saving === r.id}
+                          onClick={async () => {
+                            setSaving(r.id)
+                            try {
+                              await updateValidationResult(dossier.id, r.id!, { commentaire: editComment[r.id!] || r.commentaire || '' })
+                              toast('success', 'Commentaire sauvegarde')
+                              onValidate()
+                            } catch { toast('error', 'Erreur') }
+                            finally { setSaving(null) }
+                          }}>
+                          {saving === r.id ? <Loader2 size={11} className="spin" /> : <Save size={11} />}
+                        </button>
+                      </div>
+                      {r.statutOriginal && r.statutOriginal !== r.statut && (
+                        <div style={{ fontSize: 10, color: 'var(--warning)', marginTop: 4, fontFamily: 'var(--font-mono)' }}>
+                          Corrige : {r.statutOriginal} \u2192 {r.statut} {r.corrigePar && `par ${r.corrigePar}`}
+                        </div>
+                      )}
                     </div>
                   )}
                 </div>

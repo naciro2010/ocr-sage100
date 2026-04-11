@@ -57,6 +57,7 @@ export interface DocumentInfo {
 }
 
 export interface ValidationResult {
+  id: string | null
   regle: string
   libelle: string
   statut: StatutCheck
@@ -64,6 +65,9 @@ export interface ValidationResult {
   valeurAttendue: string | null
   valeurTrouvee: string | null
   source: string
+  commentaire: string | null
+  corrigePar: string | null
+  statutOriginal: string | null
 }
 
 export interface PageResponse<T> {

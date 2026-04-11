@@ -98,6 +98,14 @@ class DossierController(
         return dossierService.getDossierResponse(id).resultatsValidation
     }
 
+    @PatchMapping("/{id}/validation/{resultId}")
+    fun updateValidationResult(
+        @PathVariable id: UUID, @PathVariable resultId: UUID,
+        @RequestBody body: Map<String, String>
+    ): ValidationResultResponse {
+        return dossierService.updateValidationResult(resultId, body).toResponse()
+    }
+
     @PostMapping("/{id}/documents/{docId}/reprocess")
     fun reprocessDocument(@PathVariable id: UUID, @PathVariable docId: UUID): DocumentResponse {
         dossierService.processDocument(docId)

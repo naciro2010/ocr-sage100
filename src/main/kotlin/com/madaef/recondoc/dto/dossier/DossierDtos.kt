@@ -94,13 +94,17 @@ data class DocumentResponse(
 )
 
 data class ValidationResultResponse(
+    val id: String?,
     val regle: String,
     val libelle: String,
     val statut: StatutCheck,
     val detail: String?,
     val valeurAttendue: String?,
     val valeurTrouvee: String?,
-    val source: String
+    val source: String,
+    val commentaire: String?,
+    val corrigePar: String?,
+    val statutOriginal: String?
 )
 
 data class AuditLogResponse(
@@ -134,7 +138,8 @@ fun Document.toResponse(): DocumentResponse = DocumentResponse(
 )
 
 fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResultResponse(
-    regle = regle, libelle = libelle, statut = statut,
+    id = id?.toString(), regle = regle, libelle = libelle, statut = statut,
     detail = detail, valeurAttendue = valeurAttendue, valeurTrouvee = valeurTrouvee,
-    source = source
+    source = source, commentaire = commentaire, corrigePar = corrigePar,
+    statutOriginal = statutOriginal
 )

@@ -137,6 +137,15 @@ export function getExportOPUrl(dossierId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/export/op`
 }
 
+export async function updateValidationResult(dossierId: string, resultId: string, updates: { statut?: string; commentaire?: string; corrigePar?: string }): Promise<ValidationResult> {
+  const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  return handleResponse(res)
+}
+
 export function getDocumentFileUrl(dossierId: string, docId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file`
 }
