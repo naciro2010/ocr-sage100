@@ -108,7 +108,7 @@ export default function ValidationPanel({ dossier, onValidate, validating }: Pro
                     <div style={{ fontSize: 11, color: 'var(--ink-40)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 500 }}>{r.detail}</div>
                   )}
                 </div>
-                <span className={`prov-badge ${r.source.toLowerCase()}`} style={{ marginRight: 4 }}>{r.source}</span>
+                <span className={`prov-badge ${r.source.toLowerCase()}`} style={{ marginRight: 4 }}>{r.source === 'DETERMINISTE' ? 'Systeme' : r.source === 'LLM' ? 'IA' : r.source}</span>
                 {isExpanded ? <ChevronUp size={14} style={{ color: 'var(--ink-30)' }} /> : <ChevronDown size={14} style={{ color: 'var(--ink-30)' }} />}
               </div>
 
