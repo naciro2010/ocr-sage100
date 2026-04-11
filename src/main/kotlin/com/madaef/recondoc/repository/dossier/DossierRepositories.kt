@@ -15,9 +15,18 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     fun countByStatut(statut: StatutDossier): Long
 
     @EntityGraph(attributePaths = [
-        "documents", "facture", "bonCommande", "contratAvenant",
-        "ordrePaiement", "checklistAutocontrole", "tableauControle",
-        "pvReception", "attestationFiscale", "resultatsValidation"
+        "documents",
+        "facture", "facture.document", "facture.lignes",
+        "bonCommande", "bonCommande.document",
+        "contratAvenant", "contratAvenant.document",
+        "ordrePaiement", "ordrePaiement.document",
+        "checklistAutocontrole", "checklistAutocontrole.document",
+        "checklistAutocontrole.points", "checklistAutocontrole.signataires",
+        "tableauControle", "tableauControle.document",
+        "tableauControle.points",
+        "pvReception", "pvReception.document",
+        "attestationFiscale", "attestationFiscale.document",
+        "resultatsValidation"
     ])
     @Query("SELECT d FROM DossierPaiement d WHERE d.id = :id")
     fun findByIdWithAll(id: UUID): Optional<DossierPaiement>
@@ -29,12 +38,21 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     fun getStatsByStatut(): List<Array<Any>>
 
     @Query("""
-        SELECT d FROM DossierPaiement d
+        SELECT d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
+               d.montantTtc, d.montantNetAPayer, d.dateCreation,
+               COUNT(DISTINCT doc.id),
+               COUNT(DISTINCT CASE WHEN rv.statut = 'CONFORME' THEN rv.id END),
+               COUNT(DISTINCT rv.id)
+        FROM DossierPaiement d
+        LEFT JOIN d.documents doc
+        LEFT JOIN d.resultatsValidation rv
         WHERE (:statut IS NULL OR d.statut = :statut)
         AND (:type IS NULL OR d.type = :type)
         AND (:fournisseur IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :fournisseur, '%')))
+        GROUP BY d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
+                 d.montantTtc, d.montantNetAPayer, d.dateCreation
     """)
-    fun search(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<DossierPaiement>
+    fun searchProjected(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<Array<Any>>
 
     @Query("""
         SELECT d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,

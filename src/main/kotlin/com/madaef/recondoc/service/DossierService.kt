@@ -743,7 +743,22 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun searchDossiers(statut: StatutDossier?, type: DossierType?, fournisseur: String?, pageable: Pageable): Page<DossierListResponse> {
-        return dossierRepo.search(statut, type, fournisseur, pageable).map { it.toListResponse() }
+        return dossierRepo.searchProjected(statut, type, fournisseur, pageable).map { row ->
+            DossierListResponse(
+                id = row[0] as UUID,
+                reference = row[1] as String,
+                type = row[2] as DossierType,
+                statut = row[3] as StatutDossier,
+                fournisseur = row[4] as? String,
+                description = row[5] as? String,
+                montantTtc = row[6] as? BigDecimal,
+                montantNetAPayer = row[7] as? BigDecimal,
+                dateCreation = row[8] as java.time.LocalDateTime,
+                nbDocuments = (row[9] as Number).toInt(),
+                nbChecksConformes = (row[10] as Number).toInt(),
+                nbChecksTotal = (row[11] as Number).toInt()
+            )
+        }
     }
 
     fun buildFullResponse(dossier: DossierPaiement): DossierResponse {
