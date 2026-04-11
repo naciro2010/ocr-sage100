@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl } from '../api/dossierApi'
+import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl, openWithAuth } from '../api/dossierApi'
 import type { DossierDetail } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import {
@@ -322,14 +322,12 @@ export default function Finalize() {
             </div>
           </div>
           <div style={{ display: 'flex', gap: 10 }}>
-            <a href={getExportTCUrl(id)} target="_blank" rel="noopener noreferrer"
-              className="btn btn-secondary" style={{ textDecoration: 'none' }}>
+            <button className="btn btn-secondary" onClick={() => openWithAuth(getExportTCUrl(id))}>
               <Download size={14} /> Tableau de Controle
-            </a>
-            <a href={getExportOPUrl(id)} target="_blank" rel="noopener noreferrer"
-              className="btn btn-secondary" style={{ textDecoration: 'none' }}>
+            </button>
+            <button className="btn btn-secondary" onClick={() => openWithAuth(getExportOPUrl(id))}>
               <Download size={14} /> Ordre de Paiement
-            </a>
+            </button>
             <Link to={`/dossiers/${id}`} className="btn btn-primary" style={{ textDecoration: 'none' }}>
               Retour au dossier
             </Link>

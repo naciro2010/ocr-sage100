@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, deleteDocument, getAuditLog, getDocumentFileUrl, updateDossier } from '../api/dossierApi'
+import { getDossier, uploadDocuments, validateDossier, changeStatut, reprocessDocument, changeDocumentType, deleteDocument, getAuditLog, getDocumentFileUrl, updateDossier, openWithAuth } from '../api/dossierApi'
 import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import { STATUT_CONFIG, TYPE_DOCUMENT_LABELS } from '../api/dossierTypes'
 import type { DocumentInfo, TypeDocument, AuditEntry } from '../api/dossierTypes'
@@ -538,10 +538,10 @@ export default function DossierDetail() {
                 <button className="btn btn-secondary btn-sm" onClick={() => setShowPdf(!showPdf)}>
                   {showPdf ? <><XCircle size={14} /> Masquer PDF</> : <><FileText size={14} /> Voir PDF</>}
                 </button>
-                {id && <a href={getDocumentFileUrl(id, selectedDoc.id)} target="_blank" rel="noopener noreferrer"
-                  className="btn btn-secondary btn-sm" style={{ textDecoration: 'none' }}>
+                {id && <button className="btn btn-secondary btn-sm"
+                  onClick={() => openWithAuth(getDocumentFileUrl(id, selectedDoc.id))}>
                   <Download size={14} /> Telecharger
-                </a>}
+                </button>}
               </div>
             </div>
             {showPdf && id && <div className="pdf-viewer"><iframe src={getDocumentFileUrl(id, selectedDoc.id)} title={selectedDoc.nomFichier} /></div>}
@@ -814,20 +814,14 @@ export default function DossierDetail() {
           </div>
         </div>
 
-        {/* System rules */}
+        {/* System rules — compact */}
         <div className="card">
-          <h2><ShieldCheck size={14} /> Verifications automatiques ({systemRules.length} regles)</h2>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          <h2><ShieldCheck size={14} /> Verifications automatiques ({systemRules.length})</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2px 12px' }}>
             {systemRules.map(rule => (
-              <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
-                <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>\u2014</span>
-                <div className="check-point-body">
-                  <div style={{ fontWeight: 600, fontSize: 11 }}>
-                    <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
-                    {rule.label}
-                  </div>
-                  <div style={{ fontSize: 10, color: 'var(--ink-30)' }}>{rule.desc}</div>
-                </div>
+              <div key={rule.code} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11 }}>
+                <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', width: 28, flexShrink: 0 }}>{rule.code}</span>
+                <span style={{ color: 'var(--ink-50)' }}>{rule.label}</span>
               </div>
             ))}
           </div>

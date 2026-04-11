@@ -137,6 +137,25 @@ export function getExportOPUrl(dossierId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/export/op`
 }
 
+// Download a file with auth headers (for links that open in new tab)
+export async function downloadWithAuth(url: string, filename: string) {
+  const res = await apiFetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = blobUrl; a.download = filename; a.click()
+  URL.revokeObjectURL(blobUrl)
+}
+
+export async function openWithAuth(url: string) {
+  const res = await apiFetch(url)
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  const blob = await res.blob()
+  const blobUrl = URL.createObjectURL(blob)
+  window.open(blobUrl, '_blank')
+}
+
 export async function updateValidationResult(dossierId: string, resultId: string, updates: { statut?: string; commentaire?: string; corrigePar?: string }): Promise<ValidationResult> {
   const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}`, {
     method: 'PATCH',
