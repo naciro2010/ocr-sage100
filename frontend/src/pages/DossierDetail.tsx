@@ -807,7 +807,7 @@ export default function DossierDetail() {
                         </span>
                       </td>
                       <td style={{ fontSize: 11, color: 'var(--ink-40)' }}>
-                        {pt.observation != null ? String(pt.observation) : ''}
+                        {pt.observation != null && pt.observation !== '\\u2014' ? String(pt.observation).replace(/\\u2014/g, '—') : ''}
                       </td>
                     </tr>
                   )
