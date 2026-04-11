@@ -5,7 +5,6 @@ import type { DossierDetail as DossierDetailType } from '../api/dossierTypes'
 import type { AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
-import ValidationPanel from '../components/ValidationPanel'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
 import { AlertTriangle, XCircle } from 'lucide-react'
 
@@ -16,7 +15,7 @@ const WorkflowTimeline = lazy(() => import('../components/dossier/WorkflowTimeli
 const MetricsBar = lazy(() => import('../components/dossier/MetricsBar'))
 const CompareView = lazy(() => import('../components/dossier/CompareView'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
-const ChecklistSection = lazy(() => import('../components/dossier/ChecklistSection'))
+const VerificationBlocks = lazy(() => import('../components/dossier/VerificationBlocks'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
 
 export default function DossierDetail() {
@@ -168,14 +167,9 @@ export default function DossierDetail() {
         <DocumentManager dossier={dossier} id={id!} liveProgress={liveProgress}
           onReload={load} onReloadAudit={loadAudit} />
 
-        {/* Checklist + System rules */}
+        {/* Verification: system + autocontrole */}
         {dossier.documents.length > 0 && (
-          <ChecklistSection dossier={dossier} validating={validating} onValidate={handleValidate} />
-        )}
-
-        {/* Validation results */}
-        {dossier.resultatsValidation.length > 0 && (
-          <ValidationPanel dossier={dossier} onValidate={handleValidate} validating={validating} />
+          <VerificationBlocks dossier={dossier} validating={validating} onValidate={handleValidate} />
         )}
 
         {/* Audit */}
