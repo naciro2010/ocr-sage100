@@ -8,6 +8,7 @@ import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import ValidationPanel from '../components/ValidationPanel'
 import DocumentPipeline from '../components/DocumentPipeline'
+import { getActiveRules } from '../config/validationRules'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
 import {
   ArrowLeft, RefreshCw, Upload, FileText, CheckCircle, XCircle, AlertTriangle,
@@ -700,49 +701,61 @@ export default function DossierDetail() {
         </>
       )}
 
-      {/* Pre-validation: rules that will run */}
+      {/* Pre-validation: active rules from config */}
       {dossier.resultatsValidation.length === 0 && dossier.documents.length > 0 && (() => {
-        const COMMON_RULES = [
-          { code: 'R04/R05', label: 'Montant OP = TTC (- retenues)', desc: 'Avec ou sans retenues a la source' },
-          { code: 'R07-R08', label: 'References croisees', desc: 'N° facture et BC/contrat cites dans l\'OP' },
-          { code: 'R09-R10', label: 'Coherence identifiants fiscaux', desc: 'ICE et IF entre facture et ARF' },
-          { code: 'R11', label: 'Coherence RIB', desc: 'RIB facture = RIB ordre de paiement' },
-          { code: 'R12-R13', label: 'Checklist et Tableau de controle', desc: 'Tous les points valides' },
-          { code: 'R17', label: 'Chronologie des dates', desc: 'BC/Contrat <= Facture <= OP' },
-          { code: 'R18', label: 'Validite attestation fiscale', desc: '6 mois de validite' },
-        ]
-        const rules = [
-          { code: 'R20', label: 'Completude du dossier', desc: `Pieces obligatoires (${dossier.type === 'BC' ? 'BC, Facture, Checklist, TC, OP' : 'Contrat, Facture, PV, Checklist, OP'})` },
-          ...(dossier.type === 'BC'
-            ? [{ code: 'R01-R03', label: 'Concordance montants BC / Facture', desc: 'HT, TVA, TTC' }]
-            : [{ code: 'R15', label: 'Grille tarifaire x duree = HT', desc: 'Prix mensuel avenant x nombre de mois' }]),
-          ...COMMON_RULES,
-        ]
+        const activeRules = getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL')
+        const systemRules = activeRules.filter(r => r.category === 'system')
+        const checklistRules = activeRules.filter(r => r.category === 'checklist')
         return (
         <div className="card">
-          <h2><ShieldCheck size={14} /> Controles a effectuer</h2>
-          <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 10 }}>
-            Ces regles seront verifiees lors de la validation croisee :
-          </div>
-          <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
-            {rules.map(rule => (
-              <div key={rule.code} className="check-point" style={{ padding: '6px 10px' }}>
-                <span className="check-point-icon na" style={{ width: 18, height: 18, fontSize: 10 }}>—</span>
-                <div className="check-point-body">
-                  <div style={{ fontWeight: 600, fontSize: 12 }}>
-                    <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 10, fontFamily: 'var(--font-mono)' }}>[{rule.code}]</span>
-                    {rule.label}
-                  </div>
-                  <div style={{ fontSize: 11, color: 'var(--ink-30)' }}>{rule.desc}</div>
-                </div>
+          <h2><ShieldCheck size={14} /> Controles a effectuer ({activeRules.length} regles actives)</h2>
+
+          {systemRules.length > 0 && (
+            <>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+                Regles systeme ({systemRules.length})
               </div>
-            ))}
-          </div>
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
-              {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
-            </button>
-          </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
+                {systemRules.map(rule => (
+                  <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
+                    <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>—</span>
+                    <div className="check-point-body">
+                      <div style={{ fontWeight: 600, fontSize: 11 }}>
+                        <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
+                        {rule.label}
+                      </div>
+                      <div style={{ fontSize: 10, color: 'var(--ink-30)' }}>{rule.desc}</div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          {checklistRules.length > 0 && (
+            <>
+              <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+                Points de controle TC ({checklistRules.length})
+              </div>
+              <div style={{ display: 'flex', flexDirection: 'column', gap: 2, marginBottom: 14 }}>
+                {checklistRules.map(rule => (
+                  <div key={rule.code} className="check-point" style={{ padding: '5px 10px' }}>
+                    <span className="check-point-icon na" style={{ width: 16, height: 16, fontSize: 9 }}>—</span>
+                    <div className="check-point-body">
+                      <div style={{ fontWeight: 600, fontSize: 11 }}>
+                        <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 9, fontFamily: 'var(--font-mono)' }}>{rule.code}</span>
+                        {rule.label}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+            </>
+          )}
+
+          <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
+            {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
+          </button>
         </div>
         )})()}
 

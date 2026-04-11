@@ -2,10 +2,11 @@ import { useState, useEffect } from 'react'
 import { getAiSettings, saveAiSettings as saveAiSettingsApi } from '../api/client'
 import type { AiSettingsResponse } from '../api/types'
 import { useToast } from '../components/Toast'
+import { ALL_RULES, getDisabledRules, setDisabledRules } from '../config/validationRules'
 import {
   Settings as SettingsIcon, Brain, ScanLine, Cpu,
   CheckCircle, XCircle, Loader2, Eye, EyeOff,
-  Shield, Globe, Key, Info, Keyboard,
+  Shield, Globe, Key, Info, Keyboard, ShieldCheck,
 } from 'lucide-react'
 
 const AI_MODELS = [
@@ -182,6 +183,9 @@ export default function Settings() {
         </table>
       </div>
 
+      {/* Validation Rules */}
+      <ValidationRulesSection />
+
       {/* About */}
       <div className="card">
         <h2><Info size={14} /> A propos</h2>
@@ -203,6 +207,95 @@ export default function Settings() {
           </div>
         </div>
       </div>
+    </div>
+  )
+}
+
+function ValidationRulesSection() {
+  const [disabled, setDisabled] = useState<Set<string>>(getDisabledRules)
+
+  const toggle = (code: string) => {
+    const next = new Set(disabled)
+    if (next.has(code)) next.delete(code); else next.add(code)
+    setDisabled(next)
+    setDisabledRules(next)
+  }
+
+  const systemRules = ALL_RULES.filter(r => r.category === 'system')
+  const checklistRules = ALL_RULES.filter(r => r.category === 'checklist')
+
+  return (
+    <div className="card">
+      <h2><ShieldCheck size={14} /> Regles de validation</h2>
+      <p style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 16 }}>
+        Activez ou desactivez les regles de verification croisee. Les regles desactivees ne seront pas executees lors de la validation.
+      </p>
+
+      {/* System rules */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+        Regles systeme ({systemRules.filter(r => !disabled.has(r.code)).length}/{systemRules.length} actives)
+      </div>
+      <table className="data-table" style={{ marginBottom: 20 }}>
+        <thead>
+          <tr>
+            <th style={{ width: 50 }}>Actif</th>
+            <th style={{ width: 70 }}>Code</th>
+            <th>Regle</th>
+            <th>Description</th>
+            <th style={{ width: 80 }}>BC</th>
+            <th style={{ width: 80 }}>Contrat</th>
+          </tr>
+        </thead>
+        <tbody>
+          {systemRules.map(r => (
+            <tr key={r.code} style={{ opacity: disabled.has(r.code) ? 0.4 : 1 }}>
+              <td>
+                <label className="toggle">
+                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} />
+                  <span className="toggle-track" />
+                  <span className="toggle-thumb" />
+                </label>
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{r.code}</td>
+              <td style={{ fontWeight: 600, fontSize: 12 }}>{r.label}</td>
+              <td style={{ fontSize: 11, color: 'var(--ink-40)' }}>{r.desc}</td>
+              <td>{r.appliesToBC ? <CheckCircle size={12} style={{ color: 'var(--success)' }} /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
+              <td>{r.appliesToContractuel ? <CheckCircle size={12} style={{ color: 'var(--success)' }} /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
+
+      {/* Checklist rules */}
+      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+        Points de controle TC ({checklistRules.filter(r => !disabled.has(r.code)).length}/{checklistRules.length} actifs)
+      </div>
+      <table className="data-table">
+        <thead>
+          <tr>
+            <th style={{ width: 50 }}>Actif</th>
+            <th style={{ width: 70 }}>Code</th>
+            <th>Point de controle</th>
+            <th>Description</th>
+          </tr>
+        </thead>
+        <tbody>
+          {checklistRules.map(r => (
+            <tr key={r.code} style={{ opacity: disabled.has(r.code) ? 0.4 : 1 }}>
+              <td>
+                <label className="toggle">
+                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} />
+                  <span className="toggle-track" />
+                  <span className="toggle-thumb" />
+                </label>
+              </td>
+              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{r.code}</td>
+              <td style={{ fontWeight: 600, fontSize: 12 }}>{r.label}</td>
+              <td style={{ fontSize: 11, color: 'var(--ink-40)' }}>{r.desc}</td>
+            </tr>
+          ))}
+        </tbody>
+      </table>
     </div>
   )
 }
