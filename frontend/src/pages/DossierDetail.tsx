@@ -46,23 +46,35 @@ export default function DossierDetail() {
     if (id) getAuditLog(id).then(setAudit).catch(() => {})
   }, [id])
 
+  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
+
   const load = useCallback(() => {
     if (!id) return
     setError('')
     getDossier(id).then(d => {
       setDossier(d)
       const processing = d.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
-      if (processing) {
-        setTimeout(() => load(), 10000) // Fallback poll — SSE handles real-time
+      if (processing && !pollRef.current) {
+        // Poll every 3s while documents are processing
+        pollRef.current = setInterval(() => {
+          getDossier(id).then(fresh => {
+            setDossier(fresh)
+            const stillProcessing = fresh.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
+            if (!stillProcessing && pollRef.current) {
+              clearInterval(pollRef.current)
+              pollRef.current = null
+              loadAudit()
+            }
+          }).catch(() => {})
+        }, 3000)
       }
     }).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
-  }, [id])
+  }, [id, loadAudit])
 
   useEffect(() => {
-    const ctrl = new AbortController()
-    if (id) getDossier(id, ctrl.signal).then(setDossier).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+    load()
     loadAudit()
-    return () => ctrl.abort()
+    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [id, loadAudit])
 
   const startEdit = () => {
