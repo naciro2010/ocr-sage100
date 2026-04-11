@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
 interface Props {
@@ -10,6 +10,12 @@ interface Props {
 
 export default function Layout({ user, onLogout }: Props) {
   const [searchOpen, setSearchOpen] = useState(false)
+  const [dark, setDark] = useState(() => localStorage.getItem('recondoc_theme') === 'dark')
+
+  useEffect(() => {
+    document.documentElement.setAttribute('data-theme', dark ? 'dark' : 'light')
+    localStorage.setItem('recondoc_theme', dark ? 'dark' : 'light')
+  }, [dark])
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
@@ -68,6 +74,13 @@ export default function Layout({ user, onLogout }: Props) {
             <Search size={14} />
             <span style={{ flex: 1, textAlign: 'left' }}>Rechercher...</span>
             <kbd style={{ fontSize: 9, opacity: 0.5, background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3 }}>Ctrl+K</kbd>
+          </button>
+        </div>
+
+        <div style={{ padding: '4px 14px' }}>
+          <button onClick={() => setDark(!dark)} title={dark ? 'Mode clair' : 'Mode sombre'}
+            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
+            {dark ? <Sun size={12} /> : <Moon size={12} />} {dark ? 'Mode clair' : 'Mode sombre'}
           </button>
         </div>
 

@@ -5,7 +5,7 @@ import type { DossierListItem, PageResponse, DossierType } from '../api/dossierT
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
-import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2, Upload } from 'lucide-react'
+import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2, Upload, Download } from 'lucide-react'
 
 export default function DossierList() {
   const { toast } = useToast()
@@ -107,6 +107,17 @@ export default function DossierList() {
         <h1><FolderOpen size={22} /> Dossiers de paiement</h1>
         <div className="header-actions">
           <button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /></button>
+          {data && data.content.length > 0 && (
+            <button className="btn btn-secondary" onClick={() => {
+              const rows = data.content.map(d => [d.reference, d.fournisseur || '', d.type, d.montantTtc ?? '', d.statut, d.nbDocuments, new Date(d.dateCreation).toLocaleDateString('fr-FR')].join(';'))
+              const csv = 'Reference;Fournisseur;Type;Montant TTC;Statut;Docs;Date\n' + rows.join('\n')
+              const blob = new Blob([csv], { type: 'text/csv' })
+              const a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'dossiers.csv'; a.click()
+              toast('success', 'Export CSV telecharge')
+            }}>
+              <Download size={15} /> CSV
+            </button>
+          )}
           <button className="btn btn-primary" onClick={() => setShowCreate(!showCreate)}><Plus size={15} /> Nouveau</button>
         </div>
       </div>
