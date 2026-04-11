@@ -55,13 +55,21 @@ class SecurityConfig {
     }
 
     @Bean
-    fun createDefaultAdmin(userRepo: UserRepository, encoder: PasswordEncoder) = CommandLineRunner {
+    fun createDefaultUsers(userRepo: UserRepository, encoder: PasswordEncoder) = CommandLineRunner {
         if (!userRepo.existsByEmail("admin@madaef.ma")) {
             userRepo.save(AppUser(
                 email = "admin@madaef.ma",
                 password = encoder.encode("admin123"),
                 nom = "Administrateur",
                 role = com.madaef.recondoc.entity.UserRole.ADMIN
+            ))
+        }
+        if (!userRepo.existsByEmail("operateur@madaef.ma")) {
+            userRepo.save(AppUser(
+                email = "operateur@madaef.ma",
+                password = encoder.encode("operateur123"),
+                nom = "Operateur MADAEF",
+                role = com.madaef.recondoc.entity.UserRole.OPERATEUR
             ))
         }
     }
