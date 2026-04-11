@@ -4,6 +4,7 @@ import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import { uploadDocuments, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
 import { useToast } from '../Toast'
 import DocumentPipeline from '../DocumentPipeline'
+import ExtractedDataView from './ExtractedDataView'
 import type { DocProgress } from '../../hooks/useDocumentEvents'
 import {
   FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink
@@ -231,7 +232,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
               </div>
             </div>
             {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
-            <ExtractedDataView data={getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites} />
+            <ExtractedDataView data={getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
           </div>
         </>
       )}
@@ -239,120 +240,3 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   )
 })
 
-// Sub-component for extracted data rendering
-function ExtractedDataView({ data }: { data: Record<string, unknown> | null | undefined }) {
-  const { toast } = useToast()
-  if (!data) return <p style={{ color: 'var(--ink-30)', fontSize: 13 }}>Aucune donnee extraite</p>
-
-  const scalars = Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object')
-  const points = (data['points'] as Array<Record<string, unknown>> | undefined) || []
-  const lignes = (data['lignes'] as Array<Record<string, unknown>> | undefined) || []
-  const pieces = (data['pieces'] as Array<Record<string, unknown>> | undefined) || []
-  const isLlmExtracted = scalars.length > 3
-
-  return (
-    <>
-      <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
-        {scalars.map(([k, v]) => (
-          <div key={k} className="data-field">
-            <span className="data-field-key">{k}</span>
-            <span className="data-field-value" contentEditable suppressContentEditableWarning
-              onBlur={e => { const newVal = e.currentTarget.textContent || ''; if (newVal !== String(v)) toast('info', `${k}: ${String(v)} → ${newVal}`) }}>
-              {String(v)}
-            </span>
-            <span className={`data-field-source ${isLlmExtracted ? 'ai' : 'ocr'}`}>{isLlmExtracted ? 'IA' : 'OCR'}</span>
-          </div>
-        ))}
-      </div>
-
-      {points.length > 0 && (() => {
-        const nbValides = points.filter(p => p.estValide === true).length
-        return (
-          <div style={{ marginTop: 14 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-              Points de controle ({nbValides}/{points.length} valides)
-            </div>
-            {points.map((pt, i) => {
-              const isValid = pt.estValide === true
-              const isFalse = pt.estValide === false
-              return (
-                <div key={i} className="check-point">
-                  <span className="check-point-num">{pt.numero != null ? String(pt.numero) : String(i + 1)}</span>
-                  <span className={`check-point-icon ${isValid ? 'pass' : isFalse ? 'fail' : 'na'}`}>
-                    {isValid ? '\u2713' : isFalse ? '\u2717' : '\u2014'}
-                  </span>
-                  <div className="check-point-body">
-                    <div className="check-point-label">{String(pt.description || pt.designation || `Point ${i + 1}`)}</div>
-                    {pt.observation != null && <div className="check-point-obs">{String(pt.observation)}</div>}
-                  </div>
-                </div>
-              )
-            })}
-          </div>
-        )
-      })()}
-
-      {(() => {
-        const signataires = (data['signataires'] as Array<Record<string, unknown>> | undefined) || []
-        const signataire = data['signataire'] as string | undefined
-        if (signataires.length === 0 && !signataire) return null
-        return (
-          <div style={{ marginTop: 14, padding: '10px 12px', background: 'var(--ink-02)', borderRadius: 6 }}>
-            <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>Signatures</div>
-            {signataires.length > 0 ? signataires.map((sig, i) => (
-              <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
-                <span className={`check-point-icon ${sig.aSignature ? 'pass' : 'na'}`} style={{ width: 16, height: 16, fontSize: 10 }}>
-                  {sig.aSignature ? '\u2713' : '\u2014'}
-                </span>
-                <span style={{ fontWeight: 600, fontSize: 12, color: 'var(--ink)' }}>{String(sig.nom || 'Inconnu')}</span>
-                {sig.date != null && <span style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>{String(sig.date)}</span>}
-                {sig.aSignature === true && <span className="tag" style={{ fontSize: 8, background: 'var(--success-bg)', color: 'var(--success)' }}>Signe</span>}
-              </div>
-            )) : <div style={{ fontSize: 12, color: 'var(--ink-50)' }}>{signataire}</div>}
-          </div>
-        )
-      })()}
-
-      {pieces.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-            Pieces justificatives ({pieces.length})
-          </div>
-          {pieces.map((pc, i) => (
-            <div key={i} className="check-point">
-              <span className={`check-point-icon ${pc.estPresent ? 'pass' : pc.estPresent === false ? 'fail' : 'na'}`}>
-                {pc.estPresent ? '\u2713' : pc.estPresent === false ? '\u2717' : '?'}
-              </span>
-              <div className="check-point-body">
-                <div className="check-point-label">{String(pc.designation || `Piece ${i + 1}`)}</div>
-                {pc.observation != null && <div className="check-point-obs">{String(pc.observation)}</div>}
-              </div>
-              <span className="tag" style={{ fontSize: 9 }}>{pc.original ? 'Original' : 'Copie'}</span>
-            </div>
-          ))}
-        </div>
-      )}
-
-      {lignes.length > 0 && (
-        <div style={{ marginTop: 14 }}>
-          <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
-            Lignes ({lignes.length})
-          </div>
-          <table className="data-table">
-            <thead><tr><th>Designation</th><th>Qte</th><th>PU HT</th><th>Total HT</th></tr></thead>
-            <tbody>
-              {lignes.map((ln, i) => (
-                <tr key={i}>
-                  <td>{String(ln.designation || ln.codeArticle || '\u2014')}</td>
-                  <td className="cell-mono">{ln.quantite != null ? String(ln.quantite) : '\u2014'}</td>
-                  <td className="cell-mono">{ln.prixUnitaireHT != null ? String(ln.prixUnitaireHT) : '\u2014'}</td>
-                  <td className="cell-mono">{ln.montantTotalHT != null ? String(ln.montantTotalHT) : '\u2014'}</td>
-                </tr>
-              ))}
-            </tbody>
-          </table>
-        </div>
-      )}
-    </>
-  )
-}

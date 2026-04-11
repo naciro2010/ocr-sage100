@@ -3,7 +3,7 @@ import type { DossierDetail } from '../api/dossierTypes'
 import { CHECK_ICONS } from '../api/dossierTypes'
 import { updateValidationResult } from '../api/dossierApi'
 import { useToast } from './Toast'
-import { ShieldCheck, RefreshCw, Loader2, ChevronDown, ChevronUp, Save } from 'lucide-react'
+import { ShieldCheck, RefreshCw, Loader2, ChevronDown, ChevronUp, Save, ClipboardCheck } from 'lucide-react'
 
 const RULE_PROVENANCE: Record<string, { docs: string[]; fields: string[]; desc: string }> = {
   R01: { docs: ['Facture', 'Bon de commande'], fields: ['montantTtc'], desc: 'Compare le TTC de la facture avec le BC' },
@@ -68,7 +68,54 @@ export default function ValidationPanel({ dossier, onValidate, validating }: Pro
     }
   }
 
+  // Group results by rule group for organized display
+  // Autocontrole points from checklist
+  const checklistData = dossier.checklistAutocontrole
+  const checklistPoints = (checklistData?.points as Array<Record<string, unknown>> | undefined) || []
+  const hasChecklist = checklistPoints.length > 0
+  const checklistConformes = checklistPoints.filter(p => p.estValide === true).length
+  const checklistNonConformes = checklistPoints.filter(p => p.estValide === false).length
+
   return (
+    <>
+    {/* Autocontrole verification block */}
+    {hasChecklist && (
+      <div className="card">
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+          <h2 style={{ marginBottom: 0 }}>
+            <ClipboardCheck size={14} /> Verification autocontrole
+            <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--ink-40)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+              {checklistConformes} OK, {checklistNonConformes} KO, {checklistPoints.length - checklistConformes - checklistNonConformes} N/A
+            </span>
+          </h2>
+        </div>
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+          {checklistPoints.map((pt, i) => {
+            const isOk = pt.estValide === true
+            const isFail = pt.estValide === false
+            const icon = isOk ? '\u2713' : isFail ? '\u2717' : '\u2014'
+            const color = isOk ? '#10b981' : isFail ? '#ef4444' : '#6b7280'
+            const cls = isFail ? 'fail' : ''
+            return (
+              <div key={i} className={`validation-item ${cls}`}>
+                <span style={{ color, fontWeight: 800, fontSize: 14, width: 20, flexShrink: 0, textAlign: 'center' }}>{icon}</span>
+                <div style={{ flex: 1 }}>
+                  <div style={{ fontWeight: 600, fontSize: 12 }}>
+                    <span style={{ color: 'var(--ink-30)', marginRight: 6, fontSize: 10, fontFamily: 'var(--font-mono)' }}>CK{String(pt.numero || i + 1).padStart(2, '0')}</span>
+                    {String(pt.description || `Point ${i + 1}`)}
+                  </div>
+                  {pt.observation != null && String(pt.observation) !== '\\u2014' && (
+                    <div style={{ fontSize: 11, color: 'var(--ink-40)', marginTop: 1 }}>{String(pt.observation)}</div>
+                  )}
+                </div>
+                <span className="prov-badge" style={{ background: 'var(--ink-05)', color: 'var(--ink-40)', marginRight: 4 }}>Autocontrole</span>
+              </div>
+            )
+          })}
+        </div>
+      </div>
+    )}
+
     <div className="card">
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
         <h2 style={{ marginBottom: 0 }}>
@@ -234,5 +281,6 @@ export default function ValidationPanel({ dossier, onValidate, validating }: Pro
         })}
       </div>
     </div>
+    </>
   )
 }

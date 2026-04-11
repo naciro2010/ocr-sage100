@@ -1,7 +1,7 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { DossierDetail } from '../../api/dossierTypes'
-import { getActiveRules } from '../../config/validationRules'
-import { ShieldCheck, Loader2 } from 'lucide-react'
+import { getActiveRules, RULE_GROUPS } from '../../config/validationRules'
+import { ShieldCheck, Loader2, ChevronDown, ChevronUp, ClipboardCheck, Zap } from 'lucide-react'
 
 interface Props {
   dossier: DossierDetail
@@ -10,6 +10,7 @@ interface Props {
 }
 
 export default memo(function ChecklistSection({ dossier, validating, onValidate }: Props) {
+  const [collapsedGroups, setCollapsedGroups] = useState<Set<string>>(new Set())
   const activeRules = getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL')
   const systemRules = activeRules.filter(r => r.category === 'system')
   const defaultChecklist = activeRules.filter(r => r.category === 'checklist')
@@ -21,13 +22,27 @@ export default memo(function ChecklistSection({ dossier, validating, onValidate 
   const checklistPrestataire = (checklistData?.prestataire as string) || dossier.fournisseur || '\u2014'
   const checklistRef = (checklistData?.referenceFacture as string) || ''
 
+  const toggleGroup = (key: string) => {
+    setCollapsedGroups(prev => {
+      const next = new Set(prev)
+      next.has(key) ? next.delete(key) : next.add(key)
+      return next
+    })
+  }
+
+  // Group system rules
+  const groupedRules = RULE_GROUPS.map(g => ({
+    ...g,
+    rules: systemRules.filter(r => (r as { group?: string }).group === g.key),
+  })).filter(g => g.rules.length > 0)
+
   return (
     <>
       {/* Checklist autocontrole */}
       <div className="card">
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
           <h2 style={{ marginBottom: 0 }}>
-            <ShieldCheck size={14} /> Check-list d'autocontrole des dossiers de paiement
+            <ClipboardCheck size={14} /> Check-list d'autocontrole
           </h2>
           <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
             {hasExtracted && <span className="tag" style={{ fontSize: 8, background: 'var(--success-bg)', color: 'var(--success)' }}>Extrait du document</span>}
@@ -45,7 +60,7 @@ export default memo(function ChecklistSection({ dossier, validating, onValidate 
           <thead>
             <tr>
               <th style={{ width: 40 }}>#</th>
-              <th>Liste des points de controle</th>
+              <th>Points de controle</th>
               <th style={{ width: 50 }}>OK *</th>
               <th style={{ width: 120 }}>Observation</th>
             </tr>
@@ -62,7 +77,6 @@ export default memo(function ChecklistSection({ dossier, validating, onValidate 
                     </td>
                     <td>
                       <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                        <strong>Point {pt.numero != null ? String(pt.numero) : i + 1} : </strong>
                         {String(pt.description || defaultChecklist[i]?.desc || '')}
                       </div>
                     </td>
@@ -82,11 +96,7 @@ export default memo(function ChecklistSection({ dossier, validating, onValidate 
               defaultChecklist.map((rule, i) => (
                 <tr key={rule.code}>
                   <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--ink-30)' }}>{i + 1}</td>
-                  <td>
-                    <div style={{ fontSize: 12, lineHeight: 1.5 }}>
-                      <strong>Point {i + 1} : </strong>{rule.desc}
-                    </div>
-                  </td>
+                  <td><div style={{ fontSize: 12, lineHeight: 1.5 }}>{rule.desc}</div></td>
                   <td style={{ textAlign: 'center' }}>
                     <span className="check-point-icon na" style={{ width: 18, height: 18, fontSize: 10, display: 'inline-flex' }}>{'\u2014'}</span>
                   </td>
@@ -117,24 +127,63 @@ export default memo(function ChecklistSection({ dossier, validating, onValidate 
         </div>
       </div>
 
-      {/* System rules */}
+      {/* System rules — grouped by category */}
       <div className="card">
-        <h2><ShieldCheck size={14} /> Verifications automatiques ({systemRules.length})</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(2, 1fr)', gap: '2px 12px' }}>
-          {systemRules.map(rule => (
-            <div key={rule.code} style={{ display: 'flex', alignItems: 'center', gap: 6, padding: '3px 0', fontSize: 11 }}>
-              <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', width: 28, flexShrink: 0 }}>{rule.code}</span>
-              <span style={{ color: 'var(--ink-50)' }}>{rule.label}</span>
-            </div>
-          ))}
-        </div>
-        {dossier.resultatsValidation.length === 0 && (
-          <div style={{ marginTop: 12 }}>
-            <button className="btn btn-primary" onClick={onValidate} disabled={validating}>
-              {validating ? <><Loader2 size={14} className="spin" /> Verification...</> : <><ShieldCheck size={14} /> Lancer la verification</>}
+        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+          <h2 style={{ marginBottom: 0 }}>
+            <Zap size={14} /> Verifications automatiques ({systemRules.length})
+          </h2>
+          {dossier.resultatsValidation.length === 0 && (
+            <button className="btn btn-primary btn-sm" onClick={onValidate} disabled={validating}>
+              {validating ? <><Loader2 size={12} className="spin" /> Verification...</> : <><ShieldCheck size={12} /> Lancer</>}
             </button>
-          </div>
-        )}
+          )}
+        </div>
+
+        <div style={{ display: 'flex', flexDirection: 'column', gap: 8 }}>
+          {groupedRules.map(group => {
+            const isCollapsed = collapsedGroups.has(group.key)
+            return (
+              <div key={group.key} style={{
+                border: '1px solid var(--ink-05)', borderRadius: 6,
+                overflow: 'hidden',
+              }}>
+                <div
+                  onClick={() => toggleGroup(group.key)}
+                  style={{
+                    display: 'flex', alignItems: 'center', gap: 8,
+                    padding: '6px 10px', cursor: 'pointer',
+                    background: 'var(--ink-02)',
+                    fontSize: 10, fontWeight: 700, color: 'var(--ink-50)',
+                    textTransform: 'uppercase', letterSpacing: 1,
+                    fontFamily: 'var(--font-mono)',
+                    userSelect: 'none',
+                  }}
+                >
+                  {isCollapsed ? <ChevronDown size={12} /> : <ChevronUp size={12} />}
+                  {group.label}
+                  <span style={{ fontSize: 9, color: 'var(--ink-30)', fontWeight: 500 }}>({group.rules.length})</span>
+                </div>
+                {!isCollapsed && (
+                  <div style={{ padding: '4px 0' }}>
+                    {group.rules.map(rule => (
+                      <div key={rule.code} style={{
+                        display: 'flex', alignItems: 'center', gap: 8,
+                        padding: '4px 12px', fontSize: 11,
+                      }}>
+                        <span style={{
+                          fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700,
+                          color: 'var(--accent-deep)', width: 28, flexShrink: 0,
+                        }}>{rule.code}</span>
+                        <span style={{ color: 'var(--ink-50)', flex: 1 }}>{rule.label}</span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )
+          })}
+        </div>
       </div>
     </>
   )
