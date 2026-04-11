@@ -36,13 +36,32 @@ class TextNormalizationService {
         // 6. Normaliser les labels courants mal OCR-ises
         text = fixOcrLabelSubstitutions(text)
 
-        // 7. Supprimer les caracteres de controle et zero-width
+        // 7. Normalize Arabic text (common in Moroccan documents)
+        text = normalizeArabic(text)
+
+        // 8. Supprimer les caracteres de controle et zero-width
         text = text.replace(Regex("[\\x00-\\x08\\x0B\\x0C\\x0E-\\x1F\\x7F\\u200B\\u200C\\u200D\\uFEFF]"), "")
 
-        // 8. Normaliser les espaces multiples en un seul (sauf en debut de ligne)
+        // 9. Normaliser les espaces multiples en un seul (sauf en debut de ligne)
         text = text.replace(Regex("(?<=\\S) {2,}(?=\\S)"), " ")
 
         return text.trim()
+    }
+
+    /**
+     * Normalise le texte arabe : kashidas, hamzas, tatweel, diacritiques optionnels.
+     */
+    private fun normalizeArabic(text: String): String {
+        var result = text
+        // Remove excessive kashida/tatweel (decorative elongation)
+        result = result.replace(Regex("\u0640{2,}"), "\u0640")
+        // Normalize alef variants to plain alef
+        result = result.replace('\u0622', '\u0627') // Alef madda -> Alef
+        result = result.replace('\u0623', '\u0627') // Alef hamza above -> Alef
+        result = result.replace('\u0625', '\u0627') // Alef hamza below -> Alef
+        // Remove optional diacritics (tashkeel) that OCR often misplaces
+        result = result.replace(Regex("[\u064B-\u065F\u0670]"), "")
+        return result
     }
 
     /**

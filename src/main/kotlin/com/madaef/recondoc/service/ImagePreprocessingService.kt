@@ -86,8 +86,9 @@ class ImagePreprocessingService(
      * Tesseract fonctionne mieux a 300 DPI minimum.
      */
     private fun scaleIfNeeded(image: BufferedImage): BufferedImage {
-        // Heuristique: si l'image fait moins de 1000px de large, on l'agrandit
-        val minWidth = 1000
+        // More conservative: only scale very small images (< 600px)
+        // Aggressive scaling of low-quality scans makes them blurrier
+        val minWidth = 600
         if (image.width >= minWidth) return image
 
         val scale = minWidth.toDouble() / image.width
@@ -98,7 +99,8 @@ class ImagePreprocessingService(
 
         val scaled = BufferedImage(newWidth, newHeight, image.type)
         val g = scaled.createGraphics()
-        g.drawImage(image.getScaledInstance(newWidth, newHeight, java.awt.Image.SCALE_SMOOTH), 0, 0, null)
+        g.setRenderingHint(java.awt.RenderingHints.KEY_INTERPOLATION, java.awt.RenderingHints.VALUE_INTERPOLATION_BICUBIC)
+        g.drawImage(image, 0, 0, newWidth, newHeight, null)
         g.dispose()
         return scaled
     }
@@ -125,16 +127,16 @@ class ImagePreprocessingService(
         var bestAngle = 0.0
         var bestVariance = 0.0
 
-        // Tester des angles de -5 a +5 degres par pas de 0.5
-        var angle = -5.0
-        while (angle <= 5.0) {
+        // Tester des angles de -15 a +15 degres par pas de 1.0 (coarse scan)
+        var angle = -15.0
+        while (angle <= 15.0) {
             val rotated = rotateImage(image, angle)
             val variance = calculateHorizontalProjectionVariance(rotated)
             if (variance > bestVariance) {
                 bestVariance = variance
                 bestAngle = angle
             }
-            angle += 0.5
+            angle += 1.0
         }
 
         // Affiner autour du meilleur angle par pas de 0.1
@@ -191,20 +193,55 @@ class ImagePreprocessingService(
     }
 
     /**
-     * Debruitage par filtre gaussien 3x3.
-     * Elimine le bruit de scan sans trop flouter le texte.
+     * Debruitage adaptatif: 5x5 pour scans fax bruyants, 3x3 standard sinon.
+     * Detecte le niveau de bruit et adapte la force du filtre.
      */
     private fun denoise(image: BufferedImage): BufferedImage {
-        val kernel = floatArrayOf(
-            1f / 16f, 2f / 16f, 1f / 16f,
-            2f / 16f, 4f / 16f, 2f / 16f,
-            1f / 16f, 2f / 16f, 1f / 16f
-        )
-        val gaussianKernel = Kernel(3, 3, kernel)
+        // Estimate noise level by checking variance of small region
+        val noiseLevel = estimateNoiseLevel(image)
+        log.debug("Estimated noise level: {}", "%.2f".format(noiseLevel))
+
+        val kernel = if (noiseLevel > 500.0) {
+            // High noise (fax scans, poor quality) — stronger 5x5 Gaussian
+            log.debug("Using strong 5x5 denoise for high-noise image")
+            floatArrayOf(
+                1f/273f,  4f/273f,  7f/273f,  4f/273f,  1f/273f,
+                4f/273f, 16f/273f, 26f/273f, 16f/273f,  4f/273f,
+                7f/273f, 26f/273f, 41f/273f, 26f/273f,  7f/273f,
+                4f/273f, 16f/273f, 26f/273f, 16f/273f,  4f/273f,
+                1f/273f,  4f/273f,  7f/273f,  4f/273f,  1f/273f
+            )
+        } else {
+            // Normal noise — standard 3x3 Gaussian
+            floatArrayOf(
+                1f / 16f, 2f / 16f, 1f / 16f,
+                2f / 16f, 4f / 16f, 2f / 16f,
+                1f / 16f, 2f / 16f, 1f / 16f
+            )
+        }
+        val size = if (noiseLevel > 500.0) 5 else 3
+        val gaussianKernel = Kernel(size, size, kernel)
         val op = ConvolveOp(gaussianKernel, ConvolveOp.EDGE_NO_OP, null)
         val denoised = BufferedImage(image.width, image.height, image.type)
         op.filter(image, denoised)
         return denoised
+    }
+
+    /**
+     * Estimate noise level by computing local variance in a sample region.
+     */
+    private fun estimateNoiseLevel(image: BufferedImage): Double {
+        val sampleSize = minOf(100, image.width, image.height)
+        val startX = (image.width - sampleSize) / 2
+        val startY = (image.height - sampleSize) / 2
+        val pixels = mutableListOf<Int>()
+        for (y in startY until startY + sampleSize) {
+            for (x in startX until startX + sampleSize) {
+                pixels.add(image.getRGB(x, y) and 0xFF)
+            }
+        }
+        val mean = pixels.average()
+        return pixels.map { (it - mean) * (it - mean) }.average()
     }
 
     /**
@@ -213,8 +250,8 @@ class ImagePreprocessingService(
      * Gere bien l'eclairage inegal des scans de factures.
      */
     private fun adaptiveBinarize(image: BufferedImage): BufferedImage {
-        val windowSize = 15
-        val k = 0.08 // Facteur Sauvola - sensibilite au contraste local
+        val windowSize = 25  // Larger window for uneven lighting (common in fax/scan)
+        val k = 0.15 // More aggressive contrast stretching for faded documents
         val halfWindow = windowSize / 2
 
         val result = BufferedImage(image.width, image.height, BufferedImage.TYPE_BYTE_BINARY)

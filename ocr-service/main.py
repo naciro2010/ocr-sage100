@@ -16,7 +16,8 @@ logger = logging.getLogger("ocr-service")
 
 _ocr_instances: dict[str, PaddleOCR] = {}
 
-DPI = int(os.getenv("OCR_DPI", "300"))
+DPI = int(os.getenv("OCR_DPI", "200"))
+CONFIDENCE_THRESHOLD = float(os.getenv("OCR_CONFIDENCE_THRESHOLD", "0.5"))
 
 
 def get_ocr(lang: str = "fr") -> PaddleOCR:
@@ -27,6 +28,9 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
             lang=lang,
             use_gpu=False,
             show_log=False,
+            det_db_thresh=0.25,
+            det_db_box_thresh=0.4,
+            rec_batch_num=8,
         )
         logger.info("PaddleOCR ready for lang=%s", lang)
     return _ocr_instances[lang]
@@ -34,9 +38,10 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    logger.info("Warming up PaddleOCR (fr)...")
+    logger.info("Warming up PaddleOCR (fr + ar)...")
     get_ocr("fr")
-    logger.info("Warmup complete")
+    get_ocr("ar")
+    logger.info("Warmup complete — fr + ar loaded")
     yield
 
 
@@ -73,16 +78,34 @@ async def ocr_file(
             pages_data = ocr_pdf(content, lang)
         else:
             pages_data = ocr_image(content, lang)
+
+        # If French OCR yielded poor results, try Arabic and keep better
+        full_text = "\n\n".join(page["text"] for page in pages_data)
+        if lang == "fr" and len(full_text.strip()) < 50:
+            logger.info("French OCR poor for %s (%d chars), trying Arabic...", filename, len(full_text))
+            try:
+                if filename.lower().endswith(".pdf"):
+                    ar_pages = ocr_pdf(content, "ar")
+                else:
+                    ar_pages = ocr_image(content, "ar")
+                ar_text = "\n\n".join(page["text"] for page in ar_pages)
+                if len(ar_text.strip()) > len(full_text.strip()):
+                    pages_data = ar_pages
+                    full_text = ar_text
+                    lang = "ar"
+                    logger.info("Arabic OCR better: %d chars", len(ar_text))
+            except Exception:
+                pass
+
     except Exception as e:
         logger.error("OCR failed for %s: %s", filename, str(e))
         raise HTTPException(status_code=500, detail=f"OCR failed: {str(e)}")
 
-    full_text = "\n\n".join(page["text"] for page in pages_data)
     duration_ms = int((time.time() - start) * 1000)
 
     logger.info(
-        "OCR complete: %s, %d pages, %d chars, %dms",
-        filename, len(pages_data), len(full_text), duration_ms,
+        "OCR complete: %s, %d pages, %d chars, lang=%s, %dms",
+        filename, len(pages_data), len(full_text), lang, duration_ms,
     )
 
     return JSONResponse({
@@ -90,6 +113,7 @@ async def ocr_file(
         "pages": pages_data,
         "page_count": len(pages_data),
         "engine": "paddleocr",
+        "lang": lang,
         "duration_ms": duration_ms,
     })
 
@@ -159,6 +183,7 @@ def ocr_array(img_array: np.ndarray, lang: str) -> dict:
 
     lines = []
     text_parts = []
+    skipped = 0
 
     if result and result[0]:
         for line in result[0]:
@@ -166,12 +191,26 @@ def ocr_array(img_array: np.ndarray, lang: str) -> dict:
             text = line[1][0]
             confidence = float(line[1][1])
 
+            # Filter out low-confidence garbage text
+            if confidence < CONFIDENCE_THRESHOLD:
+                skipped += 1
+                continue
+
+            # Skip lines that are mostly non-alphanumeric (noise)
+            alpha_ratio = sum(1 for c in text if c.isalnum()) / max(len(text), 1)
+            if alpha_ratio < 0.3 and len(text) > 3:
+                skipped += 1
+                continue
+
             lines.append({
                 "text": text,
                 "confidence": round(confidence, 4),
                 "bbox": [[int(p[0]), int(p[1])] for p in bbox],
             })
             text_parts.append(text)
+
+    if skipped > 0:
+        logger.debug("Filtered %d low-confidence/noise lines", skipped)
 
     page_text = "\n".join(text_parts)
     avg_confidence = (

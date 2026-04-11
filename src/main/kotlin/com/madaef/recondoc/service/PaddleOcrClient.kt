@@ -52,13 +52,24 @@ class PaddleOcrClient(
     }
 
     /**
+     * Detect if document likely contains Arabic text based on filename or content hints.
+     */
+    fun detectLang(fileName: String, textHint: String? = null): String {
+        // Check for Arabic Unicode range in any text hint
+        if (textHint != null && textHint.any { it.code in 0x0600..0x06FF || it.code in 0xFE70..0xFEFF }) {
+            return "ar"
+        }
+        return defaultLang
+    }
+
+    /**
      * Send a file to PaddleOCR and get structured OCR result.
      */
     fun ocr(filePath: Path, lang: String = defaultLang): PaddleOcrResult {
         val fileName = filePath.fileName.toString()
         val fileBytes = Files.readAllBytes(filePath)
 
-        log.info("Sending {} ({} KB) to PaddleOCR at {}", fileName, fileBytes.size / 1024, baseUrl)
+        log.info("Sending {} ({} KB, lang={}) to PaddleOCR at {}", fileName, fileBytes.size / 1024, lang, baseUrl)
 
         val bodyBuilder = MultipartBodyBuilder()
         bodyBuilder.part("file", object : ByteArrayResource(fileBytes) {

@@ -131,6 +131,7 @@ class OcrService(
 
     /**
      * Appelle le microservice PaddleOCR. Retourne null si indisponible.
+     * Essaie d'abord en francais, puis en arabe si le resultat est pauvre.
      */
     private fun tryPaddleOcr(filePath: Path): OcrResult? {
         // Re-check availability (le service peut demarrer apres le backend)
@@ -142,16 +143,19 @@ class OcrService(
         if (!paddleAvailable) return null
 
         return try {
-            val result = paddleOcrClient.ocr(filePath)
+            // Primary attempt with French
+            val result = paddleOcrClient.ocr(filePath, "fr")
             val normalized = textNormalizationService.normalize(result.text)
+            val frWords = countSignificantWords(normalized)
 
+            // If French yielded very little, the service already tries Arabic internally
             if (normalized.isBlank()) {
                 log.warn("PaddleOCR returned empty text, falling back")
                 return null
             }
 
-            log.info("PaddleOCR: {} chars, {} pages, {:.1f}% confidence",
-                normalized.length, result.pageCount, result.confidence * 100)
+            log.info("PaddleOCR: {} chars, {} words, {} pages, {:.1f}% confidence",
+                normalized.length, frWords, result.pageCount, result.confidence * 100)
 
             OcrResult(
                 text = normalized,
@@ -247,17 +251,27 @@ class OcrService(
         data class PsmResult(val psm: Int, val text: String, val score: Int)
         val results = mutableListOf<PsmResult>()
 
-        for (psm in listOf(3, 6)) {
+        // PSM 3: Auto, PSM 6: Uniform block, PSM 4: Column, PSM 11: Sparse text
+        for (psm in listOf(3, 6, 4, 11)) {
             try {
                 val tesseract = createTesseract(psm)
                 val text = tesseract.doOCR(image).trim()
-                results.add(PsmResult(psm, text, scoreOcrResult(text)))
+                val score = scoreOcrResult(text)
+                if (score >= confidenceThreshold) {
+                    results.add(PsmResult(psm, text, score))
+                } else {
+                    log.debug("PSM {} score {} below threshold {}", psm, score, confidenceThreshold)
+                }
             } catch (e: Exception) {
                 log.debug("PSM {} failed: {}", psm, e.message)
             }
         }
 
-        return results.maxByOrNull { it.score }?.text ?: ""
+        val best = results.maxByOrNull { it.score }
+        if (best != null) {
+            log.debug("Best PSM: {} (score={})", best.psm, best.score)
+        }
+        return best?.text ?: ""
     }
 
     private fun scoreOcrResult(text: String): Int {
