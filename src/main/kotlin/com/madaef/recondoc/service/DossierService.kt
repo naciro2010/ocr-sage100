@@ -44,6 +44,7 @@ class DossierService(
     private val eventPublisher: ApplicationEventPublisher,
     private val progressService: DocumentProgressService,
     private val pdfGenerator: PdfGeneratorService,
+    private val entityManager: jakarta.persistence.EntityManager,
     private val resultatRepo: ResultatValidationRepository,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
@@ -168,16 +169,25 @@ class DossierService(
 
     @Transactional
     fun deleteDossier(id: UUID) {
-        // Clean child entities — clear nested collections first to avoid FK constraint violations
-        factureRepo.findByDossierId(id)?.let { it.lignes.clear(); factureRepo.delete(it); factureRepo.flush() }
-        bcRepo.findByDossierId(id)?.let { bcRepo.delete(it); bcRepo.flush() }
-        contratRepo.findByDossierId(id)?.let { it.grillesTarifaires.clear(); contratRepo.delete(it); contratRepo.flush() }
-        opRepo.findByDossierId(id)?.let { it.retenues.clear(); opRepo.delete(it); opRepo.flush() }
-        checklistRepo.findByDossierId(id)?.let { it.points.clear(); it.signataires.clear(); checklistRepo.delete(it); checklistRepo.flush() }
-        tableauRepo.findByDossierId(id)?.let { it.points.clear(); tableauRepo.delete(it); tableauRepo.flush() }
-        pvRepo.findByDossierId(id)?.let { pvRepo.delete(it); pvRepo.flush() }
-        arfRepo.findByDossierId(id)?.let { arfRepo.delete(it); arfRepo.flush() }
-        dossierRepo.deleteById(id)
+        // Native SQL cascade delete — bypasses all JPA entity management issues
+        entityManager.createNativeQuery("DELETE FROM ligne_facture WHERE facture_id IN (SELECT id FROM facture WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM grille_tarifaire WHERE contrat_avenant_id IN (SELECT id FROM contrat_avenant WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM retenue WHERE op_id IN (SELECT id FROM ordre_paiement WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM point_controle WHERE checklist_id IN (SELECT id FROM checklist_autocontrole WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM signataire_checklist WHERE checklist_id IN (SELECT id FROM checklist_autocontrole WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM point_controle_financier WHERE tableau_controle_id IN (SELECT id FROM tableau_controle WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM facture WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM bon_commande WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM contrat_avenant WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM ordre_paiement WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM checklist_autocontrole WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM tableau_controle WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM pv_reception WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM attestation_fiscale WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM resultat_validation WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM audit_log WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM document WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+        entityManager.createNativeQuery("DELETE FROM dossier_paiement WHERE id = :id").setParameter("id", id).executeUpdate()
     }
 
     @Transactional

@@ -22,6 +22,8 @@ export default function DossierList() {
   const [filterFournisseur, setFilterFournisseur] = useState('')
   const [debouncedFournisseur, setDebouncedFournisseur] = useState('')
   const [deleteTarget, setDeleteTarget] = useState<DossierListItem | null>(null)
+  const [sortKey, setSortKey] = useState<string>('dateCreation')
+  const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [dragging, setDragging] = useState(false)
   const [quickUploading, setQuickUploading] = useState(false)
   const dropInputRef = useRef<HTMLInputElement>(null)
@@ -203,19 +205,31 @@ export default function DossierList() {
         <table className="data-table">
           <thead>
             <tr>
-              <th>Reference</th>
-              <th>Fournisseur</th>
-              <th>Type</th>
-              <th>Montant TTC</th>
-              <th>Docs</th>
-              <th>Checks</th>
-              <th>Statut</th>
-              <th>Date</th>
+              {[
+                { key: 'reference', label: 'Reference' },
+                { key: 'fournisseur', label: 'Fournisseur' },
+                { key: 'type', label: 'Type' },
+                { key: 'montantTtc', label: 'Montant TTC' },
+                { key: 'nbDocuments', label: 'Docs' },
+                { key: 'nbChecksConformes', label: 'Checks' },
+                { key: 'statut', label: 'Statut' },
+                { key: 'dateCreation', label: 'Date' },
+              ].map(col => (
+                <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }}
+                  onClick={() => { setSortKey(col.key); setSortDir(prev => sortKey === col.key ? (prev === 'asc' ? 'desc' : 'asc') : 'desc') }}>
+                  {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
+                </th>
+              ))}
               <th></th>
             </tr>
           </thead>
           <tbody>
-            {data?.content.map(d => {
+            {data?.content.slice().sort((a, b) => {
+              const va = (a as unknown as Record<string, unknown>)[sortKey]
+              const vb = (b as unknown as Record<string, unknown>)[sortKey]
+              const cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'fr', { numeric: true })
+              return sortDir === 'asc' ? cmp : -cmp
+            }).map(d => {
               const cfg = STATUT_CONFIG[d.statut]
               return (
                 <tr key={d.id}>

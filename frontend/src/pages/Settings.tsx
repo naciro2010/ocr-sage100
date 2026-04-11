@@ -28,6 +28,7 @@ const SHORTCUTS = [
 
 export default function Settings() {
   const { toast } = useToast()
+  const [activeTab, setActiveTab] = useState<'ia' | 'ocr' | 'rules' | 'about'>('ia')
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
@@ -66,8 +67,20 @@ export default function Settings() {
     <div>
       <div className="page-header"><h1><SettingsIcon size={22} /> Parametres</h1></div>
 
+      {/* Tabs */}
+      <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
+        {([['ia', 'Extraction IA'], ['ocr', 'Pipeline OCR'], ['rules', 'Regles'], ['about', 'A propos']] as const).map(([key, label]) => (
+          <button key={key}
+            className={`btn ${activeTab === key ? 'btn-primary' : 'btn-secondary'}`}
+            onClick={() => setActiveTab(key)}
+            style={{ fontSize: 11, padding: '6px 14px' }}>
+            {label}
+          </button>
+        ))}
+      </div>
+
       {/* AI Extraction */}
-      <div className="card">
+      {activeTab === 'ia' && <div className="card">
         <h2><Brain size={14} /> Extraction IA</h2>
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
           <p style={{ fontSize: 13, color: 'var(--slate-500)', margin: 0, maxWidth: 520 }}>
@@ -138,8 +151,10 @@ export default function Settings() {
         </button>
       </div>
 
+      }
+
       {/* OCR Pipeline */}
-      <div className="card">
+      {activeTab === 'ocr' && <><div className="card">
         <h2><ScanLine size={14} /> Pipeline OCR</h2>
         <p style={{ fontSize: 13, color: 'var(--slate-500)', marginBottom: 16 }}>
           Les documents PDF sont traites par une cascade de 3 moteurs OCR.
@@ -182,12 +197,13 @@ export default function Settings() {
           </tbody>
         </table>
       </div>
+      </>}
 
       {/* Validation Rules */}
-      <ValidationRulesSection />
+      {activeTab === 'rules' && <ValidationRulesSection />}
 
       {/* About */}
-      <div className="card">
+      {activeTab === 'about' && <div className="card">
         <h2><Info size={14} /> A propos</h2>
         <div className="info-grid">
           <div>
@@ -206,7 +222,7 @@ export default function Settings() {
             <div className="info-block-desc">Kotlin + React + Claude IA</div>
           </div>
         </div>
-      </div>
+      </div>}
     </div>
   )
 }
