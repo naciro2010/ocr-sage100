@@ -15,17 +15,9 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     fun countByStatut(statut: StatutDossier): Long
 
     @EntityGraph(attributePaths = [
-        "documents",
-        "facture", "facture.document", "facture.lignes",
-        "bonCommande", "bonCommande.document",
-        "contratAvenant", "contratAvenant.document",
-        "ordrePaiement", "ordrePaiement.document",
-        "checklistAutocontrole", "checklistAutocontrole.document",
-        "checklistAutocontrole.points", "checklistAutocontrole.signataires",
-        "tableauControle", "tableauControle.document",
-        "tableauControle.points",
-        "pvReception", "pvReception.document",
-        "attestationFiscale", "attestationFiscale.document",
+        "documents", "facture", "bonCommande", "contratAvenant",
+        "ordrePaiement", "checklistAutocontrole",
+        "tableauControle", "pvReception", "attestationFiscale",
         "resultatsValidation"
     ])
     @Query("SELECT d FROM DossierPaiement d WHERE d.id = :id")
