@@ -34,6 +34,8 @@ export default function DossierDetail() {
   const [saving, setSaving] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
+  const [compareLeft, setCompareLeft] = useState<string>('FACTURE')
+  const [compareRight, setCompareRight] = useState<string>('')
   const inputRef = useRef<HTMLInputElement>(null)
 
   // SSE: real-time document processing progress
@@ -256,10 +258,6 @@ export default function DossierDetail() {
     )
   }
 
-  const factureData = dossier.facture
-  const bcData = dossier.type === 'BC' ? dossier.bonCommande : dossier.contratAvenant
-  const bcLabel = dossier.type === 'BC' ? 'Bon de commande' : 'Contrat / Avenant'
-
   return (
     <div>
       {/* Header */}
@@ -275,11 +273,9 @@ export default function DossierDetail() {
           {dossier.statut === 'BROUILLON' && !editing && (
             <button className="btn btn-secondary" onClick={startEdit}><Pencil size={15} /> Modifier</button>
           )}
-          {factureData && bcData && (
-            <button className="btn btn-secondary" onClick={() => setShowCompare(!showCompare)}>
-              <Columns2 size={15} /> {showCompare ? 'Masquer' : 'Comparer'}
-            </button>
-          )}
+          <button className="btn btn-secondary" onClick={() => setShowCompare(!showCompare)}>
+            <Columns2 size={15} /> {showCompare ? 'Masquer' : 'Comparer'}
+          </button>
           <button className="btn btn-primary" onClick={handleValidate} disabled={validating}>
             {validating ? <><Loader2 size={15} className="spin" /> Verification...</> : <><ShieldCheck size={15} /> Verifier</>}
           </button>
@@ -422,30 +418,62 @@ export default function DossierDetail() {
         </div>
       </div>
 
-      {/* Comparison view */}
-      {showCompare && factureData && bcData && (
+      {/* Comparison view — selectable documents */}
+      {showCompare && (() => {
+        const docTypes = [
+          { key: 'FACTURE', label: 'Facture', data: dossier.facture },
+          { key: 'BON_COMMANDE', label: 'Bon de commande', data: dossier.bonCommande },
+          { key: 'CONTRAT_AVENANT', label: 'Contrat / Avenant', data: dossier.contratAvenant },
+          { key: 'ORDRE_PAIEMENT', label: 'Ordre de paiement', data: dossier.ordrePaiement },
+          { key: 'CHECKLIST', label: 'Checklist autocontrole', data: dossier.checklistAutocontrole },
+          { key: 'TABLEAU_CONTROLE', label: 'Tableau de controle', data: dossier.tableauControle },
+          { key: 'PV_RECEPTION', label: 'PV de reception', data: dossier.pvReception },
+          { key: 'ATTESTATION_FISCALE', label: 'Attestation fiscale', data: dossier.attestationFiscale },
+        ].filter(d => d.data != null)
+
+        // Auto-select right if not set
+        if (!compareRight && docTypes.length > 1) {
+          const auto = docTypes.find(d => d.key !== compareLeft)
+          if (auto) setCompareRight(auto.key)
+        }
+
+        const leftDoc = docTypes.find(d => d.key === compareLeft)
+        const rightDoc = docTypes.find(d => d.key === compareRight)
+
+        const renderData = (data: Record<string, unknown>) => (
+          <table className="kv-table"><tbody>
+            {Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
+              <tr key={k}><td>{k}</td><td>{String(v)}</td></tr>
+            ))}
+          </tbody></table>
+        )
+
+        return (
         <div className="card">
-          <h2><Columns2 size={14} /> Comparaison Facture / {bcLabel}</h2>
+          <h2><Columns2 size={14} /> Comparaison de documents</h2>
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 12 }}>
+            <select className="form-select" value={compareLeft}
+              onChange={e => setCompareLeft(e.target.value)}>
+              {docTypes.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+            <select className="form-select" value={compareRight}
+              onChange={e => setCompareRight(e.target.value)}>
+              {docTypes.map(d => <option key={d.key} value={d.key}>{d.label}</option>)}
+            </select>
+          </div>
           <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
             <div>
-              <div className="stat-label" style={{ color: 'var(--teal-700)', marginBottom: 10 }}>Facture</div>
-              <table className="kv-table"><tbody>
-                {Object.entries(factureData).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
-                  <tr key={k}><td>{k}</td><td>{String(v)}</td></tr>
-                ))}
-              </tbody></table>
+              <div className="stat-label" style={{ color: 'var(--accent-deep)', marginBottom: 8 }}>{leftDoc?.label || 'Selectionnez'}</div>
+              {leftDoc?.data && renderData(leftDoc.data as Record<string, unknown>)}
             </div>
             <div>
-              <div className="stat-label" style={{ color: 'var(--blue-600)', marginBottom: 10 }}>{bcLabel}</div>
-              <table className="kv-table"><tbody>
-                {Object.entries(bcData).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object').map(([k, v]) => (
-                  <tr key={k}><td>{k}</td><td>{String(v)}</td></tr>
-                ))}
-              </tbody></table>
+              <div className="stat-label" style={{ color: 'var(--info)', marginBottom: 8 }}>{rightDoc?.label || 'Selectionnez'}</div>
+              {rightDoc?.data && renderData(rightDoc.data as Record<string, unknown>)}
             </div>
           </div>
         </div>
-      )}
+        )
+      })()}
 
       {/* Documents with drag & drop */}
       <div className="card"

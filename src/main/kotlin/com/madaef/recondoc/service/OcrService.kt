@@ -90,30 +90,42 @@ class OcrService(
     fun extractWithDetails(inputStream: InputStream, fileName: String, filePath: Path? = null): OcrResult {
         log.info("Extracting text from: {}", fileName)
 
-        // Phase 1: Tika (texte natif PDF - instantane)
+        // Phase 1: Tika (texte natif PDF)
         val tikaText = textNormalizationService.normalize(extractWithTika(inputStream, fileName))
-        log.info("Tika extracted {} characters from {}", tikaText.length, fileName)
+        val tikaWords = countSignificantWords(tikaText)
+        log.info("Tika extracted {} chars ({} words) from {}", tikaText.length, tikaWords, fileName)
 
-        if (isTextSufficient(tikaText)) {
-            log.info("Tika extraction sufficient for {}, skipping OCR engines", fileName)
+        // Only skip OCR if Tika found substantial text (>100 words = truly native PDF)
+        if (tikaWords >= 100) {
+            log.info("Tika extraction rich for {} ({}+ words), skipping OCR", fileName, tikaWords)
             return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = countPages(filePath))
         }
 
-        // Phase 2: PaddleOCR (meilleure precision, si disponible)
+        // Phase 2: Always try PaddleOCR if available (even if Tika found some text)
         if (filePath != null) {
             val paddleResult = tryPaddleOcr(filePath)
             if (paddleResult != null) {
+                // Keep the result with more content
+                val paddleWords = countSignificantWords(paddleResult.text)
+                if (paddleWords > tikaWords) {
+                    log.info("PaddleOCR better than Tika ({} vs {} words) for {}", paddleWords, tikaWords, fileName)
+                    return paddleResult
+                }
+                if (tikaWords > 0) {
+                    log.info("Tika better than PaddleOCR ({} vs {} words) for {}", tikaWords, paddleWords, fileName)
+                    return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = paddleResult.pageCount)
+                }
                 return paddleResult
             }
         }
 
-        // Phase 3: Tesseract fallback (local, pas de dependance reseau)
+        // Phase 3: Tesseract fallback
         if (tesseractAvailable && filePath != null) {
             val tessResult = tryTesseract(filePath, fileName, tikaText)
             if (tessResult != null) return tessResult
         }
 
-        // Dernier recours : texte Tika meme partiel
+        // Dernier recours
         return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = 1)
     }
 
