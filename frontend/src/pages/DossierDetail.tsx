@@ -25,6 +25,7 @@ export default function DossierDetail() {
   const [validating, setValidating] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
   const [showPdf, setShowPdf] = useState(false)
+  const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [audit, setAudit] = useState<AuditEntry[]>([])
   const [rejectModal, setRejectModal] = useState(false)
   const [motifRejet, setMotifRejet] = useState('')
@@ -535,7 +536,17 @@ export default function DossierDetail() {
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
               <h2 style={{ marginBottom: 0 }}><Eye size={14} /> {TYPE_DOCUMENT_LABELS[selectedDoc.typeDocument]} — {selectedDoc.nomFichier}</h2>
               <div style={{ display: 'flex', gap: 6 }}>
-                <button className="btn btn-secondary btn-sm" onClick={() => setShowPdf(!showPdf)}>
+                <button className="btn btn-secondary btn-sm" onClick={async () => {
+                  if (showPdf) { setShowPdf(false); if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(null) }; return }
+                  if (!id) return
+                  try {
+                    const res = await fetch(getDocumentFileUrl(id, selectedDoc.id), { headers: { 'Authorization': `Basic ${localStorage.getItem('recondoc_auth') || ''}` } })
+                    if (!res.ok) throw new Error(`HTTP ${res.status}`)
+                    const blob = await res.blob()
+                    setPdfBlobUrl(URL.createObjectURL(blob))
+                    setShowPdf(true)
+                  } catch { toast('error', 'Impossible de charger le PDF') }
+                }}>
                   {showPdf ? <><XCircle size={14} /> Masquer PDF</> : <><FileText size={14} /> Voir PDF</>}
                 </button>
                 {id && <button className="btn btn-secondary btn-sm"
@@ -544,7 +555,7 @@ export default function DossierDetail() {
                 </button>}
               </div>
             </div>
-            {showPdf && id && <div className="pdf-viewer"><iframe src={getDocumentFileUrl(id, selectedDoc.id)} title={selectedDoc.nomFichier} /></div>}
+            {showPdf && pdfBlobUrl && <div className="pdf-viewer"><iframe src={pdfBlobUrl} title={selectedDoc.nomFichier} /></div>}
           </div>
           <div className="card">
             <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
