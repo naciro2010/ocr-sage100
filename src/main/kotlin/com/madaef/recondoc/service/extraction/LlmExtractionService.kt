@@ -58,9 +58,16 @@ class LlmExtractionService(
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(requestBody)
             .retrieve()
+            .onStatus({ it.is4xxClientError }) { resp ->
+                resp.bodyToMono(String::class.java).map { body ->
+                    log.error("Claude API 4xx error: {} — {}", resp.statusCode(), body)
+                    RuntimeException("Claude API error ${resp.statusCode()}: $body")
+                }
+            }
             .bodyToMono(Map::class.java)
             .timeout(Duration.ofSeconds(120))
-            .retry(1)
+            .retryWhen(reactor.util.retry.Retry.max(1)
+                .filter { it !is org.springframework.web.reactive.function.client.WebClientResponseException.BadRequest })
             .block() ?: throw RuntimeException("Empty response from Claude API")
 
         @Suppress("UNCHECKED_CAST")

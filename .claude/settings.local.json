@@ -72,7 +72,8 @@
       "Bash(kill %1)",
       "Bash(find /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.css\" \\\\\\) -exec wc -l {} +)",
       "Bash(awk '{print $9, \":\", $5}')",
-      "mcp__Railway__list-services"
+      "mcp__Railway__list-services",
+      "Bash(brew list:*)"
     ],
     "deny": []
   },

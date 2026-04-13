@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun } from 'lucide-react'
+import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
 interface Props {
@@ -51,6 +51,11 @@ export default function Layout({ user, onLogout }: Props) {
           <li>
             <NavLink to="/dossiers">
               <FolderOpen size={16} /> <span>Dossiers</span>
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/dossiers?statut=VALIDE">
+              <CheckCircle size={16} /> <span>Finalises</span>
             </NavLink>
           </li>
           <li>

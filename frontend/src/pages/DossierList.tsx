@@ -1,14 +1,26 @@
 import { useEffect, useState, useRef, useCallback } from 'react'
-import { Link, useNavigate } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments } from '../api/dossierApi'
+import { Link, useNavigate, useSearchParams } from 'react-router-dom'
+import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, openWithAuth } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
-import { FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2, X, Trash2, Upload, Download } from 'lucide-react'
+import {
+  FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2,
+  X, Trash2, Upload, Download, FileText, Search, Filter
+} from 'lucide-react'
+
+const STATUT_CHIPS = [
+  { value: '', label: 'Tous', icon: null },
+  { value: 'BROUILLON', label: 'Brouillons', color: 'var(--ink-50)' },
+  { value: 'EN_VERIFICATION', label: 'En cours', color: 'var(--warning)' },
+  { value: 'VALIDE', label: 'Valides', color: 'var(--success)' },
+  { value: 'REJETE', label: 'Rejetes', color: 'var(--danger)' },
+]
 
 export default function DossierList() {
   const { toast } = useToast()
+  const [searchParams] = useSearchParams()
   const [data, setData] = useState<PageResponse<DossierListItem> | null>(null)
   const [page, setPage] = useState(0)
   const [error, setError] = useState('')
@@ -17,7 +29,7 @@ export default function DossierList() {
   const [newType, setNewType] = useState<DossierType>('BC')
   const [newFournisseur, setNewFournisseur] = useState('')
   const [newDesc, setNewDesc] = useState('')
-  const [filterStatut, setFilterStatut] = useState('')
+  const [filterStatut, setFilterStatut] = useState(searchParams.get('statut') || '')
   const [filterType, setFilterType] = useState('')
   const [filterFournisseur, setFilterFournisseur] = useState('')
   const [debouncedFournisseur, setDebouncedFournisseur] = useState('')
@@ -26,6 +38,7 @@ export default function DossierList() {
   const [sortDir, setSortDir] = useState<'asc' | 'desc'>('desc')
   const [dragging, setDragging] = useState(false)
   const [quickUploading, setQuickUploading] = useState(false)
+  const [showFilters, setShowFilters] = useState(false)
   const dropInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const navigate = useNavigate()
@@ -100,13 +113,20 @@ export default function DossierList() {
 
   const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
   const hasFilters = filterStatut || filterType || debouncedFournisseur
+  const isEmpty = data && data.content.length === 0 && !hasFilters
+  const sorted = data?.content.slice().sort((a, b) => {
+    const va = (a as unknown as Record<string, unknown>)[sortKey]
+    const vb = (b as unknown as Record<string, unknown>)[sortKey]
+    const cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'fr', { numeric: true })
+    return sortDir === 'asc' ? cmp : -cmp
+  })
 
   return (
     <div>
       <div className="page-header">
         <h1><FolderOpen size={22} /> Dossiers de paiement</h1>
         <div className="header-actions">
-          <button className="btn btn-secondary" onClick={load} aria-label="Rafraichir la liste"><RefreshCw size={15} /></button>
+          <button className="btn btn-secondary" onClick={load} aria-label="Rafraichir"><RefreshCw size={15} /></button>
           {data && data.content.length > 0 && (
             <button className="btn btn-secondary" onClick={() => {
               const rows = data.content.map(d => [d.reference, d.fournisseur || '', d.type, d.montantTtc ?? '', d.statut, d.nbDocuments, new Date(d.dateCreation).toLocaleDateString('fr-FR')].join(';'))
@@ -122,27 +142,27 @@ export default function DossierList() {
         </div>
       </div>
 
-      {/* Quick upload drop zone */}
+      {/* Drop zone */}
       <div
         className={`hero-drop ${dragging ? 'dragging' : ''}`}
-        style={{ padding: '16px 20px', marginBottom: 12 }}
+        style={{ padding: '14px 20px', marginBottom: 12 }}
         onDragOver={e => { e.preventDefault(); setDragging(true) }}
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => dropInputRef.current?.click()}
+        role="button" tabIndex={0} aria-label="Deposer des fichiers PDF"
+        onKeyDown={e => { if (e.key === 'Enter') dropInputRef.current?.click() }}
       >
         <input ref={dropInputRef} type="file" accept=".pdf" multiple hidden onChange={e => {
           const files = Array.from(e.target.files || [])
           if (files.length > 0) handleQuickUpload(files)
         }} />
         {quickUploading ? (
-          <Loader2 size={18} className="spin" style={{ color: 'var(--teal-600)' }} />
+          <Loader2 size={18} className="spin" style={{ color: 'var(--accent)' }} />
         ) : (
           <>
             <Upload size={16} style={{ color: 'var(--ink-40)', display: 'inline', marginRight: 8 }} aria-hidden="true" />
-            <span className="inline-hint">
-              Deposez des PDFs ici pour creer un dossier rapidement
-            </span>
+            <span className="inline-hint">Deposez des PDFs ici pour creer un dossier rapidement</span>
           </>
         )}
       </div>
@@ -185,95 +205,153 @@ export default function DossierList() {
         </div>
       )}
 
-      <div className="card mb-3 filter-bar">
-        <select className="form-select" value={filterStatut} onChange={e => { setFilterStatut(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
-          <option value="">Tous les statuts</option>
-          <option value="BROUILLON">Brouillon</option>
-          <option value="EN_VERIFICATION">En verification</option>
-          <option value="VALIDE">Valide</option>
-          <option value="REJETE">Rejete</option>
-        </select>
-        <select className="form-select" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
-          <option value="">Tous les types</option>
-          <option value="BC">Bon de commande</option>
-          <option value="CONTRACTUEL">Contractuel</option>
-        </select>
-        <input
-          className="form-input"
-          placeholder="Rechercher fournisseur..."
-          value={filterFournisseur}
-          onChange={e => handleFournisseurChange(e.target.value)}
-          style={{ width: 200 }}
-        />
-        {hasFilters && (
-          <button className="btn btn-secondary btn-sm" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setDebouncedFournisseur(''); setPage(0) }}>
-            <X size={14} /> Effacer
-          </button>
-        )}
-      </div>
-
-      <div className="card">
-        <table className="data-table">
-          <thead>
-            <tr>
-              {[
-                { key: 'reference', label: 'Reference' },
-                { key: 'fournisseur', label: 'Fournisseur' },
-                { key: 'type', label: 'Type' },
-                { key: 'montantTtc', label: 'Montant TTC' },
-                { key: 'nbDocuments', label: 'Docs' },
-                { key: 'statut', label: 'Statut' },
-                { key: 'dateCreation', label: 'Date' },
-              ].map(col => (
-                <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }}
-                  onClick={() => { setSortKey(col.key); setSortDir(prev => sortKey === col.key ? (prev === 'asc' ? 'desc' : 'asc') : 'desc') }}>
-                  {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
-                </th>
-              ))}
-              <th></th>
-            </tr>
-          </thead>
-          <tbody>
-            {data?.content.slice().sort((a, b) => {
-              const va = (a as unknown as Record<string, unknown>)[sortKey]
-              const vb = (b as unknown as Record<string, unknown>)[sortKey]
-              const cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'fr', { numeric: true })
-              return sortDir === 'asc' ? cmp : -cmp
-            }).map(d => {
-              const cfg = STATUT_CONFIG[d.statut]
-              return (
-                <tr key={d.id}>
-                  <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
-                  <td>{d.fournisseur || '\u2014'}</td>
-                  <td><span className="tag">{d.type}</span></td>
-                  <td className="cell-mono">{fmt(d.montantTtc)} MAD</td>
-                  <td>{d.nbDocuments}</td>
-                  <td><span className="status-badge" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span></td>
-                  <td className="audit-date">{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
-                  <td>
-                    <button
-                      className="btn btn-danger btn-sm"
-                      onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
-                      aria-label={`Supprimer le dossier ${d.reference}`}
-                    >
-                      <Trash2 size={14} />
-                    </button>
-                  </td>
-                </tr>
-              )
-            })}
-            {data?.content.length === 0 && <tr><td colSpan={8} className="empty-text">Aucun dossier</td></tr>}
-          </tbody>
-        </table>
-
-        {data && data.totalPages > 1 && (
-          <div className="pagination">
-            <button className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)}><ChevronLeft size={15} /></button>
-            <span>Page {page + 1} / {data.totalPages}</span>
-            <button className="btn btn-secondary btn-sm" disabled={page >= data.totalPages - 1} onClick={() => setPage(p => p + 1)}><ChevronRight size={15} /></button>
+      {/* Statut chips + filters */}
+      <div className="dossier-filters">
+        <div className="dossier-chips">
+          {STATUT_CHIPS.map(chip => (
+            <button key={chip.value}
+              className={`dossier-chip ${filterStatut === chip.value ? 'active' : ''}`}
+              onClick={() => { setFilterStatut(chip.value); setPage(0) }}
+              style={filterStatut === chip.value && chip.color ? { borderColor: chip.color, color: chip.color } : undefined}
+            >
+              {chip.color && <span className="dossier-chip-dot" style={{ background: chip.color }} />}
+              {chip.label}
+            </button>
+          ))}
+        </div>
+        <div className="dossier-filters-right">
+          <div className="dossier-search-wrap">
+            <Search size={14} className="dossier-search-icon" />
+            <input
+              className="dossier-search"
+              placeholder="Rechercher fournisseur..."
+              value={filterFournisseur}
+              onChange={e => handleFournisseurChange(e.target.value)}
+            />
+            {filterFournisseur && (
+              <button className="dossier-search-clear" onClick={() => { setFilterFournisseur(''); setDebouncedFournisseur(''); setPage(0) }} aria-label="Effacer">
+                <X size={12} />
+              </button>
+            )}
           </div>
-        )}
+          <button className={`btn btn-secondary btn-sm ${showFilters ? 'active' : ''}`}
+            onClick={() => setShowFilters(!showFilters)} aria-label="Plus de filtres">
+            <Filter size={14} />
+          </button>
+        </div>
       </div>
+
+      {/* Extended filters */}
+      {showFilters && (
+        <div className="card mb-3 filter-bar">
+          <select className="form-select" value={filterType} onChange={e => { setFilterType(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
+            <option value="">Tous les types</option>
+            <option value="BC">Bon de commande</option>
+            <option value="CONTRACTUEL">Contractuel</option>
+          </select>
+          {hasFilters && (
+            <button className="btn btn-secondary btn-sm" onClick={() => { setFilterStatut(''); setFilterType(''); setFilterFournisseur(''); setDebouncedFournisseur(''); setPage(0) }}>
+              <X size={14} /> Effacer les filtres
+            </button>
+          )}
+        </div>
+      )}
+
+      {/* Empty state */}
+      {isEmpty ? (
+        <div className="dossier-empty">
+          <div className="dossier-empty-icon">
+            <FolderOpen size={40} />
+          </div>
+          <h2>Aucun dossier de paiement</h2>
+          <p>Commencez par deposer vos documents PDF ou creez un dossier manuellement.</p>
+          <div className="dossier-empty-actions">
+            <button className="btn btn-primary" onClick={() => setShowCreate(true)}>
+              <Plus size={15} /> Creer un dossier
+            </button>
+            <button className="btn btn-secondary" onClick={() => dropInputRef.current?.click()}>
+              <Upload size={15} /> Deposer des PDFs
+            </button>
+          </div>
+        </div>
+      ) : (
+        <div className="card">
+          <table className="data-table">
+            <thead>
+              <tr>
+                {[
+                  { key: 'reference', label: 'Reference' },
+                  { key: 'fournisseur', label: 'Fournisseur' },
+                  { key: 'type', label: 'Type' },
+                  { key: 'montantTtc', label: 'Montant TTC' },
+                  { key: 'nbDocuments', label: 'Docs' },
+                  { key: 'statut', label: 'Statut' },
+                  { key: 'dateCreation', label: 'Date' },
+                ].map(col => (
+                  <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }}
+                    onClick={() => { setSortKey(col.key); setSortDir(prev => sortKey === col.key ? (prev === 'asc' ? 'desc' : 'asc') : 'desc') }}>
+                    {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
+                  </th>
+                ))}
+                <th></th>
+              </tr>
+            </thead>
+            <tbody>
+              {sorted?.map(d => {
+                const cfg = STATUT_CONFIG[d.statut]
+                const isFinalized = d.statut === 'VALIDE'
+                return (
+                  <tr key={d.id}>
+                    <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
+                    <td>{d.fournisseur || '\u2014'}</td>
+                    <td><span className="tag">{d.type}</span></td>
+                    <td className="cell-mono">{fmt(d.montantTtc)} MAD</td>
+                    <td>{d.nbDocuments}</td>
+                    <td><span className="status-badge" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span></td>
+                    <td className="audit-date">{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                    <td>
+                      <div style={{ display: 'flex', gap: 4 }}>
+                        {isFinalized && (
+                          <>
+                            <button className="btn btn-secondary btn-sm" title="Tableau de Controle"
+                              onClick={e => { e.preventDefault(); openWithAuth(getExportTCUrl(d.id)) }} aria-label="Telecharger TC">
+                              <FileText size={12} />
+                            </button>
+                            <button className="btn btn-secondary btn-sm" title="Ordre de Paiement"
+                              onClick={e => { e.preventDefault(); openWithAuth(getExportOPUrl(d.id)) }} aria-label="Telecharger OP">
+                              <Download size={12} />
+                            </button>
+                          </>
+                        )}
+                        <button
+                          className="btn btn-danger btn-sm"
+                          onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
+                          aria-label={`Supprimer le dossier ${d.reference}`}
+                        >
+                          <Trash2 size={12} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                )
+              })}
+              {data?.content.length === 0 && (
+                <tr><td colSpan={8} className="empty-text">
+                  {hasFilters ? 'Aucun dossier ne correspond aux filtres' : 'Aucun dossier'}
+                </td></tr>
+              )}
+            </tbody>
+          </table>
+
+          {data && data.totalPages > 1 && (
+            <div className="pagination">
+              <button className="btn btn-secondary btn-sm" disabled={page === 0} onClick={() => setPage(p => p - 1)} aria-label="Page precedente"><ChevronLeft size={15} /></button>
+              <span>Page {page + 1} / {data.totalPages}</span>
+              <button className="btn btn-secondary btn-sm" disabled={page >= data.totalPages - 1} onClick={() => setPage(p => p + 1)} aria-label="Page suivante"><ChevronRight size={15} /></button>
+            </div>
+          )}
+        </div>
+      )}
     </div>
   )
 }
