@@ -278,6 +278,7 @@ body {
   white-space: nowrap; letter-spacing: -0.1px;
 }
 .btn:disabled { opacity: 0.35; cursor: not-allowed; }
+.btn:active:not(:disabled) { transform: scale(0.96); transition-duration: 0.05s; }
 .btn-primary {
   background: linear-gradient(135deg, var(--accent-deep), var(--accent));
   color: white;

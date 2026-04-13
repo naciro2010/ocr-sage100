@@ -138,6 +138,7 @@ export default function DossierDetail() {
 
   // UI states
   const [validating, setValidating] = useState(false)
+  const [actionLoading, setActionLoading] = useState(false)
   const [rejectModal, setRejectModal] = useState(false)
   const [motifRejet, setMotifRejet] = useState('')
   const [editing, setEditing] = useState(false)
@@ -225,16 +226,17 @@ export default function DossierDetail() {
 
   const handleStatut = useCallback(async (statut: string) => {
     if (!id) return
+    setActionLoading(true)
     try {
       await changeStatut(id, statut, statut === 'REJETE' ? motifRejet : undefined)
-      toast('success', statut === 'VALIDE' ? 'Dossier valide' : 'Dossier rejete')
+      toast('success', statut === 'VALIDE' ? 'Dossier valide' : statut === 'REJETE' ? 'Dossier rejete' : 'Statut mis a jour')
       setRejectModal(false)
       setMotifRejet('')
       loadSummary()
       loadAudit()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
-    }
+    } finally { setActionLoading(false) }
   }, [id, motifRejet, loadSummary, loadAudit, toast])
 
   const copyRef = useCallback(() => {
@@ -303,6 +305,7 @@ export default function DossierDetail() {
                 <DossierHeader
                   dossier={dossierCompat!} id={id!}
                   hasProcessing={hasProcessing} validating={validating}
+                  actionLoading={actionLoading}
                   editing={editing} nbNonConformes={nbNonConformes}
                   showCompare={showCompare}
                   onLoad={reloadAll} onStartEdit={() => setEditing(true)}

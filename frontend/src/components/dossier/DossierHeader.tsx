@@ -12,6 +12,7 @@ interface Props {
   id: string
   hasProcessing: boolean
   validating: boolean
+  actionLoading?: boolean
   editing: boolean
   nbNonConformes: number
   showCompare: boolean
@@ -26,7 +27,7 @@ interface Props {
 }
 
 export default memo(function DossierHeader({
-  dossier, id, hasProcessing, validating, editing, nbNonConformes, showCompare,
+  dossier, id, hasProcessing, validating, actionLoading, editing, nbNonConformes, showCompare,
   onLoad, onStartEdit, onToggleCompare, onValidate, onValider, onRejeter, onReouvrir, onCopyRef,
 }: Props) {
   const cfg = STATUT_CONFIG[dossier.statut]
@@ -54,13 +55,13 @@ export default memo(function DossierHeader({
             {validating ? <><Loader2 size={15} className="spin" /> Verification...</> : <><ShieldCheck size={15} /> Verifier</>}
           </button>
           {dossier.statut !== 'VALIDE' && (
-            <button className="btn btn-success" onClick={onValider}
+            <button className="btn btn-success" onClick={onValider} disabled={actionLoading}
               title={nbNonConformes > 0 ? `${nbNonConformes} controle(s) non conforme(s)` : ''}>
-              <CheckCircle size={15} /> Valider
+              {actionLoading ? <Loader2 size={15} className="spin" /> : <CheckCircle size={15} />} Valider
             </button>
           )}
           {dossier.statut !== 'REJETE' && (
-            <button className="btn btn-danger" onClick={onRejeter}>
+            <button className="btn btn-danger" onClick={onRejeter} disabled={actionLoading}>
               <Ban size={15} /> Rejeter
             </button>
           )}
