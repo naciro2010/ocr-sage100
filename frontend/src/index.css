@@ -1195,6 +1195,11 @@ body {
   transition: width 0.3s;
 }
 
+.vblock-expand-docs {
+  display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;
+  padding-top: 8px; border-top: 1px solid var(--ink-05);
+}
+
 [data-theme="dark"] .vblock-expand { background: #0c1018; border-color: #1c2333; }
 [data-theme="dark"] .vblock-expand-val { background: #131927; border-color: #1c2333; }
 [data-theme="dark"] .vblock-expand-desc { border-color: #2a3142; }

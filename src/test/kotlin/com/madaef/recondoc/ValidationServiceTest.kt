@@ -39,9 +39,9 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply {
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
             montantHt = BigDecimal("1496.66"); montantTva = BigDecimal("299.34"); montantTtc = BigDecimal("1796.00"); tauxTva = BigDecimal("20")
-        }
+        })
         dossier.bonCommande = BonCommande(dossier = dossier, document = d2).apply {
             montantHt = BigDecimal("1496.66"); montantTva = BigDecimal("299.34"); montantTtc = BigDecimal("1796.00"); tauxTva = BigDecimal("20")
         }
@@ -60,9 +60,9 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply {
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
             montantTtc = BigDecimal("7200.00")
-        }
+        })
         dossier.bonCommande = BonCommande(dossier = dossier, document = d2).apply {
             montantTtc = BigDecimal("21600.00")
         }
@@ -81,9 +81,9 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply {
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
             montantTva = BigDecimal("812.00"); tauxTva = BigDecimal("20"); montantTtc = BigDecimal("5028.62")
-        }
+        })
         dossier.bonCommande = BonCommande(dossier = dossier, document = d2).apply {
             montantTva = BigDecimal("812.00"); tauxTva = BigDecimal("10"); montantTtc = BigDecimal("5028.62")
         }
@@ -102,9 +102,9 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply {
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
             ice = "001509176000008"; identifiantFiscal = "03302870"
-        }
+        })
         dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d2).apply {
             ice = "001509176000008"; identifiantFiscal = "3302870"
         }
@@ -122,7 +122,7 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply { montantTtc = BigDecimal("1796.00") }
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply { montantTtc = BigDecimal("1796.00") })
         dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = d2).apply { montantOperation = BigDecimal("1796.00") }
         dossierRepo.save(dossier)
 
@@ -137,9 +137,9 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply {
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
             montantHt = BigDecimal("359601.00"); montantTtc = BigDecimal("431521.20")
-        }
+        })
         val op = OrdrePaiement(dossier = dossier, document = d2).apply { montantOperation = BigDecimal("359601.00") }
         op.retenues.add(Retenue(ordrePaiement = op, type = TypeRetenue.TVA_SOURCE).apply {
             base = BigDecimal("71920.20"); taux = BigDecimal("75"); montant = BigDecimal("53940.15")
@@ -162,7 +162,7 @@ class ValidationServiceTest {
         val d3 = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
         dossier.documents.addAll(listOf(d1, d2, d3))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply { montantHt = BigDecimal("359601.00") }
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply { montantHt = BigDecimal("359601.00") })
 
         val contrat = ContratAvenant(dossier = dossier, document = d2).apply { referenceContrat = "CF SIE000777" }
         val prices = listOf("41370", "4441", "25428", "906", "21398", "19217", "7107")
@@ -190,7 +190,7 @@ class ValidationServiceTest {
         val d2 = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
         dossier.documents.addAll(listOf(d1, d2))
 
-        dossier.facture = Facture(dossier = dossier, document = d1).apply { rib = "022 810 0001500027756378 23" }
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply { rib = "022 810 0001500027756378 23" })
         dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = d2).apply { rib = "022 810 000 150 002 775 637 823" }
         dossierRepo.save(dossier)
 

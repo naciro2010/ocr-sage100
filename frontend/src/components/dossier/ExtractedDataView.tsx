@@ -8,7 +8,7 @@ interface Props {
 
 const INVOICE_SECTIONS: { title: string; fields: string[]; mono?: boolean }[] = [
   { title: 'Identification', fields: ['numeroFacture', 'dateFacture', 'referenceContrat', 'numeroBonCommande'] },
-  { title: 'Fournisseur', fields: ['fournisseur', 'ice', 'identifiantFiscal', 'rc', 'cnss', 'patente', 'rib', 'banque'] },
+  { title: 'Fournisseur', fields: ['fournisseur', 'ice', 'identifiantFiscal', 'rc', 'cnss', 'patente', 'rib', 'ribs', 'banque'] },
   { title: 'Client', fields: ['client', 'clientIce', 'adresseClient'] },
   { title: 'Montants', fields: ['montantHT', 'tauxTVA', 'montantTVA', 'montantTTC', 'montantNetAPayer'], mono: true },
   { title: 'Details', fields: ['periode', 'objet', 'description', 'modeReglement', 'echeance', 'devise'] },
@@ -25,7 +25,7 @@ const FIELD_LABELS: Record<string, string> = {
   numeroFacture: 'N\u00b0 Facture', dateFacture: 'Date', referenceContrat: 'Ref. Contrat',
   numeroBonCommande: 'N\u00b0 BC', fournisseur: 'Raison sociale', ice: 'ICE',
   identifiantFiscal: 'IF', rc: 'RC', cnss: 'CNSS', patente: 'Patente',
-  rib: 'RIB', banque: 'Banque', client: 'Client', clientIce: 'ICE Client',
+  rib: 'RIB', ribs: 'Tous les RIBs', banque: 'Banque', client: 'Client', clientIce: 'ICE Client',
   adresseClient: 'Adresse', montantHT: 'Montant HT', tauxTVA: 'Taux TVA',
   montantTVA: 'Montant TVA', montantTTC: 'Montant TTC', montantNetAPayer: 'Net a payer',
   periode: 'Periode', objet: 'Objet', description: 'Description',
@@ -85,16 +85,30 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
                 {sectionFields.map(([k, v]) => (
                   <div key={k} className="edv-cell">
                     <span className="edv-cell-key">{FIELD_LABELS[k] || k}</span>
-                    <span
-                      className={`edv-cell-value ${(section as { mono?: boolean }).mono ? 'mono' : ''}`}
-                      contentEditable suppressContentEditableWarning
-                      onBlur={e => {
-                        const newVal = e.currentTarget.textContent || ''
-                        if (newVal !== String(v)) toast('info', `${FIELD_LABELS[k] || k}: ${String(v)} \u2192 ${newVal}`)
-                      }}
-                    >
-                      {formatValue(k, v)}
-                    </span>
+                    {Array.isArray(v) ? (
+                      <div className="edv-cell-value mono" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
+                        {(v as string[]).map((item, idx) => (
+                          <span key={idx} style={{
+                            padding: '2px 6px', borderRadius: 3, fontSize: 12,
+                            background: idx === 0 ? 'var(--success-bg)' : 'var(--ink-05)',
+                            border: `1px solid ${idx === 0 ? 'rgba(16,185,129,0.2)' : 'var(--ink-10)'}`,
+                          }}>
+                            {item}{idx === 0 && (v as string[]).length > 1 && <span style={{ fontSize: 8, marginLeft: 4, color: 'var(--success)' }}>principal</span>}
+                          </span>
+                        ))}
+                      </div>
+                    ) : (
+                      <span
+                        className={`edv-cell-value ${(section as { mono?: boolean }).mono ? 'mono' : ''}`}
+                        contentEditable suppressContentEditableWarning
+                        onBlur={e => {
+                          const newVal = e.currentTarget.textContent || ''
+                          if (newVal !== String(v)) toast('info', `${FIELD_LABELS[k] || k}: ${String(v)} \u2192 ${newVal}`)
+                        }}
+                      >
+                        {formatValue(k, v)}
+                      </span>
+                    )}
                   </div>
                 ))}
               </div>

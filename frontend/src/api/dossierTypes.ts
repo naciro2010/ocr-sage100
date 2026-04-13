@@ -36,6 +36,7 @@ export interface DossierDetail {
   motifRejet: string | null
   documents: DocumentInfo[]
   facture: Record<string, unknown> | null
+  factures: Record<string, unknown>[]
   bonCommande: Record<string, unknown> | null
   contratAvenant: Record<string, unknown> | null
   ordrePaiement: Record<string, unknown> | null
@@ -68,6 +69,7 @@ export interface ValidationResult {
   commentaire: string | null
   corrigePar: string | null
   statutOriginal: string | null
+  documentIds: string[] | null
 }
 
 export interface PageResponse<T> {

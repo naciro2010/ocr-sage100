@@ -27,5 +27,6 @@ class ResultatValidation(
     @Column(columnDefinition = "TEXT") var commentaire: String? = null,
     @Column(name = "statut_original") var statutOriginal: String? = null,
     @Column(name = "corrige_par") var corrigePar: String? = null,
-    @Column(name = "date_correction") var dateCorrection: LocalDateTime? = null
+    @Column(name = "date_correction") var dateCorrection: LocalDateTime? = null,
+    @Column(name = "document_ids", columnDefinition = "TEXT") var documentIds: String? = null
 )

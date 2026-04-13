@@ -119,9 +119,16 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
     )
   }
 
-  const getDataForType = (type: TypeDocument): Record<string, unknown> | null => {
+  const getDataForType = (type: TypeDocument, docId?: string): Record<string, unknown> | null => {
+    if (type === 'FACTURE' && dossier.factures?.length > 0) {
+      if (docId) {
+        const match = dossier.factures.find(f => f.documentId === docId)
+        if (match) return match
+      }
+      return dossier.factures[0]
+    }
     const map: Record<string, Record<string, unknown> | null> = {
-      FACTURE: dossier.facture, BON_COMMANDE: dossier.bonCommande,
+      BON_COMMANDE: dossier.bonCommande,
       CONTRAT_AVENANT: dossier.contratAvenant, ORDRE_PAIEMENT: dossier.ordrePaiement,
       CHECKLIST_AUTOCONTROLE: dossier.checklistAutocontrole, TABLEAU_CONTROLE: dossier.tableauControle,
       PV_RECEPTION: dossier.pvReception, ATTESTATION_FISCALE: dossier.attestationFiscale,
@@ -164,17 +171,22 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
-          {dossier.documents.map(doc => (
-            <div key={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
+          {dossier.documents.map((doc, _idx) => {
+            const sameTypeDocs = dossier.documents.filter(d => d.typeDocument === doc.typeDocument)
+            const isMulti = sameTypeDocs.length > 1
+            const multiIdx = isMulti ? sameTypeDocs.indexOf(doc) + 1 : 0
+            return (
+            <div key={doc.id} data-doc-id={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
               onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false); setShowExtracted(false) }}>
-              <div style={{ marginBottom: 2 }}>
+              <div style={{ marginBottom: 2, display: 'flex', alignItems: 'center', gap: 4 }}>
                 <select className="form-select" value={doc.typeDocument} title="Cliquez pour corriger le type"
                   style={{ fontSize: 11, fontWeight: 700, padding: '0 2px', border: 'none', background: 'transparent', color: 'var(--slate-800)', cursor: 'pointer', width: '100%' }}
                   onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); handleChangeType(doc.id, e.target.value) }}>
                   {Object.entries(TYPE_DOCUMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
+                {isMulti && <span className="tag" style={{ fontSize: 8, flexShrink: 0 }}>{multiIdx}/{sameTypeDocs.length}</span>}
               </div>
-              <div style={{ fontSize: 11, color: 'var(--slate-500)', marginBottom: 6 }}>{doc.nomFichier}</div>
+              <div style={{ fontSize: 11, color: 'var(--ink-50)', marginBottom: 6 }}>{doc.nomFichier}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
                 {extractionBadge(doc)}
                 {doc.statutExtraction === 'EN_COURS' && <Loader2 size={12} className="spin" style={{ color: 'var(--blue-600)' }} />}
@@ -191,7 +203,8 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
                 </button>
               </div>
             </div>
-          ))}
+            )
+          })}
 
           <div className="drop-zone" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 90, padding: 20 }}
             onClick={() => inputRef.current?.click()}>
@@ -263,7 +276,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             {showExtracted && (
               <div style={{ padding: '0 18px 18px' }}>
                 {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
-                <ExtractedDataView data={getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
+                <ExtractedDataView data={getDataForType(selectedDoc.typeDocument, selectedDoc.id) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
               </div>
             )}
           </div>

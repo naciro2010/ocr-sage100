@@ -8,7 +8,12 @@ interface Props {
 
 export default memo(function CompareView({ dossier }: Props) {
   const docTypes = [
-    { key: 'FACTURE', label: 'Facture', data: dossier.facture },
+    ...(dossier.factures || []).map((f, i) => ({
+      key: `FACTURE_${i}`,
+      label: `Facture${(dossier.factures?.length || 0) > 1 ? ` ${i + 1}` : ''} ${f.numeroFacture ? `(${f.numeroFacture})` : ''}`.trim(),
+      data: f
+    })),
+    ...(dossier.facture && (!dossier.factures || dossier.factures.length === 0) ? [{ key: 'FACTURE', label: 'Facture', data: dossier.facture }] : []),
     { key: 'BON_COMMANDE', label: 'Bon de commande', data: dossier.bonCommande },
     { key: 'CONTRAT_AVENANT', label: 'Contrat / Avenant', data: dossier.contratAvenant },
     { key: 'ORDRE_PAIEMENT', label: 'Ordre de paiement', data: dossier.ordrePaiement },

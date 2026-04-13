@@ -71,7 +71,8 @@ class ValidationEngine(
             )
         }
 
-        val facture = dossier.facture
+        val facture = dossier.factures.firstOrNull()
+        val allFactures = dossier.factures
         val bc = dossier.bonCommande
         val op = dossier.ordrePaiement
         val contrat = dossier.contratAvenant
@@ -193,33 +194,54 @@ class ValidationEngine(
             )
         }
 
-        // R11 — Coherence RIB Facture ↔ OP
-        if (facture != null && op != null) {
-            val ribFact = facture.rib?.replace(WHITESPACE_RE, "")
+        // R11 — Coherence RIB : collecte tous les RIBs de toutes les factures + OP
+        if (allFactures.isNotEmpty() && op != null) {
+            val allFactureRibs = allFactures.mapNotNull { f ->
+                f.rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
+            }.distinct()
+            // Also check donneesExtraites.ribs arrays for multi-RIB documents
+            val allFactureRibsFromJson = allFactures.mapNotNull { f ->
+                @Suppress("UNCHECKED_CAST")
+                (f.document.donneesExtraites?.get("ribs") as? List<String>)
+            }.flatten().map { it.replace(WHITESPACE_RE, "") }.filter { it.isNotBlank() }.distinct()
+            val combinedFactureRibs = (allFactureRibs + allFactureRibsFromJson).distinct()
+
             val ribOp = op.rib?.replace(WHITESPACE_RE, "")
-            val ok = ribFact != null && ribOp != null && ribFact == ribOp
+            val opRibs = listOfNotNull(ribOp) +
+                ((@Suppress("UNCHECKED_CAST") (op.document.donneesExtraites?.get("ribs") as? List<String>))
+                    ?.map { it.replace(WHITESPACE_RE, "") }?.filter { it.isNotBlank() } ?: emptyList())
+            val allOpRibs = opRibs.distinct()
+
+            val hasMatch = combinedFactureRibs.any { fr -> allOpRibs.any { or -> fr == or } }
+            val docIds = allFactures.mapNotNull { it.document.id?.toString() } + listOfNotNull(op.document.id?.toString())
+
             results += ResultatValidation(
                 dossier = dossier, regle = "R11",
-                libelle = "Coherence RIB : Facture = OP",
+                libelle = "Coherence RIB : Factures ↔ OP",
                 statut = when {
-                    ribFact == null || ribOp == null -> StatutCheck.AVERTISSEMENT
-                    ok -> StatutCheck.CONFORME
+                    combinedFactureRibs.isEmpty() || allOpRibs.isEmpty() -> StatutCheck.AVERTISSEMENT
+                    hasMatch -> StatutCheck.CONFORME
                     else -> StatutCheck.NON_CONFORME
                 },
-                valeurAttendue = ribFact, valeurTrouvee = ribOp
+                valeurAttendue = "Factures: ${combinedFactureRibs.joinToString(", ").ifBlank { "Aucun RIB" }}",
+                valeurTrouvee = "OP: ${allOpRibs.joinToString(", ").ifBlank { "Aucun RIB" }}",
+                detail = when {
+                    combinedFactureRibs.size > 1 -> "${combinedFactureRibs.size} RIBs trouves dans les factures"
+                    else -> null
+                },
+                documentIds = docIds.joinToString(",")
             )
         }
 
         // R14 — Coherence fournisseur entre documents
         run {
-            val fournisseurs = listOfNotNull(
+            val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
-                facture?.fournisseur,
                 bc?.fournisseur,
                 op?.beneficiaire,
                 tableau?.fournisseur,
                 checklist?.prestataire
-            ).map { it.trim().lowercase() }.distinct()
+            ) + allFactures.mapNotNull { it.fournisseur }).map { it.trim().lowercase() }.distinct()
             if (fournisseurs.size > 1) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
@@ -237,15 +259,52 @@ class ValidationEngine(
             }
         }
 
-        // R12 — Checklist complete
+        // R12 — Checklist complete : eclate en un resultat PAR point CK
         if (checklist != null) {
+            val ckDocMapping = mapOf(
+                1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
+                2 to listOf(TypeDocument.FACTURE),
+                3 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
+                4 to listOf(TypeDocument.CONTRAT_AVENANT),
+                5 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
+                6 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.PV_RECEPTION),
+                7 to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
+                8 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT, TypeDocument.ORDRE_PAIEMENT),
+                9 to listOf(TypeDocument.FACTURE, TypeDocument.PV_RECEPTION, TypeDocument.BON_COMMANDE),
+                10 to listOf(TypeDocument.PV_RECEPTION)
+            )
+
+            for (pt in checklist.points) {
+                val num = pt.numero
+                val regleCode = "R12.%02d".format(num)
+                val sourceTypes = ckDocMapping[num] ?: emptyList()
+                val sourceDocIds = dossier.documents
+                    .filter { it.typeDocument in sourceTypes }
+                    .mapNotNull { it.id?.toString() }
+                val sourceLabels = sourceTypes.map { it.name }.joinToString(" + ")
+
+                results += ResultatValidation(
+                    dossier = dossier, regle = regleCode,
+                    libelle = pt.description ?: "Point de controle $num",
+                    statut = when (pt.estValide) {
+                        true -> StatutCheck.CONFORME
+                        false -> StatutCheck.NON_CONFORME
+                        null -> StatutCheck.AVERTISSEMENT
+                    },
+                    detail = pt.observation,
+                    source = "CHECKLIST",
+                    valeurAttendue = sourceLabels.ifBlank { null },
+                    documentIds = sourceDocIds.joinToString(",").ifBlank { null }
+                )
+            }
+
+            // Also keep the aggregate R12 result
             val nonValides = checklist.points.filter { it.estValide == false }
-            val indetermines = checklist.points.filter { it.estValide == null }
             results += ResultatValidation(
                 dossier = dossier, regle = "R12",
                 libelle = "Checklist autocontrole complete",
                 statut = when {
-                    nonValides.isEmpty() && indetermines.isEmpty() -> StatutCheck.CONFORME
+                    nonValides.isEmpty() && checklist.points.none { it.estValide == null } -> StatutCheck.CONFORME
                     nonValides.isNotEmpty() -> StatutCheck.AVERTISSEMENT
                     else -> StatutCheck.AVERTISSEMENT
                 },

@@ -179,7 +179,11 @@ export default function DossierDetail() {
         <DocumentManager dossier={dossier} id={id!} liveProgress={liveProgress}
           onReload={load} onReloadAudit={loadAudit} />
         {dossier.documents.length > 0 && (
-          <VerificationBlocks dossier={dossier} validating={validating} onValidate={handleValidate} />
+          <VerificationBlocks dossier={dossier} validating={validating} onValidate={handleValidate}
+            onNavigateDoc={(docId) => {
+              const el = document.querySelector(`[data-doc-id="${docId}"]`)
+              if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
+            }} />
         )}
         <AuditLog audit={audit} />
       </div>

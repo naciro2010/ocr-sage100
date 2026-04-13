@@ -497,8 +497,9 @@ class DossierService(
     }
 
     private fun saveFacture(dossier: DossierPaiement, doc: Document, data: Map<String, Any?>) {
-        val existing = factureRepo.findByDossierId(dossier.id!!)
+        val existing = factureRepo.findByDocumentId(doc.id!!)
         val facture = existing ?: Facture(dossier = dossier, document = doc)
+        facture.document = doc
         facture.numeroFacture = data["numeroFacture"] as? String
         facture.dateFacture = parseDate(data["dateFacture"] as? String)
         facture.fournisseur = data["fournisseur"] as? String
@@ -771,7 +772,8 @@ class DossierService(
             dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
             validePar = dossier.validePar, motifRejet = dossier.motifRejet,
             documents = dossier.documents.map { it.toResponse() },
-            facture = dossier.facture?.let { factureToMap(it) },
+            facture = dossier.factures.firstOrNull()?.let { factureToMap(it) },
+            factures = dossier.factures.map { factureToMap(it) },
             bonCommande = dossier.bonCommande?.document?.donneesExtraites,
             contratAvenant = dossier.contratAvenant?.document?.donneesExtraites,
             ordrePaiement = dossier.ordrePaiement?.document?.donneesExtraites,
@@ -784,6 +786,7 @@ class DossierService(
     }
 
     private fun factureToMap(f: Facture): Map<String, Any?> = mapOf(
+        "documentId" to f.document.id?.toString(),
         "numeroFacture" to f.numeroFacture, "dateFacture" to f.dateFacture?.toString(),
         "fournisseur" to f.fournisseur, "client" to f.client,
         "ice" to f.ice, "identifiantFiscal" to f.identifiantFiscal, "rc" to f.rc, "rib" to f.rib,

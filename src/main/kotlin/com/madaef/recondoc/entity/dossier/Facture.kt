@@ -10,8 +10,8 @@ import java.util.UUID
 class Facture(
     @Id @GeneratedValue(strategy = GenerationType.UUID) var id: UUID? = null,
 
-    @OneToOne(fetch = FetchType.LAZY)
-    @JoinColumn(name = "dossier_id", nullable = false, unique = true)
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "dossier_id", nullable = false)
     var dossier: DossierPaiement,
 
     @OneToOne(fetch = FetchType.LAZY)

@@ -58,6 +58,7 @@ data class DossierResponse(
     val motifRejet: String?,
     val documents: List<DocumentResponse>,
     val facture: Map<String, Any?>?,
+    val factures: List<Map<String, Any?>> = emptyList(),
     val bonCommande: Map<String, Any?>?,
     val contratAvenant: Map<String, Any?>?,
     val ordrePaiement: Map<String, Any?>?,
@@ -104,7 +105,8 @@ data class ValidationResultResponse(
     val source: String,
     val commentaire: String?,
     val corrigePar: String?,
-    val statutOriginal: String?
+    val statutOriginal: String?,
+    val documentIds: List<String>? = null
 )
 
 data class AuditLogResponse(
@@ -141,5 +143,6 @@ fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResult
     id = id?.toString(), regle = regle, libelle = libelle, statut = statut,
     detail = detail, valeurAttendue = valeurAttendue, valeurTrouvee = valeurTrouvee,
     source = source, commentaire = commentaire, corrigePar = corrigePar,
-    statutOriginal = statutOriginal
+    statutOriginal = statutOriginal,
+    documentIds = documentIds?.split(",")?.filter { it.isNotBlank() }
 )

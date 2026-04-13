@@ -50,7 +50,7 @@ class PdfGeneratorService {
         var y = 790f
         var cs = PDPageContentStream(doc, page)
 
-        val facture = dossier.facture
+        val facture = dossier.factures.firstOrNull()
 
         // Title
         y = drawCentered(cs, "Tableau de Controle financier des depenses d'investissement", 595f, y, bold, 11f, blue)
@@ -154,7 +154,7 @@ class PdfGeneratorService {
         var y = 790f
         val w = 560f
 
-        val facture = dossier.facture
+        val facture = dossier.factures.firstOrNull()
         val op = dossier.ordrePaiement
         val bc = dossier.bonCommande
         val contrat = dossier.contratAvenant

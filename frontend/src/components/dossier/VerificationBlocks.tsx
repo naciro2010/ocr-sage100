@@ -4,12 +4,14 @@ import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
-import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User } from 'lucide-react'
+import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText } from 'lucide-react'
+import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 
 interface Props {
   dossier: DossierDetail
   validating: boolean
   onValidate: () => void
+  onNavigateDoc?: (docId: string) => void
 }
 
 function needsHumanReview(r: ValidationResult): boolean {
@@ -28,7 +30,7 @@ function confidenceLevel(r: ValidationResult): { label: string; color: string; p
   return { label: 'Systeme', color: 'var(--ink-40)', pct: 90 }
 }
 
-export default memo(function VerificationBlocks({ dossier, validating, onValidate }: Props) {
+export default memo(function VerificationBlocks({ dossier, validating, onValidate, onNavigateDoc }: Props) {
   const { toast } = useToast()
   const [saving, setSaving] = useState<string | null>(null)
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
@@ -274,6 +276,20 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 </span>
                               )}
                             </div>
+                            {r?.documentIds && onNavigateDoc && (
+                              <div className="vblock-expand-docs">
+                                {r.documentIds.map(docId => {
+                                  const doc = dossier.documents.find(d => d.id === docId)
+                                  if (!doc) return null
+                                  return (
+                                    <button key={docId} className="btn btn-secondary btn-sm"
+                                      onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
+                                      <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
+                                    </button>
+                                  )
+                                })}
+                              </div>
+                            )}
                           </div>
                         )}
                       </div>

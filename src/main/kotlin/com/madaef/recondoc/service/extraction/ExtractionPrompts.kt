@@ -15,6 +15,7 @@ object ExtractionPrompts {
           "identifiantFiscal": "string ou null",
           "rc": "string ou null",
           "rib": "string ou null",
+          "ribs": ["string"],
           "montantHT": number,
           "montantTVA": number,
           "tauxTVA": number,
@@ -29,6 +30,7 @@ object ExtractionPrompts {
         - montantTVA : somme TOTALE de la TVA sur toutes les lignes, meme si les taux sont differents (ex: 20% sur certaines lignes, 0% sur d'autres).
         - tauxTVA : le taux TVA dominant (applique au plus grand montant HT). Si un seul taux, utilise-le.
         - montantHT et montantTTC doivent etre les totaux generaux de la facture.
+        - rib : le RIB principal (premier trouve). ribs : liste de TOUS les RIB trouves dans le document (il peut y en avoir plusieurs).
     """.trimIndent()
 
     val BON_COMMANDE = """
@@ -65,6 +67,7 @@ object ExtractionPrompts {
           "description": "string",
           "beneficiaire": "string",
           "rib": "string",
+          "ribs": ["string"],
           "banque": "string",
           "montantOperation": number,
           "referenceFacture": "string ou null",

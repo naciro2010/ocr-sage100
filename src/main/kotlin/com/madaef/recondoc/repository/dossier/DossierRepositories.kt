@@ -15,7 +15,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     fun countByStatut(statut: StatutDossier): Long
 
     @EntityGraph(attributePaths = [
-        "documents", "facture", "bonCommande", "contratAvenant",
+        "documents", "factures", "bonCommande", "contratAvenant",
         "ordrePaiement", "checklistAutocontrole",
         "tableauControle", "pvReception", "attestationFiscale",
         "resultatsValidation"
@@ -68,6 +68,8 @@ interface DocumentRepository : JpaRepository<Document, UUID> {
 
 interface FactureRepository : JpaRepository<Facture, UUID> {
     fun findByDossierId(dossierId: UUID): Facture?
+    fun findAllByDossierId(dossierId: UUID): List<Facture>
+    fun findByDocumentId(documentId: UUID): Facture?
 }
 
 interface BonCommandeRepository : JpaRepository<BonCommande, UUID> {

@@ -51,8 +51,8 @@ class DossierPaiement(
     @OrderBy("dateUpload ASC")
     var documents: MutableSet<Document> = mutableSetOf(),
 
-    @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
-    var facture: Facture? = null,
+    @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
+    var factures: MutableList<Facture> = mutableListOf(),
 
     @OneToOne(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     var bonCommande: BonCommande? = null,
