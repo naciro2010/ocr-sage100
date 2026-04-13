@@ -61,13 +61,20 @@ class LlmExtractionService(
             .onStatus({ it.is4xxClientError }) { resp ->
                 resp.bodyToMono(String::class.java).map { body ->
                     log.error("Claude API 4xx error: {} — {}", resp.statusCode(), body)
-                    RuntimeException("Claude API error ${resp.statusCode()}: $body")
+                    val msg = when {
+                        body.contains("usage limits") || body.contains("rate_limit") ->
+                            "Quota API Anthropic atteint. Reessayez plus tard ou augmentez votre plan."
+                        body.contains("authentication") || body.contains("api_key") ->
+                            "Cle API Anthropic invalide. Verifiez la configuration dans Parametres > Extraction IA."
+                        else -> "Erreur API Claude: $body"
+                    }
+                    RuntimeException(msg)
                 }
             }
             .bodyToMono(Map::class.java)
             .timeout(Duration.ofSeconds(120))
             .retryWhen(reactor.util.retry.Retry.max(1)
-                .filter { it !is org.springframework.web.reactive.function.client.WebClientResponseException.BadRequest })
+                .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException })
             .block() ?: throw RuntimeException("Empty response from Claude API")
 
         @Suppress("UNCHECKED_CAST")
