@@ -86,8 +86,43 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
+    fun getDossierSummary(id: UUID): DossierSummaryResponse {
+        val dossier = getDossier(id)
+        val nbDocs = documentRepo.findByDossierId(id).size
+        val results = resultatRepo.findByDossierId(id)
+        return DossierSummaryResponse(
+            id = dossier.id!!, reference = dossier.reference,
+            type = dossier.type, statut = dossier.statut,
+            fournisseur = dossier.fournisseur, description = dossier.description,
+            montantTtc = dossier.montantTtc, montantHt = dossier.montantHt,
+            montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
+            dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
+            validePar = dossier.validePar, motifRejet = dossier.motifRejet,
+            nbDocuments = nbDocs,
+            nbChecksConformes = results.count { it.statut == StatutCheck.CONFORME },
+            nbChecksTotal = results.size
+        )
+    }
+
+    @Transactional(readOnly = true)
     fun listDocuments(dossierId: UUID): List<DocumentResponse> {
         return documentRepo.findByDossierId(dossierId).map { it.toResponse() }
+    }
+
+    @Transactional(readOnly = true)
+    fun listDocumentsWithData(dossierId: UUID): Map<String, Any?> {
+        val dossier = getDossierFull(dossierId)
+        return mapOf(
+            "documents" to dossier.documents.map { it.toResponse() },
+            "factures" to dossier.factures.map { factureToMap(it) },
+            "bonCommande" to dossier.bonCommande?.document?.donneesExtraites,
+            "contratAvenant" to dossier.contratAvenant?.document?.donneesExtraites,
+            "ordrePaiement" to dossier.ordrePaiement?.document?.donneesExtraites,
+            "checklistAutocontrole" to dossier.checklistAutocontrole?.document?.donneesExtraites,
+            "tableauControle" to dossier.tableauControle?.document?.donneesExtraites,
+            "pvReception" to dossier.pvReception?.document?.donneesExtraites,
+            "attestationFiscale" to dossier.attestationFiscale?.document?.donneesExtraites,
+        )
     }
 
     @Transactional(readOnly = true)

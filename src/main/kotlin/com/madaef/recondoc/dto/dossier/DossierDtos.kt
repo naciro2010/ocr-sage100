@@ -41,6 +41,26 @@ data class DashboardStatsResponse(
 
 // === Response DTOs ===
 
+data class DossierSummaryResponse(
+    val id: UUID,
+    val reference: String,
+    val type: DossierType,
+    val statut: StatutDossier,
+    val fournisseur: String?,
+    val description: String?,
+    val montantTtc: BigDecimal?,
+    val montantHt: BigDecimal?,
+    val montantTva: BigDecimal?,
+    val montantNetAPayer: BigDecimal?,
+    val dateCreation: LocalDateTime,
+    val dateValidation: LocalDateTime?,
+    val validePar: String?,
+    val motifRejet: String?,
+    val nbDocuments: Int = 0,
+    val nbChecksConformes: Int = 0,
+    val nbChecksTotal: Int = 0
+)
+
 data class DossierResponse(
     val id: UUID,
     val reference: String,

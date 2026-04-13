@@ -51,6 +51,36 @@ export async function getDossier(id: string, signal?: AbortSignal): Promise<Doss
   return handleResponse(res)
 }
 
+export interface DossierSummary {
+  id: string; reference: string; type: DossierType; statut: 'BROUILLON' | 'EN_VERIFICATION' | 'VALIDE' | 'REJETE'
+  fournisseur: string | null; description: string | null
+  montantTtc: number | null; montantHt: number | null; montantTva: number | null; montantNetAPayer: number | null
+  dateCreation: string; dateValidation: string | null; validePar: string | null; motifRejet: string | null
+  nbDocuments: number; nbChecksConformes: number; nbChecksTotal: number
+}
+
+export async function getDossierSummary(id: string, signal?: AbortSignal): Promise<DossierSummary> {
+  const res = await apiFetch(`${BASE}/${id}/summary`, { signal })
+  return handleResponse(res)
+}
+
+export interface DocumentsWithData {
+  documents: DocumentInfo[]
+  factures: Record<string, unknown>[]
+  bonCommande: Record<string, unknown> | null
+  contratAvenant: Record<string, unknown> | null
+  ordrePaiement: Record<string, unknown> | null
+  checklistAutocontrole: Record<string, unknown> | null
+  tableauControle: Record<string, unknown> | null
+  pvReception: Record<string, unknown> | null
+  attestationFiscale: Record<string, unknown> | null
+}
+
+export async function getDocumentsWithData(id: string, signal?: AbortSignal): Promise<DocumentsWithData> {
+  const res = await apiFetch(`${BASE}/${id}/documents`, { signal })
+  return handleResponse(res)
+}
+
 export async function updateDossier(id: string, data: Record<string, unknown>): Promise<DossierDetail> {
   const res = await apiFetch(`${BASE}/${id}`, {
     method: 'PUT',

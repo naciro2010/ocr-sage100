@@ -54,6 +54,11 @@ class DossierController(
         return dossierService.getDossierResponse(id)
     }
 
+    @GetMapping("/{id}/summary")
+    fun getSummary(@PathVariable id: UUID): DossierSummaryResponse {
+        return dossierService.getDossierSummary(id)
+    }
+
     @PutMapping("/{id}")
     fun update(@PathVariable id: UUID, @RequestBody request: UpdateDossierRequest): DossierResponse {
         dossierService.updateDossier(id, request)
@@ -83,8 +88,8 @@ class DossierController(
     }
 
     @GetMapping("/{id}/documents")
-    fun listDocuments(@PathVariable id: UUID): List<DocumentResponse> {
-        return dossierService.listDocuments(id)
+    fun listDocuments(@PathVariable id: UUID): Map<String, Any?> {
+        return dossierService.listDocumentsWithData(id)
     }
 
     @PostMapping("/{id}/valider")
