@@ -32,13 +32,33 @@ function apiFetch(url: string, init?: RequestInit): Promise<Response> {
   return fetch(url, { ...init, headers })
 }
 
+let logoutTimer: ReturnType<typeof setTimeout> | null = null
+
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
     if (res.status === 401) {
-      localStorage.removeItem('recondoc_user')
-      localStorage.removeItem('recondoc_auth')
-      window.location.href = '/'
-      throw new Error('Session expiree — reconnexion requise')
+      // Debounce logout — don't logout on a single transient 401
+      if (!logoutTimer) {
+        logoutTimer = setTimeout(() => {
+          // Only logout if auth is still invalid after 2s
+          const auth = localStorage.getItem('recondoc_auth')
+          if (auth) {
+            fetch(`${API_URL}/api/auth/me`, { headers: { 'Authorization': `Basic ${auth}` } })
+              .then(r => {
+                if (r.status === 401) {
+                  localStorage.removeItem('recondoc_user')
+                  localStorage.removeItem('recondoc_auth')
+                  window.location.href = '/'
+                }
+                logoutTimer = null
+              })
+              .catch(() => { logoutTimer = null })
+          } else {
+            logoutTimer = null
+          }
+        }, 2000)
+      }
+      throw new Error('Non autorise')
     }
     let message: string
     try {
