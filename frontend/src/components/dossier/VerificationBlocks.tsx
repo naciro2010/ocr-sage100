@@ -97,20 +97,24 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     if (hasAutocontrole) {
       return parsedPoints.map(pt => {
         const ckRule = ALL_RULES.find(r => r.category === 'checklist' && r.desc.toLowerCase().includes(pt.desc.substring(0, 20).toLowerCase()))
+        // Match R12.XX validation result from backend
+        const rCode = `R12.${String(pt.num).padStart(2, '0')}`
+        const validationResult = systemResults.find(r => r.regle === rCode) || null
         return {
           num: pt.num, desc: pt.desc,
-          status: estValideToItemStatus(pt.estValide, hasResults),
+          status: validationResult ? statutToItemStatus(validationResult.statut) : estValideToItemStatus(pt.estValide, hasResults),
           observation: pt.observation,
           ruleCode: ckRule?.code || null,
           ruleDesc: ckRule?.desc || null,
+          result: validationResult,
         }
       })
     }
     return activeRules.filter(r => r.category === 'checklist').map((r, i) => ({
       num: i + 1, desc: r.label, status: 'pending' as ItemStatus, observation: null as string | null,
-      ruleCode: r.code, ruleDesc: r.desc,
+      ruleCode: r.code, ruleDesc: r.desc, result: null as ValidationResult | null,
     }))
-  }, [parsedPoints, hasAutocontrole, hasResults, activeRules])
+  }, [parsedPoints, hasAutocontrole, hasResults, activeRules, systemResults])
 
   const toggleBlock = useCallback((key: string) => {
     setCollapsedBlocks(prev => {
@@ -383,7 +387,14 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
             )}
             {hasAutocontrole && <span className="vblock-source-badge">Extrait du document</span>}
           </div>
-          {autoCollapsed ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
+          <div className="vblock-actions">
+            {hasResults && (
+              <button className="btn btn-sm vblock-btn-rerun" onClick={e => { e.stopPropagation(); onValidate() }} disabled={validating} aria-label="Relancer la verification">
+                {validating ? <Loader2 size={10} className="spin" /> : '\u21bb'}
+              </button>
+            )}
+            {autoCollapsed ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
+          </div>
         </div>
 
         <div id="vblock-auto-content" className={`collapsible ${autoCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: autoCollapsed ? 0 : 5000 }}>
@@ -405,52 +416,131 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
             <div className="vblock-inner">
               {autocontroleItems.map((item, i) => {
+                const r = item.result
                 const sd = STATUS_DISPLAY[item.status]
                 const isExpanded = expandedItems.has(`auto-${i}`)
+                const review = item.status === 'ko' || item.status === 'warn' || hasAutocontrole
                 return (
                   <div key={i}>
-                    <div className="vblock-item" onClick={() => toggleItem(`auto-${i}`)} style={{ cursor: 'pointer' }}>
+                    <div className={`vblock-item ${review && item.status === 'ko' ? 'vblock-item-review' : ''}`}
+                      onClick={() => toggleItem(`auto-${i}`)} style={{ cursor: 'pointer' }}>
                       <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
                       <span className="vblock-code" style={{ width: 22 }}>{item.num}</span>
                       <div className="vblock-content">
                         <div className="vblock-label">{item.desc}</div>
-                        {item.observation && item.observation !== '\u2014' && !isExpanded && (
+                        {r?.detail && !isExpanded && <div className="vblock-detail">{r.detail}</div>}
+                        {!r?.detail && item.observation && item.observation !== '\u2014' && !isExpanded && (
                           <div className="vblock-detail">{item.observation}</div>
                         )}
                       </div>
-                      {item.ruleCode && (
+
+                      {/* Source tag */}
+                      {r?.source ? (
+                        <span className={`vblock-source-tag ${r.source === 'CHECKLIST' ? 'llm' : 'deterministe'}`}>
+                          {sourceLabel(r.source)}
+                        </span>
+                      ) : item.ruleCode ? (
                         <span className="vblock-source-tag deterministe">{item.ruleCode}</span>
+                      ) : null}
+
+                      {/* Inline correction */}
+                      {r?.id && (
+                        <select
+                          className="vblock-select"
+                          value={r.statut}
+                          onChange={e => { e.stopPropagation(); handleCorrect(r.id!, e.target.value) }}
+                          onClick={e => e.stopPropagation()}
+                          disabled={saving === r.id}
+                          style={{ background: sd.bg, color: sd.color }}
+                          aria-label={`Corriger le statut du point ${item.num}`}
+                        >
+                          {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+                        </select>
                       )}
-                      <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
-                        {sd.label}
-                      </span>
+
+                      {/* Status label */}
+                      {!r?.id && (
+                        <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
+                          {sd.label}
+                        </span>
+                      )}
+
+                      {r?.statutOriginal && r.statutOriginal !== r.statut && (
+                        <span className="vblock-corrected">corrige</span>
+                      )}
+
                       {isExpanded ? <ChevronUp size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} /> : <ChevronDown size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} />}
                     </div>
 
                     {isExpanded && (
                       <div className="vblock-expand">
                         {item.ruleDesc && <div className="vblock-expand-desc">{item.ruleDesc}</div>}
-                        {item.observation && (
-                          <div className="vblock-expand-detail">
-                            <strong>Observation :</strong> {item.observation}
+
+                        {/* Donnees comparees */}
+                        {(r?.valeurAttendue || r?.valeurTrouvee) && (
+                          <div className="vblock-expand-compare">
+                            {r.valeurAttendue && (
+                              <div className="vblock-expand-val">
+                                <span className="vblock-expand-val-label">Documents verifies</span>
+                                <span className="vblock-expand-val-data">{r.valeurAttendue}</span>
+                              </div>
+                            )}
+                            {r.valeurTrouvee && (
+                              <div className="vblock-expand-val">
+                                <span className="vblock-expand-val-label">Resultat</span>
+                                <span className={`vblock-expand-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</span>
+                              </div>
+                            )}
                           </div>
                         )}
+
+                        {r?.detail && (
+                          <div className="vblock-expand-detail"><strong>Detail :</strong> {r.detail}</div>
+                        )}
+                        {item.observation && (
+                          <div className="vblock-expand-detail"><strong>Observation autocontrole :</strong> {item.observation}</div>
+                        )}
+
                         <div className="vblock-expand-meta">
                           <span className="vblock-expand-meta-item">
-                            Source : <strong>{hasAutocontrole ? 'Autocontrole — extrait du document' : 'Verifie par le systeme'}</strong>
+                            Source : <strong>{r ? sourceLabel(r.source) : hasAutocontrole ? 'Autocontrole — extrait du document' : 'Verifie par le systeme'}</strong>
                           </span>
-                          <span className="vblock-expand-meta-item">
-                            Confiance : <strong style={{ color: hasAutocontrole ? 'var(--warning)' : 'var(--info)' }}>{hasAutocontrole ? '70%' : '100%'}</strong>
-                            <span className="vblock-confidence-bar">
-                              <span className="vblock-confidence-fill" style={{ width: hasAutocontrole ? '70%' : '100%', background: hasAutocontrole ? 'var(--warning)' : 'var(--info)' }} />
-                            </span>
-                          </span>
-                          {hasAutocontrole && (
-                            <span className="vblock-expand-meta-item vblock-expand-review">
-                              <AlertTriangle size={11} /> A verifier manuellement (extraction IA)
+                          {r && (
+                            <span className="vblock-expand-meta-item">
+                              Confiance : <strong style={{ color: confidenceLevel(r).color }}>{confidenceLevel(r).pct}%</strong>
+                              <span className="vblock-confidence-bar">
+                                <span className="vblock-confidence-fill" style={{ width: `${confidenceLevel(r).pct}%`, background: confidenceLevel(r).color }} />
+                              </span>
                             </span>
                           )}
+                          {review && (
+                            <span className="vblock-expand-meta-item vblock-expand-review">
+                              <AlertTriangle size={11} /> A verifier manuellement
+                            </span>
+                          )}
+                          {r?.commentaire && (
+                            <span className="vblock-expand-meta-item">Commentaire : {r.commentaire}</span>
+                          )}
+                          {r?.corrigePar && (
+                            <span className="vblock-expand-meta-item">Corrige par : <strong>{r.corrigePar}</strong></span>
+                          )}
                         </div>
+
+                        {/* Navigation vers documents sources */}
+                        {r?.documentIds && onNavigateDoc && (
+                          <div className="vblock-expand-docs">
+                            {r.documentIds.map(docId => {
+                              const doc = dossier.documents.find(d => d.id === docId)
+                              if (!doc) return null
+                              return (
+                                <button key={docId} className="btn btn-secondary btn-sm"
+                                  onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
+                                  <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
+                                </button>
+                              )
+                            })}
+                          </div>
+                        )}
                       </div>
                     )}
                   </div>
