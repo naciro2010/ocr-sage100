@@ -79,13 +79,12 @@ class DossierController(
         @RequestParam("files") files: List<MultipartFile>,
         @RequestParam("type", required = false) type: TypeDocument?
     ): List<DocumentResponse> {
-        dossierService.uploadDocuments(id, files, type)
-        return dossierService.getDossierResponse(id).documents
+        return dossierService.uploadDocuments(id, files, type)
     }
 
     @GetMapping("/{id}/documents")
     fun listDocuments(@PathVariable id: UUID): List<DocumentResponse> {
-        return dossierService.getDossierResponse(id).documents
+        return dossierService.listDocuments(id)
     }
 
     @PostMapping("/{id}/valider")
@@ -95,7 +94,7 @@ class DossierController(
 
     @GetMapping("/{id}/resultats-validation")
     fun getValidationResults(@PathVariable id: UUID): List<ValidationResultResponse> {
-        return dossierService.getDossierResponse(id).resultatsValidation
+        return dossierService.getValidationResults(id)
     }
 
     @PatchMapping("/{id}/validation/{resultId}")
@@ -109,7 +108,7 @@ class DossierController(
     @PostMapping("/{id}/documents/{docId}/reprocess")
     fun reprocessDocument(@PathVariable id: UUID, @PathVariable docId: UUID): DocumentResponse {
         dossierService.processDocument(docId)
-        return dossierService.getDossierResponse(id).documents.first { it.id == docId }
+        return dossierService.getDocumentResponse(id, docId)
     }
 
     @PatchMapping("/{id}/documents/{docId}/type")
@@ -119,7 +118,7 @@ class DossierController(
     ): DocumentResponse {
         val newType = TypeDocument.valueOf(body["typeDocument"] ?: throw IllegalArgumentException("typeDocument required"))
         dossierService.changeDocumentType(docId, newType)
-        return dossierService.getDossierResponse(id).documents.first { it.id == docId }
+        return dossierService.getDocumentResponse(id, docId)
     }
 
     @DeleteMapping("/{id}/documents/{docId}")

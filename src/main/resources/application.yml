@@ -2,13 +2,13 @@ spring:
   application:
     name: recondoc-madaef
   datasource:
-    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}}?options=-c%20statement_timeout%3D15000
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}}?options=-c%20statement_timeout%3D10000
     username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:recondoc}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:recondoc}}
     hikari:
-      maximum-pool-size: ${DB_POOL_MAX_SIZE:15}
-      minimum-idle: ${DB_POOL_MIN_IDLE:5}
-      connection-timeout: ${DB_CONNECTION_TIMEOUT:10000}
+      maximum-pool-size: ${DB_POOL_MAX_SIZE:25}
+      minimum-idle: ${DB_POOL_MIN_IDLE:10}
+      connection-timeout: ${DB_CONNECTION_TIMEOUT:5000}
       idle-timeout: ${DB_IDLE_TIMEOUT:300000}
       max-lifetime: ${DB_MAX_LIFETIME:900000}
       leak-detection-threshold: 30000
@@ -19,11 +19,15 @@ spring:
     open-in-view: false
     properties:
       hibernate:
-        default_batch_fetch_size: 16
+        default_batch_fetch_size: 100
         order_inserts: true
         order_updates: true
         jdbc:
-          batch_size: 25
+          batch_size: 50
+          fetch_size: 100
+        query:
+          in_clause_parameter_padding: true
+          plan_cache_max_size: 2048
   flyway:
     enabled: true
     clean-disabled: true
@@ -83,22 +87,22 @@ management:
   task:
     execution:
       pool:
-        core-size: 5
-        max-size: 20
-        queue-capacity: 100
+        core-size: ${ASYNC_CORE_SIZE:10}
+        max-size: ${ASYNC_MAX_SIZE:30}
+        queue-capacity: 200
       thread-name-prefix: ocr-async-
 
 server:
   port: ${PORT:8080}
   compression:
     enabled: true
-    min-response-size: 1024
+    min-response-size: 4096
     mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
   tomcat:
     threads:
-      max: 20
-      min-spare: 2
-    connection-timeout: 30s
+      max: ${TOMCAT_MAX_THREADS:200}
+      min-spare: 10
+    connection-timeout: 20s
 
 logging:
   level:

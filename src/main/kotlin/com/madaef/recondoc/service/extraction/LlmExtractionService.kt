@@ -2,34 +2,42 @@ package com.madaef.recondoc.service.extraction
 
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.madaef.recondoc.service.AppSettingsService
+import io.netty.channel.ChannelOption
 import org.slf4j.LoggerFactory
 import org.springframework.http.MediaType
+import org.springframework.http.client.reactive.ReactorClientHttpConnector
 import org.springframework.stereotype.Service
 import org.springframework.web.reactive.function.client.WebClient
+import reactor.netty.http.client.HttpClient
+import java.time.Duration
+import java.util.concurrent.ConcurrentHashMap
 
-/**
- * LLM extraction service that reads API key, model, and base URL dynamically
- * from AppSettingsService (configurable via Settings UI).
- * Supports multi-model: Claude Sonnet, Opus, Haiku.
- */
 @Service
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
     private val appSettingsService: AppSettingsService
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
+    private val clientCache = ConcurrentHashMap<String, WebClient>()
 
     val isAvailable: Boolean get() = appSettingsService.getAiApiKey().isNotBlank()
 
-    private fun buildClient(): WebClient {
+    private fun getClient(): WebClient {
         val apiKey = appSettingsService.getAiApiKey()
         val baseUrl = appSettingsService.getAiBaseUrl()
-        return WebClient.builder()
-            .baseUrl(baseUrl)
-            .defaultHeader("x-api-key", apiKey)
-            .defaultHeader("anthropic-version", "2023-06-01")
-            .codecs { it.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) }
-            .build()
+        val cacheKey = "$baseUrl|${apiKey.takeLast(8)}"
+        return clientCache.computeIfAbsent(cacheKey) {
+            val httpClient = HttpClient.create()
+                .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
+                .responseTimeout(Duration.ofSeconds(120))
+            WebClient.builder()
+                .baseUrl(baseUrl)
+                .clientConnector(ReactorClientHttpConnector(httpClient))
+                .defaultHeader("x-api-key", apiKey)
+                .defaultHeader("anthropic-version", "2023-06-01")
+                .codecs { it.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) }
+                .build()
+        }
     }
 
     fun callClaude(systemPrompt: String, userContent: String): String {
@@ -45,12 +53,14 @@ class LlmExtractionService(
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
 
-        val response = buildClient().post()
+        val response = getClient().post()
             .uri("/v1/messages")
             .contentType(MediaType.APPLICATION_JSON)
             .bodyValue(requestBody)
             .retrieve()
             .bodyToMono(Map::class.java)
+            .timeout(Duration.ofSeconds(120))
+            .retry(1)
             .block() ?: throw RuntimeException("Empty response from Claude API")
 
         @Suppress("UNCHECKED_CAST")
