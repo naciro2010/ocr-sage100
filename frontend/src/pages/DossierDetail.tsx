@@ -6,7 +6,7 @@ import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
-import { AlertTriangle, XCircle } from 'lucide-react'
+import { AlertTriangle, RefreshCw } from 'lucide-react'
 
 const DossierHeader = lazy(() => import('../components/dossier/DossierHeader'))
 const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm'))
@@ -20,16 +20,34 @@ function BlockSkeleton({ height = 80 }: { height?: number }) {
   return <div className="skeleton-card skeleton" style={{ height }} />
 }
 
+function BlockError({ message, onRetry }: { message: string; onRetry: () => void }) {
+  return (
+    <div className="card" style={{ padding: '14px 18px', display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 8, color: 'var(--danger)', fontSize: 12 }}>
+        <AlertTriangle size={14} />
+        <span>{message}</span>
+      </div>
+      <button className="btn btn-secondary btn-sm" onClick={onRetry} aria-label="Reessayer">
+        <RefreshCw size={12} /> Reessayer
+      </button>
+    </div>
+  )
+}
+
 export default function DossierDetail() {
   const { id } = useParams<{ id: string }>()
   const { toast } = useToast()
 
-  // Independent data states — each block loads separately
+  // Independent data states
   const [summary, setSummary] = useState<DossierSummary | null>(null)
   const [docsData, setDocsData] = useState<DocumentsWithData | null>(null)
   const [validationResults, setValidationResults] = useState<ValidationResult[]>([])
   const [audit, setAudit] = useState<AuditEntry[]>([])
-  const [error, setError] = useState('')
+
+  // Error states per block
+  const [summaryError, setSummaryError] = useState('')
+  const [docsError, setDocsError] = useState('')
+  const [validationError, setValidationError] = useState('')
 
   // UI states
   const [validating, setValidating] = useState(false)
@@ -41,15 +59,21 @@ export default function DossierDetail() {
 
   const liveProgress = useDocumentEvents(id, () => loadDocs())
 
-  // --- Independent loaders ---
+  // --- Independent loaders with error handling ---
   const loadSummary = useCallback(() => {
     if (!id) return
-    getDossierSummary(id).then(setSummary).catch(e => { if (e.name !== 'AbortError') setError(e.message) })
+    setSummaryError('')
+    getDossierSummary(id)
+      .then(setSummary)
+      .catch(e => setSummaryError(e instanceof Error ? e.message : 'Erreur de chargement'))
   }, [id])
 
   const loadValidation = useCallback(() => {
     if (!id) return
-    getValidationResults(id).then(setValidationResults).catch(() => {})
+    setValidationError('')
+    getValidationResults(id)
+      .then(setValidationResults)
+      .catch(e => setValidationError(e instanceof Error ? e.message : 'Erreur'))
   }, [id])
 
   const loadAudit = useCallback(() => {
@@ -59,12 +83,18 @@ export default function DossierDetail() {
 
   const loadDocs = useCallback(() => {
     if (!id) return
+    setDocsError('')
     getDocumentsWithData(id).then(data => {
+      if (!data || !data.documents) {
+        setDocsError('Format de reponse inattendu')
+        return
+      }
       setDocsData(data)
       const processing = data.documents.some(d => d.statutExtraction === 'EN_COURS' || d.statutExtraction === 'EN_ATTENTE')
       if (processing && !pollRef.current) {
         pollRef.current = setInterval(() => {
           getDocumentsWithData(id).then(fresh => {
+            if (!fresh || !fresh.documents) return
             setDocsData(fresh)
             const still = fresh.documents.some(d => d.statutExtraction === 'EN_COURS' || d.statutExtraction === 'EN_ATTENTE')
             if (!still && pollRef.current) {
@@ -76,7 +106,7 @@ export default function DossierDetail() {
           }).catch(() => {})
         }, 3000)
       }
-    }).catch(() => {})
+    }).catch(e => setDocsError(e instanceof Error ? e.message : 'Erreur de chargement des documents'))
   }, [id, loadSummary, loadAudit])
 
   // Load all blocks in parallel on mount
@@ -135,9 +165,9 @@ export default function DossierDetail() {
     validationResults.filter(r => r.statut === 'NON_CONFORME').length, [validationResults])
 
   const hasProcessing = useMemo(() =>
-    docsData?.documents.some(d => d.statutExtraction === 'EN_COURS') ?? false, [docsData])
+    docsData?.documents?.some(d => d.statutExtraction === 'EN_COURS') ?? false, [docsData])
 
-  // Build a DossierDetail-like object for components that need it (backward compat)
+  // Build compat object for child components
   const dossierCompat = useMemo(() => {
     if (!summary) return null
     return {
@@ -156,12 +186,22 @@ export default function DossierDetail() {
     }
   }, [summary, docsData, validationResults])
 
-  if (error && !summary) return <div className="alert alert-error"><AlertTriangle size={18} /> {error}</div>
+  // Full page error — only if summary itself failed
+  if (summaryError && !summary) {
+    return (
+      <div className="card" style={{ textAlign: 'center', padding: '48px 20px' }}>
+        <AlertTriangle size={32} style={{ color: 'var(--danger)', marginBottom: 12 }} />
+        <div style={{ fontSize: 16, fontWeight: 700, marginBottom: 4 }}>{summaryError}</div>
+        <div style={{ fontSize: 13, color: 'var(--ink-40)', marginBottom: 16 }}>Impossible de charger le dossier</div>
+        <button className="btn btn-primary" onClick={loadSummary}><RefreshCw size={14} /> Recharger</button>
+      </div>
+    )
+  }
 
   return (
     <Suspense fallback={<BlockSkeleton height={60} />}>
       <div>
-        {/* Block 1: Header — loads from summary (fast) */}
+        {/* Block 1: Header */}
         {!summary ? <BlockSkeleton height={120} /> : (
           <>
             {editing && dossierCompat ? (
@@ -182,8 +222,6 @@ export default function DossierDetail() {
               />
             )}
 
-            {error && <div className="alert alert-error mb-3"><XCircle size={16} /> {error}</div>}
-
             <Modal open={rejectModal} title="Rejeter le dossier"
               message="Etes-vous sur de vouloir rejeter ce dossier ? Cette action sera enregistree dans l'historique."
               confirmLabel="Rejeter" confirmColor="var(--danger)"
@@ -196,34 +234,38 @@ export default function DossierDetail() {
               </div>
             </Modal>
 
-            {/* Block 2: Metrics — uses summary (already loaded) */}
+            {/* Block 2: Metrics */}
             <MetricsBar dossier={dossierCompat!} nbConformes={nbConformes} fmt={fmt} hasProcessing={hasProcessing} />
           </>
         )}
 
-        {/* Block 3: Compare — loads from docs data */}
-        {showCompare && (docsData ? (
-          <CompareView dossier={dossierCompat!} />
+        {/* Block 3: Compare */}
+        {showCompare && (docsData && dossierCompat ? (
+          <CompareView dossier={dossierCompat} />
         ) : <BlockSkeleton height={200} />)}
 
-        {/* Block 4: Documents — independent load */}
-        {!docsData ? <BlockSkeleton height={200} /> : (
-          <DocumentManager dossier={dossierCompat!} id={id!} liveProgress={liveProgress}
+        {/* Block 4: Documents */}
+        {docsError ? (
+          <BlockError message={docsError} onRetry={loadDocs} />
+        ) : !docsData ? (
+          <BlockSkeleton height={200} />
+        ) : dossierCompat ? (
+          <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
             onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
-        )}
+        ) : null}
 
-        {/* Block 5: Verification — independent load */}
-        {docsData && docsData.documents.length > 0 && (
-          !validationResults ? <BlockSkeleton height={100} /> : (
-            <VerificationBlocks dossier={dossierCompat!} validating={validating} onValidate={handleValidate}
-              onNavigateDoc={(docId) => {
-                const el = document.querySelector(`[data-doc-id="${docId}"]`)
-                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
-              }} />
-          )
-        )}
+        {/* Block 5: Verification */}
+        {validationError ? (
+          <BlockError message={validationError} onRetry={loadValidation} />
+        ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
+          <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate}
+            onNavigateDoc={(docId) => {
+              const el = document.querySelector(`[data-doc-id="${docId}"]`)
+              if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
+            }} />
+        ) : null}
 
-        {/* Block 6: Audit — independent load */}
+        {/* Block 6: Audit */}
         <AuditLog audit={audit} />
       </div>
     </Suspense>

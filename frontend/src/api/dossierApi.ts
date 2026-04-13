@@ -15,6 +15,12 @@ function apiFetch(url: string, init?: RequestInit): Promise<Response> {
 
 async function handleResponse<T>(res: Response): Promise<T> {
   if (!res.ok) {
+    if (res.status === 401) {
+      localStorage.removeItem('recondoc_user')
+      localStorage.removeItem('recondoc_auth')
+      window.location.href = '/'
+      throw new Error('Session expiree — reconnexion requise')
+    }
     let message: string
     try {
       const body = await res.json()
