@@ -38,6 +38,34 @@ function confidenceLevel(r: ValidationResult): { label: string; color: string; p
   return { label: 'Fiable', color: 'var(--ink-40)', pct: 90 }
 }
 
+function Legend() {
+  return (
+    <div className="vblock-legend">
+      <span className="vblock-legend-title">Legende :</span>
+      {[
+        { icon: '\u2713', bg: '#ecfdf5', color: '#059669', label: 'Conforme' },
+        { icon: '\u2717', bg: '#fef2f2', color: '#dc2626', label: 'Non conforme' },
+        { icon: '!', bg: '#fffbeb', color: '#d97706', label: 'A verifier' },
+        { icon: '\u2014', bg: '#f3f4f6', color: '#6b7280', label: 'Non applicable' },
+      ].map(s => (
+        <span key={s.label} className="vblock-legend-item">
+          <span className="vblock-legend-pill" style={{ background: s.bg, color: s.color }}>{s.icon}</span>
+          {s.label}
+        </span>
+      ))}
+      <span className="vblock-legend-separator" />
+      <span className="vblock-legend-item">
+        <span className="vblock-source-tag deterministe" style={{ fontSize: 8 }}>Verifie</span>
+        Comparaison exacte
+      </span>
+      <span className="vblock-legend-item">
+        <span className="vblock-source-tag llm" style={{ fontSize: 8 }}>Extrait par IA</span>
+        Donnee lue du PDF
+      </span>
+    </div>
+  )
+}
+
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onNavigateDoc }: Props) {
   const { toast } = useToast()
   const [saving, setSaving] = useState<string | null>(null)
@@ -168,6 +196,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
         </div>
 
         <div id="vblock-system-content" className={`collapsible ${systemCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: systemCollapsed ? 0 : 5000 }}>
+          {hasResults && <Legend />}
           <div className="vblock-inner">
             {hasResults ? (
               groupedSystem.map(group => (
@@ -193,6 +222,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             <div className="vblock-label">{item.label}</div>
                             {r?.detail && !isExpanded && <div className="vblock-detail">{r.detail}</div>}
                           </div>
+
+                          {/* Status label — toujours visible */}
+                          <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
+                            {sd.label}
+                          </span>
 
                           {/* Source badge */}
                           {r?.source && (
@@ -353,6 +387,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
         </div>
 
         <div id="vblock-auto-content" className={`collapsible ${autoCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: autoCollapsed ? 0 : 5000 }}>
+          <Legend />
           <div>
             {hasAutocontrole && (
               <div className="vblock-info-row">

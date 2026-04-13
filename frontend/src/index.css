@@ -1195,6 +1195,33 @@ body {
   transition: width 0.3s;
 }
 
+/* Legend */
+.vblock-legend {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+  padding: 8px 16px; background: var(--ink-02);
+  border-bottom: 1px solid var(--ink-05);
+  font-size: 10px; color: var(--ink-40);
+}
+.vblock-legend-title {
+  font-weight: 700; font-family: var(--font-mono);
+  text-transform: uppercase; letter-spacing: 0.5px;
+  font-size: 9px; color: var(--ink-30);
+}
+.vblock-legend-item {
+  display: flex; align-items: center; gap: 4px;
+  font-size: 10px; color: var(--ink-50);
+}
+.vblock-legend-pill {
+  width: 16px; height: 16px; border-radius: 50%;
+  display: inline-flex; align-items: center; justify-content: center;
+  font-size: 9px; font-weight: 800; flex-shrink: 0;
+}
+.vblock-legend-separator {
+  width: 1px; height: 14px; background: var(--ink-10); flex-shrink: 0;
+}
+
+[data-theme="dark"] .vblock-legend { background: #0c1018; border-color: #1c2333; }
+
 .vblock-expand-docs {
   display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;
   padding-top: 8px; border-top: 1px solid var(--ink-05);
