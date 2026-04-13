@@ -15,7 +15,7 @@ interface Props {
 export default memo(function VerificationBlocks({ dossier, validating, onValidate }: Props) {
   const { toast } = useToast()
   const [saving, setSaving] = useState<string | null>(null)
-  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
+  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
 
   const hasResults = dossier.resultatsValidation.length > 0
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])

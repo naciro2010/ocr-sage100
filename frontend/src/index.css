@@ -481,6 +481,9 @@ body {
   padding: 8px 12px; border-radius: 5px; font-size: 12px;
 }
 .audit-row:nth-child(even) { background: var(--ink-02); }
+.audit-action { font-weight: 700; color: var(--ink-70); }
+.audit-detail { color: var(--ink-50); margin-left: 8px; }
+.audit-date { color: var(--ink-40); font-size: 12px; white-space: nowrap; font-family: var(--font-mono); }
 
 /* ===== Engine Card ===== */
 .engine-card {
@@ -1021,7 +1024,11 @@ body {
   transition: opacity 0.2s;
 }
 .settings-disableable.disabled { opacity: 0.4; pointer-events: none; }
-.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 14px; margin-bottom: 14px; }
+.form-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 14px; }
+.filter-bar {
+  display: flex; gap: 10px; align-items: center;
+  flex-wrap: wrap; padding: 14px 20px;
+}
 .form-grid-full { grid-column: 1 / -1; }
 .form-input-wrap { position: relative; }
 .form-input-icon {
@@ -1207,6 +1214,36 @@ body {
 .finalize-result-title { font-weight: 700; font-size: 14px; color: var(--ink); }
 .finalize-result-sub { font-size: 11px; color: var(--ink-40); }
 .finalize-result-actions { display: flex; gap: 10px; }
+
+/* ===== Compact Metrics Bar ===== */
+.metrics-compact {
+  display: flex; flex-direction: column; gap: 8px; margin-bottom: 12px;
+}
+.metrics-amount-card {
+  background: #fff; border: 1px solid var(--ink-10); border-radius: 8px;
+  padding: 12px 18px; box-shadow: 0 1px 3px rgba(0,0,0,0.03);
+}
+.metrics-amount-row {
+  display: flex; align-items: center; gap: 24px; flex-wrap: wrap;
+}
+.metrics-amount {
+  font-family: var(--font-mono); font-size: 20px; font-weight: 700;
+  color: var(--ink); letter-spacing: -0.5px; line-height: 1.2;
+}
+.metrics-secondary { border-left: 2px solid var(--ink-05); padding-left: 16px; }
+.metrics-amount-sm {
+  font-family: var(--font-mono); font-size: 15px; font-weight: 600;
+  color: var(--ink-60); letter-spacing: -0.3px;
+}
+.metrics-checks {
+  display: flex; align-items: center; gap: 6px;
+  margin-left: auto; font-size: 12px;
+}
+.metrics-checks-label { font-family: var(--font-mono); font-weight: 600; color: var(--ink-40); font-size: 11px; }
+.metrics-separator { color: var(--ink-20); }
+
+[data-theme="dark"] .metrics-amount-card { background: #131927; border-color: #1c2333; }
+[data-theme="dark"] .metrics-secondary { border-color: #2a3142; }
 
 /* ===== Loading Skeleton ===== */
 @keyframes skeletonPulse {

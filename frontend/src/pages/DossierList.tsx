@@ -162,7 +162,7 @@ export default function DossierList() {
       {showCreate && (
         <div className="card mb-3">
           <h2><Plus size={14} /> Nouveau dossier</h2>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
+          <div className="form-grid">
             <div>
               <label className="form-label">Type</label>
               <select className="form-select full-width" value={newType} onChange={e => setNewType(e.target.value as DossierType)}>
@@ -185,7 +185,7 @@ export default function DossierList() {
         </div>
       )}
 
-      <div className="card mb-3" style={{ display: 'flex', gap: 10, alignItems: 'center', flexWrap: 'wrap', padding: '14px 20px' }}>
+      <div className="card mb-3 filter-bar">
         <select className="form-select" value={filterStatut} onChange={e => { setFilterStatut(e.target.value); setPage(0) }} style={{ width: 'auto' }}>
           <option value="">Tous les statuts</option>
           <option value="BROUILLON">Brouillon</option>
@@ -222,7 +222,6 @@ export default function DossierList() {
                 { key: 'type', label: 'Type' },
                 { key: 'montantTtc', label: 'Montant TTC' },
                 { key: 'nbDocuments', label: 'Docs' },
-                { key: 'nbChecksConformes', label: 'Checks' },
                 { key: 'statut', label: 'Statut' },
                 { key: 'dateCreation', label: 'Date' },
               ].map(col => (
@@ -249,9 +248,8 @@ export default function DossierList() {
                   <td><span className="tag">{d.type}</span></td>
                   <td className="cell-mono">{fmt(d.montantTtc)} MAD</td>
                   <td>{d.nbDocuments}</td>
-                  <td>{d.nbChecksTotal > 0 ? `${d.nbChecksConformes}/${d.nbChecksTotal}` : '\u2014'}</td>
                   <td><span className="status-badge" style={{ background: cfg.bg, color: cfg.color }}>{cfg.label}</span></td>
-                  <td style={{ color: 'var(--slate-500)', fontSize: 12 }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                  <td className="audit-date">{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
                   <td>
                     <button
                       className="btn btn-danger btn-sm"
@@ -264,7 +262,7 @@ export default function DossierList() {
                 </tr>
               )
             })}
-            {data?.content.length === 0 && <tr><td colSpan={9} className="empty-text">Aucun dossier</td></tr>}
+            {data?.content.length === 0 && <tr><td colSpan={8} className="empty-text">Aucun dossier</td></tr>}
           </tbody>
         </table>
 

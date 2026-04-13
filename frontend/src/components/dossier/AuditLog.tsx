@@ -1,28 +1,41 @@
-import { memo } from 'react'
+import { memo, useState } from 'react'
 import type { AuditEntry } from '../../api/dossierTypes'
-import { Clock } from 'lucide-react'
+import { Clock, ChevronDown } from 'lucide-react'
 
 interface Props {
   audit: AuditEntry[]
 }
 
+const INITIAL_LIMIT = 5
+
 export default memo(function AuditLog({ audit }: Props) {
+  const [expanded, setExpanded] = useState(false)
+
   if (audit.length === 0) return null
+
+  const visible = expanded ? audit : audit.slice(0, INITIAL_LIMIT)
+  const hasMore = audit.length > INITIAL_LIMIT
 
   return (
     <div className="card">
       <h2><Clock size={14} /> Historique</h2>
-      {audit.map((a, i) => (
+      {visible.map((a, i) => (
         <div key={i} className="audit-row">
           <div>
-            <span style={{ fontWeight: 700, color: 'var(--slate-700)' }}>{a.action}</span>
-            {a.detail && <span style={{ color: 'var(--slate-500)', marginLeft: 8 }}>{a.detail}</span>}
+            <span className="audit-action">{a.action}</span>
+            {a.detail && <span className="audit-detail">{a.detail}</span>}
           </div>
-          <span style={{ color: 'var(--slate-400)', fontSize: 12, whiteSpace: 'nowrap' }}>
+          <span className="audit-date">
             {new Date(a.dateAction).toLocaleString('fr-FR')}
           </span>
         </div>
       ))}
+      {hasMore && !expanded && (
+        <button className="btn btn-secondary btn-sm" style={{ marginTop: 8, width: '100%', justifyContent: 'center' }}
+          onClick={() => setExpanded(true)}>
+          <ChevronDown size={14} /> Voir les {audit.length - INITIAL_LIMIT} entrees restantes
+        </button>
+      )}
     </div>
   )
 })

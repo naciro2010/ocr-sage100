@@ -1,35 +1,66 @@
 import { memo } from 'react'
 import type { DossierDetail } from '../../api/dossierTypes'
-import { Banknote, FolderOpen, FileCheck } from 'lucide-react'
+import { Banknote, ShieldCheck, CheckCircle, Loader2 } from 'lucide-react'
 
 interface Props {
   dossier: DossierDetail
   nbConformes: number
   fmt: (n: number | null | undefined) => string
+  hasProcessing?: boolean
 }
 
-export default memo(function MetricsBar({ dossier, nbConformes, fmt }: Props) {
+export default memo(function MetricsBar({ dossier, nbConformes, fmt, hasProcessing }: Props) {
+  const nbTotal = dossier.resultatsValidation.length
+  const hasDocs = dossier.documents.length > 0
+  const allExtracted = hasDocs && dossier.documents.every(d => d.statutExtraction === 'EXTRAIT')
+  const hasValidation = nbTotal > 0
+  const isFinal = dossier.statut === 'VALIDE' || dossier.statut === 'REJETE'
+
+  const steps = [
+    { label: 'Upload', done: hasDocs, active: !hasDocs },
+    { label: 'Extraction', done: allExtracted, active: hasDocs && !allExtracted },
+    { label: 'Verification', done: hasValidation, active: allExtracted && !hasValidation },
+    { label: 'Decision', done: isFinal, active: hasValidation && !isFinal },
+  ]
+
   return (
-    <div className="stats-grid">
-      <div className="stat-card">
-        <div className="stat-icon teal"><Banknote size={18} /></div>
-        <div className="stat-value">{fmt(dossier.montantTtc)}</div>
-        <div className="stat-label">Montant TTC</div>
+    <div className="metrics-compact">
+      {/* Montant principal */}
+      <div className="metrics-amount-card">
+        <div className="metrics-amount-row">
+          <div>
+            <div className="stat-label">Montant TTC</div>
+            <div className="metrics-amount">{fmt(dossier.montantTtc)}</div>
+          </div>
+          {(dossier.montantNetAPayer || dossier.montantHt) && (
+            <div className="metrics-secondary">
+              <div className="stat-label">{dossier.montantNetAPayer ? 'Net a payer' : 'Montant HT'}</div>
+              <div className="metrics-amount-sm">{fmt(dossier.montantNetAPayer ?? dossier.montantHt)}</div>
+            </div>
+          )}
+          {nbTotal > 0 && (
+            <div className="metrics-checks">
+              <Banknote size={14} style={{ color: 'var(--accent)', opacity: 0.5 }} aria-hidden="true" />
+              <span className="metrics-checks-label">{dossier.documents.length} docs</span>
+              <span className="metrics-separator" aria-hidden="true">&middot;</span>
+              <ShieldCheck size={14} style={{ color: nbConformes === nbTotal ? 'var(--success)' : 'var(--warning)', opacity: 0.7 }} aria-hidden="true" />
+              <span className="metrics-checks-label">{nbConformes}/{nbTotal} OK</span>
+            </div>
+          )}
+        </div>
       </div>
-      <div className="stat-card">
-        <div className="stat-icon blue"><Banknote size={18} /></div>
-        <div className="stat-value">{fmt(dossier.montantNetAPayer ?? dossier.montantHt)}</div>
-        <div className="stat-label">{dossier.montantNetAPayer ? 'Net a payer' : 'Montant HT'}</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-icon amber"><FolderOpen size={18} /></div>
-        <div className="stat-value">{dossier.documents.length}</div>
-        <div className="stat-label">Documents</div>
-      </div>
-      <div className="stat-card">
-        <div className="stat-icon green"><FileCheck size={18} /></div>
-        <div className="stat-value">{nbConformes}/{dossier.resultatsValidation.length}</div>
-        <div className="stat-label">Checks conformes</div>
+
+      {/* Workflow compact */}
+      <div className="timeline">
+        {steps.map((step, i) => (
+          <div key={step.label} style={{ display: 'flex', alignItems: 'center' }}>
+            <div className={`timeline-step ${step.done ? 'done' : step.active ? 'active' : ''}`}>
+              {step.done ? <CheckCircle size={12} /> : step.active ? <Loader2 size={12} className={step.active && i === 1 && hasProcessing ? 'spin' : ''} /> : null}
+              {step.label}
+            </div>
+            {i < steps.length - 1 && <div className={`timeline-connector ${step.done ? 'done' : ''}`} />}
+          </div>
+        ))}
       </div>
     </div>
   )

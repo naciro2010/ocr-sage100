@@ -7,7 +7,7 @@ import DocumentPipeline from '../DocumentPipeline'
 import ExtractedDataView from './ExtractedDataView'
 import type { DocProgress } from '../../hooks/useDocumentEvents'
 import {
-  FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink
+  FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink, ChevronDown, ChevronUp
 } from 'lucide-react'
 
 interface Props {
@@ -24,6 +24,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
+  const [showExtracted, setShowExtracted] = useState(false)
   const [showPdf, setShowPdf] = useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
@@ -165,7 +166,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
           {dossier.documents.map(doc => (
             <div key={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
-              onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false) }}>
+              onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false); setShowExtracted(false) }}>
               <div style={{ marginBottom: 2 }}>
                 <select className="form-select" value={doc.typeDocument} title="Cliquez pour corriger le type"
                   style={{ fontSize: 11, fontWeight: 700, padding: '0 2px', border: 'none', background: 'transparent', color: 'var(--slate-800)', cursor: 'pointer', width: '100%' }}
@@ -230,18 +231,41 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             {showPdf && pdfBlobUrl && <div className="pdf-viewer"><iframe src={pdfBlobUrl} title={selectedDoc.nomFichier} /></div>}
           </div>
 
-          {/* Extracted data */}
-          <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
-              <h2 style={{ marginBottom: 0 }}><ExternalLink size={14} /> Donnees extraites</h2>
+          {/* Extracted data — collapsible */}
+          <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
+            <div
+              className="card-flex"
+              style={{ padding: '12px 18px', cursor: 'pointer' }}
+              onClick={() => setShowExtracted(!showExtracted)}
+              role="button"
+              tabIndex={0}
+              aria-expanded={showExtracted}
+              onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); setShowExtracted(!showExtracted) } }}
+            >
+              <h2 style={{ marginBottom: 0 }}>
+                <ExternalLink size={14} /> Donnees extraites
+                {!showExtracted && selectedDoc.donneesExtraites && (
+                  <span style={{ fontWeight: 400, fontSize: 11, color: 'var(--ink-40)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
+                    {Object.values(selectedDoc.donneesExtraites).filter(v => v !== null).length} champs
+                  </span>
+                )}
+              </h2>
               <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
-                <span className="data-field-source ocr" style={{ fontSize: 9 }}>OCR</span>
-                <span className="data-field-source ai" style={{ fontSize: 9 }}>IA</span>
-                <span style={{ fontSize: 10, color: 'var(--ink-30)' }}>Cliquez sur une valeur pour corriger</span>
+                {showExtracted && (
+                  <>
+                    <span className="data-field-source ocr" style={{ fontSize: 9 }}>OCR</span>
+                    <span className="data-field-source ai" style={{ fontSize: 9 }}>IA</span>
+                  </>
+                )}
+                {showExtracted ? <ChevronUp size={14} style={{ color: 'var(--ink-30)' }} /> : <ChevronDown size={14} style={{ color: 'var(--ink-30)' }} />}
               </div>
             </div>
-            {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
-            <ExtractedDataView data={getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
+            {showExtracted && (
+              <div style={{ padding: '0 18px 18px' }}>
+                {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
+                <ExtractedDataView data={getDataForType(selectedDoc.typeDocument) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
+              </div>
+            )}
           </div>
         </>
       )}

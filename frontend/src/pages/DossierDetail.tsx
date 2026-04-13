@@ -10,7 +10,6 @@ import { AlertTriangle, XCircle } from 'lucide-react'
 
 const DossierHeader = lazy(() => import('../components/dossier/DossierHeader'))
 const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm'))
-const WorkflowTimeline = lazy(() => import('../components/dossier/WorkflowTimeline'))
 const MetricsBar = lazy(() => import('../components/dossier/MetricsBar'))
 const CompareView = lazy(() => import('../components/dossier/CompareView'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
@@ -175,8 +174,7 @@ export default function DossierDetail() {
           </div>
         </Modal>
 
-        <WorkflowTimeline dossier={dossier} hasProcessing={hasProcessing} />
-        <MetricsBar dossier={dossier} nbConformes={nbConformes} fmt={fmt} />
+        <MetricsBar dossier={dossier} nbConformes={nbConformes} fmt={fmt} hasProcessing={hasProcessing} />
         {showCompare && <CompareView dossier={dossier} />}
         <DocumentManager dossier={dossier} id={id!} liveProgress={liveProgress}
           onReload={load} onReloadAudit={loadAudit} />
