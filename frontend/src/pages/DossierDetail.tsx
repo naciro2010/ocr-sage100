@@ -16,8 +16,95 @@ const DocumentManager = lazy(() => import('../components/dossier/DocumentManager
 const VerificationBlocks = lazy(() => import('../components/dossier/VerificationBlocks'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
 
-function BlockSkeleton({ height = 80 }: { height?: number }) {
-  return <div className="skeleton-card skeleton" style={{ height }} />
+function HeaderSkeleton() {
+  return (
+    <div className="skel-stagger">
+      <div className="skel-header">
+        <div className="skel-header-row">
+          <div className="skeleton-circle" />
+          <div className="skeleton-line h-lg" style={{ width: 180 }} />
+          <div className="skeleton-line" style={{ width: 60, marginLeft: 8 }} />
+          <div className="skel-header-actions">
+            <div className="skel-header-btn" />
+            <div className="skel-header-btn" />
+            <div className="skel-header-btn" style={{ width: 100 }} />
+          </div>
+        </div>
+      </div>
+      <div className="skeleton-card">
+        <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+          <div className="skeleton-line" style={{ width: 80, height: 22, borderRadius: 4 }} />
+          <div className="skeleton-line" style={{ width: 60, height: 20, borderRadius: 4 }} />
+          <div className="skeleton-line h-lg" style={{ width: 140 }} />
+        </div>
+      </div>
+    </div>
+  )
+}
+
+function MetricsSkeleton() {
+  return (
+    <div className="skeleton-card" style={{ padding: '12px 18px' }}>
+      <div className="skel-metrics">
+        <div className="skel-metrics-amount">
+          <div className="skeleton-line h-sm" style={{ width: 70 }} />
+          <div className="skeleton-line h-lg" style={{ width: 140 }} />
+        </div>
+        <div style={{ width: 1, height: 30, background: 'var(--ink-05)' }} />
+        <div className="skel-metrics-amount">
+          <div className="skeleton-line h-sm" style={{ width: 60 }} />
+          <div className="skeleton-line" style={{ width: 100 }} />
+        </div>
+      </div>
+      <div className="skel-timeline">
+        <div className="skel-timeline-step" />
+        <div className="skel-timeline-connector" />
+        <div className="skel-timeline-step" />
+        <div className="skel-timeline-connector" />
+        <div className="skel-timeline-step" />
+        <div className="skel-timeline-connector" />
+        <div className="skel-timeline-step" />
+      </div>
+    </div>
+  )
+}
+
+function DocsSkeleton() {
+  return (
+    <div className="skeleton-card">
+      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
+        <div className="skeleton-line h-sm" style={{ width: 140 }} />
+        <div className="skel-header-btn" style={{ width: 90 }} />
+      </div>
+      <div className="skel-doc-grid">
+        {[1, 2, 3, 4].map(i => (
+          <div key={i} className="skel-doc-card">
+            <div className="skeleton-line" style={{ width: '70%' }} />
+            <div className="skeleton-line h-sm" style={{ width: '90%' }} />
+            <div className="skeleton-line" style={{ width: 60, height: 18, borderRadius: 4, marginTop: 'auto' }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
+}
+
+function VerifSkeleton() {
+  return (
+    <div style={{ borderRadius: 8, overflow: 'hidden', border: '1px solid var(--ink-05)', marginBottom: 12 }}>
+      <div className="skel-verif-header" />
+      <div className="skel-verif-rows">
+        {[1, 2, 3].map(i => (
+          <div key={i} className="skel-verif-row">
+            <div className="skeleton-circle" style={{ width: 22, height: 22 }} />
+            <div className="skeleton-line" style={{ width: 28 }} />
+            <div className="skeleton-line" style={{ flex: 1 }} />
+            <div className="skeleton-line" style={{ width: 60, height: 18, borderRadius: 4 }} />
+          </div>
+        ))}
+      </div>
+    </div>
+  )
 }
 
 function BlockError({ message, onRetry }: { message: string; onRetry: () => void }) {
@@ -199,28 +286,35 @@ export default function DossierDetail() {
   }
 
   return (
-    <Suspense fallback={<BlockSkeleton height={60} />}>
-      <div>
-        {/* Block 1: Header */}
-        {!summary ? <BlockSkeleton height={120} /> : (
+    <Suspense fallback={<HeaderSkeleton />}>
+      <div className="skel-stagger">
+        {/* Block 1: Header — appears first */}
+        {!summary ? (
           <>
-            {editing && dossierCompat ? (
-              <DossierEditForm dossier={dossierCompat} id={id!} onDone={() => { setEditing(false); reloadAll() }} onCancel={() => setEditing(false)} />
-            ) : (
-              <DossierHeader
-                dossier={dossierCompat!} id={id!}
-                hasProcessing={hasProcessing} validating={validating}
-                editing={editing} nbNonConformes={nbNonConformes}
-                showCompare={showCompare}
-                onLoad={reloadAll} onStartEdit={() => setEditing(true)}
-                onToggleCompare={() => setShowCompare(!showCompare)}
-                onValidate={handleValidate}
-                onValider={() => handleStatut('VALIDE')}
-                onRejeter={() => setRejectModal(true)}
-                onReouvrir={() => handleStatut('BROUILLON')}
-                onCopyRef={copyRef}
-              />
-            )}
+            <HeaderSkeleton />
+            <MetricsSkeleton />
+          </>
+        ) : (
+          <>
+            <div className="block-loaded">
+              {editing && dossierCompat ? (
+                <DossierEditForm dossier={dossierCompat} id={id!} onDone={() => { setEditing(false); reloadAll() }} onCancel={() => setEditing(false)} />
+              ) : (
+                <DossierHeader
+                  dossier={dossierCompat!} id={id!}
+                  hasProcessing={hasProcessing} validating={validating}
+                  editing={editing} nbNonConformes={nbNonConformes}
+                  showCompare={showCompare}
+                  onLoad={reloadAll} onStartEdit={() => setEditing(true)}
+                  onToggleCompare={() => setShowCompare(!showCompare)}
+                  onValidate={handleValidate}
+                  onValider={() => handleStatut('VALIDE')}
+                  onRejeter={() => setRejectModal(true)}
+                  onReouvrir={() => handleStatut('BROUILLON')}
+                  onCopyRef={copyRef}
+                />
+              )}
+            </div>
 
             <Modal open={rejectModal} title="Rejeter le dossier"
               message="Etes-vous sur de vouloir rejeter ce dossier ? Cette action sera enregistree dans l'historique."
@@ -234,39 +328,49 @@ export default function DossierDetail() {
               </div>
             </Modal>
 
-            {/* Block 2: Metrics */}
-            <MetricsBar dossier={dossierCompat!} nbConformes={nbConformes} fmt={fmt} hasProcessing={hasProcessing} />
+            {/* Block 2: Metrics — same as header */}
+            <div className="block-loaded" style={{ animationDelay: '0.05s' }}>
+              <MetricsBar dossier={dossierCompat!} nbConformes={nbConformes} fmt={fmt} hasProcessing={hasProcessing} />
+            </div>
           </>
         )}
 
         {/* Block 3: Compare */}
         {showCompare && (docsData && dossierCompat ? (
-          <CompareView dossier={dossierCompat} />
-        ) : <BlockSkeleton height={200} />)}
+          <div className="block-loaded"><CompareView dossier={dossierCompat} /></div>
+        ) : <DocsSkeleton />)}
 
-        {/* Block 4: Documents */}
+        {/* Block 4: Documents — independent load */}
         {docsError ? (
           <BlockError message={docsError} onRetry={loadDocs} />
         ) : !docsData ? (
-          <BlockSkeleton height={200} />
+          <DocsSkeleton />
         ) : dossierCompat ? (
-          <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
-            onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
+          <div className="block-loaded" style={{ animationDelay: '0.1s' }}>
+            <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
+              onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
+          </div>
         ) : null}
 
-        {/* Block 5: Verification */}
+        {/* Block 5: Verification — independent load */}
         {validationError ? (
           <BlockError message={validationError} onRetry={loadValidation} />
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
-          <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate}
-            onNavigateDoc={(docId) => {
-              const el = document.querySelector(`[data-doc-id="${docId}"]`)
-              if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
-            }} />
-        ) : null}
+          <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
+            <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate}
+              onNavigateDoc={(docId) => {
+                const el = document.querySelector(`[data-doc-id="${docId}"]`)
+                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
+              }} />
+          </div>
+        ) : (docsData === null && !docsError) ? <VerifSkeleton /> : null}
 
         {/* Block 6: Audit */}
-        <AuditLog audit={audit} />
+        {audit.length > 0 && (
+          <div className="block-loaded" style={{ animationDelay: '0.2s' }}>
+            <AuditLog audit={audit} />
+          </div>
+        )}
       </div>
     </Suspense>
   )
