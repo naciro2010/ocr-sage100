@@ -6,7 +6,6 @@ interface Props {
   docType?: string
 }
 
-// Structured field groups for each document type
 const INVOICE_SECTIONS: { title: string; fields: string[]; mono?: boolean }[] = [
   { title: 'Identification', fields: ['numeroFacture', 'dateFacture', 'referenceContrat', 'numeroBonCommande'] },
   { title: 'Fournisseur', fields: ['fournisseur', 'ice', 'identifiantFiscal', 'rc', 'cnss', 'patente', 'rib', 'banque'] },
@@ -67,14 +66,12 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
   const retenues = (data['retenues'] as Array<Record<string, unknown>> | undefined) || []
   const isLlmExtracted = scalars.length > 3
 
-  // Structured view for invoices and OPs
   if (sections) {
     const allFieldKeys = sections.flatMap(s => s.fields)
     const remainingScalars = scalars.filter(([k]) => !allFieldKeys.includes(k))
 
     return (
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
-        {/* Structured sections */}
         {sections.map(section => {
           const sectionFields = section.fields
             .map(f => [f, data[f]] as const)
@@ -83,41 +80,13 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
 
           return (
             <div key={section.title}>
-              <div style={{
-                fontSize: 9, fontWeight: 700, color: 'var(--accent-deep)',
-                textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6,
-                fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6
-              }}>
-                <span style={{ width: 12, height: 1, background: 'var(--accent)', display: 'inline-block' }} />
-                {section.title}
-              </div>
-              <div style={{
-                display: 'grid',
-                gridTemplateColumns: section.fields.length <= 3 ? '1fr 1fr 1fr' : 'repeat(auto-fill, minmax(180px, 1fr))',
-                gap: '1px',
-                background: 'var(--ink-05)',
-                borderRadius: 6,
-                overflow: 'hidden',
-                border: '1px solid var(--ink-05)',
-              }}>
+              <div className="edv-section-title">{section.title}</div>
+              <div className={`edv-grid ${sectionFields.length <= 3 ? 'cols-3' : 'cols-auto'}`}>
                 {sectionFields.map(([k, v]) => (
-                  <div key={k} style={{
-                    padding: '8px 10px', background: '#fff',
-                    display: 'flex', flexDirection: 'column', gap: 2,
-                  }}>
-                    <span style={{
-                      fontSize: 9, fontWeight: 600, color: 'var(--ink-30)',
-                      textTransform: 'uppercase', letterSpacing: 0.5,
-                      fontFamily: 'var(--font-mono)',
-                    }}>
-                      {FIELD_LABELS[k] || k}
-                    </span>
+                  <div key={k} className="edv-cell">
+                    <span className="edv-cell-key">{FIELD_LABELS[k] || k}</span>
                     <span
-                      style={{
-                        fontSize: 13, fontWeight: 600, color: 'var(--ink)',
-                        fontFamily: (section as { mono?: boolean }).mono ? 'var(--font-mono)' : 'inherit',
-                        wordBreak: 'break-all',
-                      }}
+                      className={`edv-cell-value ${(section as { mono?: boolean }).mono ? 'mono' : ''}`}
                       contentEditable suppressContentEditableWarning
                       onBlur={e => {
                         const newVal = e.currentTarget.textContent || ''
@@ -133,17 +102,9 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           )
         })}
 
-        {/* Invoice line items */}
         {lignes.length > 0 && (
           <div>
-            <div style={{
-              fontSize: 9, fontWeight: 700, color: 'var(--accent-deep)',
-              textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6,
-              fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6
-            }}>
-              <span style={{ width: 12, height: 1, background: 'var(--accent)', display: 'inline-block' }} />
-              Lignes de facturation ({lignes.length})
-            </div>
+            <div className="edv-section-title">Lignes de facturation ({lignes.length})</div>
             <table className="data-table">
               <thead><tr>
                 <th style={{ width: 30 }}>#</th>
@@ -155,7 +116,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
               <tbody>
                 {lignes.map((ln, i) => (
                   <tr key={i}>
-                    <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, color: 'var(--ink-30)' }}>{i + 1}</td>
+                    <td className="rule-code" style={{ color: 'var(--ink-30)' }}>{i + 1}</td>
                     <td>{String(ln.designation || ln.codeArticle || '\u2014')}</td>
                     <td className="cell-mono">{ln.quantite != null ? String(ln.quantite) : '\u2014'}</td>
                     <td className="cell-mono">{formatValue('montant', ln.prixUnitaireHT)}</td>
@@ -167,17 +128,9 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           </div>
         )}
 
-        {/* OP retenues */}
         {retenues.length > 0 && (
           <div>
-            <div style={{
-              fontSize: 9, fontWeight: 700, color: 'var(--accent-deep)',
-              textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6,
-              fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6
-            }}>
-              <span style={{ width: 12, height: 1, background: 'var(--accent)', display: 'inline-block' }} />
-              Retenues ({retenues.length})
-            </div>
+            <div className="edv-section-title">Retenues ({retenues.length})</div>
             <table className="data-table">
               <thead><tr><th>Designation</th><th>Base</th><th>Taux</th><th>Montant</th></tr></thead>
               <tbody>
@@ -194,16 +147,9 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           </div>
         )}
 
-        {/* Remaining fields not in structured sections */}
         {remainingScalars.length > 0 && (
           <div>
-            <div style={{
-              fontSize: 9, fontWeight: 700, color: 'var(--ink-30)',
-              textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6,
-              fontFamily: 'var(--font-mono)',
-            }}>
-              Autres champs
-            </div>
+            <div className="edv-section-other">Autres champs</div>
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {remainingScalars.map(([k, v]) => (
                 <div key={k} className="data-field">
@@ -219,13 +165,11 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           </div>
         )}
 
-        {/* Render shared sub-sections (points, pieces, signataires) */}
         <SubSections data={data} />
       </div>
     )
   }
 
-  // Generic view for other doc types
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
@@ -245,7 +189,6 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
   )
 })
 
-// Shared sub-components for points, pieces, signataires
 function SubSections({ data }: { data: Record<string, unknown> }) {
   const points = (data['points'] as Array<Record<string, unknown>> | undefined) || []
   const pieces = (data['pieces'] as Array<Record<string, unknown>> | undefined) || []
@@ -256,8 +199,7 @@ function SubSections({ data }: { data: Record<string, unknown> }) {
     <>
       {points.length > 0 && (
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--accent-deep)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6, fontFamily: 'var(--font-mono)', display: 'flex', alignItems: 'center', gap: 6 }}>
-            <span style={{ width: 12, height: 1, background: 'var(--accent)', display: 'inline-block' }} />
+          <div className="edv-section-title">
             Points de controle ({points.filter(p => p.estValide === true).length}/{points.length} valides)
           </div>
           {points.map((pt, i) => {
@@ -279,15 +221,15 @@ function SubSections({ data }: { data: Record<string, unknown> }) {
       )}
 
       {(signataires.length > 0 || signataire) && (
-        <div style={{ padding: '10px 12px', background: 'var(--ink-02)', borderRadius: 6 }}>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>Signatures</div>
+        <div className="edv-signatures">
+          <div className="edv-sig-label">Signatures</div>
           {signataires.length > 0 ? signataires.map((sig, i) => (
-            <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, padding: '4px 0' }}>
+            <div key={i} className="edv-sig-row">
               <span className={`check-point-icon ${sig.aSignature ? 'pass' : 'na'}`} style={{ width: 16, height: 16, fontSize: 10 }}>
                 {sig.aSignature ? '\u2713' : '\u2014'}
               </span>
-              <span style={{ fontWeight: 600, fontSize: 12 }}>{String(sig.nom || 'Inconnu')}</span>
-              {sig.date != null && <span style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>{String(sig.date)}</span>}
+              <span className="edv-sig-name">{String(sig.nom || 'Inconnu')}</span>
+              {sig.date != null && <span className="edv-sig-date">{String(sig.date)}</span>}
               {sig.aSignature === true && <span className="tag" style={{ fontSize: 8, background: 'var(--success-bg)', color: 'var(--success)' }}>Signe</span>}
             </div>
           )) : <div style={{ fontSize: 12, color: 'var(--ink-50)' }}>{signataire}</div>}
@@ -296,7 +238,7 @@ function SubSections({ data }: { data: Record<string, unknown> }) {
 
       {pieces.length > 0 && (
         <div>
-          <div style={{ fontSize: 9, fontWeight: 700, color: 'var(--accent-deep)', textTransform: 'uppercase', letterSpacing: 1.5, marginBottom: 6, fontFamily: 'var(--font-mono)' }}>
+          <div className="edv-section-title">
             Pieces justificatives ({pieces.length})
           </div>
           {pieces.map((pc, i) => (

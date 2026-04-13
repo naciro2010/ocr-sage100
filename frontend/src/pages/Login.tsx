@@ -36,24 +36,24 @@ export default function Login({ onLogin }: Props) {
   }
 
   return (
-    <div style={{ minHeight: '100vh', display: 'flex', alignItems: 'center', justifyContent: 'center', background: 'var(--ink-02)' }}>
-      <div style={{ width: 380, padding: 32, background: '#fff', borderRadius: 12, border: '1px solid var(--ink-05)', boxShadow: '0 8px 32px rgba(0,0,0,0.06)' }}>
-        <div style={{ textAlign: 'center', marginBottom: 24 }}>
-          <div style={{ width: 48, height: 48, background: 'linear-gradient(135deg, var(--accent-deep), var(--accent))', borderRadius: 12, display: 'inline-flex', alignItems: 'center', justifyContent: 'center', marginBottom: 12 }}>
+    <div className="login-page">
+      <div className="login-card">
+        <div className="login-header">
+          <div className="login-logo">
             <Shield size={24} color="white" />
           </div>
-          <h1 style={{ fontSize: 20, fontWeight: 700, color: 'var(--ink)', marginBottom: 4 }}>ReconDoc MADAEF</h1>
-          <p style={{ fontSize: 12, color: 'var(--ink-40)' }}>Reconciliation documentaire des dossiers de paiement</p>
+          <h1 className="login-title">ReconDoc MADAEF</h1>
+          <p className="login-subtitle">Reconciliation documentaire des dossiers de paiement</p>
         </div>
 
         <form onSubmit={handleSubmit}>
           <div className="form-group">
-            <label className="form-label">Email</label>
-            <input className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@madaef.ma" required autoFocus />
+            <label className="form-label" htmlFor="login-email">Email</label>
+            <input id="login-email" className="form-input" type="email" value={email} onChange={e => setEmail(e.target.value)} placeholder="admin@madaef.ma" required autoFocus />
           </div>
           <div className="form-group">
-            <label className="form-label">Mot de passe</label>
-            <input className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="***" required />
+            <label className="form-label" htmlFor="login-password">Mot de passe</label>
+            <input id="login-password" className="form-input" type="password" value={password} onChange={e => setPassword(e.target.value)} placeholder="***" required />
           </div>
           {error && <div className="alert alert-error" style={{ marginBottom: 12 }}>{error}</div>}
           <button className="btn btn-primary full-width" type="submit" disabled={loading} style={{ padding: '10px 16px', justifyContent: 'center' }}>
@@ -61,7 +61,7 @@ export default function Login({ onLogin }: Props) {
           </button>
         </form>
 
-        <div style={{ textAlign: 'center', marginTop: 16, fontSize: 10, color: 'var(--ink-30)' }}>
+        <div className="login-footer">
           MADAEF — Groupe CDG
         </div>
       </div>

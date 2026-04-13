@@ -52,36 +52,39 @@ export default function SearchPanel({ open, onClose }: Props) {
   if (!open) return null
 
   return (
-    <div className="search-overlay" onClick={onClose}>
-      <div className="search-panel" onClick={e => e.stopPropagation()}>
+    <div className="search-overlay" onClick={onClose} role="presentation">
+      <div className="search-panel" role="dialog" aria-modal="true" aria-label="Recherche de dossiers" onClick={e => e.stopPropagation()}>
         <div className="search-input-wrapper">
-          <Search size={18} style={{ color: 'var(--ink-faint)' }} />
+          <Search size={18} style={{ color: 'var(--ink-30)' }} aria-hidden="true" />
           <input
             ref={inputRef}
             value={query}
             onChange={e => setQuery(e.target.value)}
             placeholder="Rechercher un dossier (fournisseur, reference...)"
+            aria-label="Rechercher un dossier"
           />
-          <kbd style={{ fontSize: 10, color: 'var(--ink-faint)', background: 'var(--surface)', padding: '2px 6px', borderRadius: 4, border: '1px solid var(--border)' }}>ESC</kbd>
+          <kbd className="kbd-key" style={{ fontSize: 10 }}>ESC</kbd>
         </div>
-        <div className="search-results">
-          {loading && <div className="search-hint">Recherche...</div>}
+        <div className="search-results" role="listbox" aria-label="Resultats de recherche">
+          {loading && <div className="search-hint" role="status">Recherche...</div>}
           {!loading && query && results.length === 0 && <div className="search-hint">Aucun resultat</div>}
           {!loading && !query && <div className="search-hint">Tapez pour rechercher par fournisseur</div>}
           {results.map(d => {
             const cfg = STATUT_CONFIG[d.statut]
             return (
-              <div key={d.id} className="search-result-item" onClick={() => go(d.id)}>
+              <div key={d.id} className="search-result-item" role="option" tabIndex={0}
+                onClick={() => go(d.id)}
+                onKeyDown={e => { if (e.key === 'Enter') go(d.id) }}>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-                  <FolderOpen size={16} style={{ color: 'var(--accent)', opacity: 0.6 }} />
+                  <FolderOpen size={16} style={{ color: 'var(--accent)', opacity: 0.6 }} aria-hidden="true" />
                   <div>
                     <div style={{ fontWeight: 700, fontSize: 13 }}>{d.reference}</div>
-                    <div style={{ fontSize: 12, color: 'var(--ink-muted)' }}>{d.fournisseur || 'Sans fournisseur'}</div>
+                    <div style={{ fontSize: 12, color: 'var(--ink-40)' }}>{d.fournisseur || 'Sans fournisseur'}</div>
                   </div>
                 </div>
                 <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-                  <span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color, borderColor: cfg.color }}>{cfg.label}</span>
-                  <ArrowRight size={14} style={{ color: 'var(--ink-faint)' }} />
+                  <span className="status-badge" style={{ backgroundColor: cfg.color + '20', color: cfg.color }}>{cfg.label}</span>
+                  <ArrowRight size={14} style={{ color: 'var(--ink-30)' }} aria-hidden="true" />
                 </div>
               </div>
             )

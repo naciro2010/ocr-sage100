@@ -140,7 +140,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h2 style={{ marginBottom: 0 }}><FileText size={14} /> Documents du dossier</h2>
           {dossier.documents.length > 0 && (
-            <button className="btn btn-secondary btn-sm" onClick={async () => {
+            <button className="btn btn-secondary btn-sm" aria-label="Relancer le traitement de tous les documents" onClick={async () => {
               await Promise.allSettled(dossier.documents.map(doc => reprocessDocument(id, doc.id)))
               toast('info', `${dossier.documents.length} documents relances`)
               onReload()
@@ -185,7 +185,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
                     <RefreshCw size={11} /> Relancer
                   </button>
                 )}
-                <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); handleDeleteDoc(doc.id, doc.nomFichier) }}>
+                <button className="btn btn-danger btn-sm" onClick={e => { e.stopPropagation(); handleDeleteDoc(doc.id, doc.nomFichier) }} aria-label={`Supprimer ${doc.nomFichier}`}>
                   <Trash2 size={11} />
                 </button>
               </div>

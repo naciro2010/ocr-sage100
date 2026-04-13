@@ -16,9 +16,9 @@ const AI_MODELS = [
 ]
 
 const OCR_ENGINES = [
-  { name: 'Apache Tika 3.0', tag: 'TIKA', priority: 1, color: 'var(--teal-700)', desc: 'Extraction texte natif pour PDF numeriques. Instantane.' },
-  { name: 'PaddleOCR 3.4', tag: 'PADDLE', priority: 2, color: 'var(--blue-600)', desc: 'OCR deep learning. Francais + Arabe, 300 DPI.' },
-  { name: 'Tesseract 5', tag: 'TESS', priority: 3, color: 'var(--amber-600)', desc: 'Fallback local avec preprocessing d\'image.' },
+  { name: 'Apache Tika 3.0', tag: 'TIKA', priority: 1, color: 'var(--accent-deep)', desc: 'Extraction texte natif pour PDF numeriques. Instantane.' },
+  { name: 'PaddleOCR 3.4', tag: 'PADDLE', priority: 2, color: 'var(--info)', desc: 'OCR deep learning. Francais + Arabe, 300 DPI.' },
+  { name: 'Tesseract 5', tag: 'TESS', priority: 3, color: 'var(--warning)', desc: 'Fallback local avec preprocessing d\'image.' },
 ]
 
 const SHORTCUTS = [
@@ -67,49 +67,50 @@ export default function Settings() {
     <div>
       <div className="page-header"><h1><SettingsIcon size={22} /> Parametres</h1></div>
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', gap: 2, marginBottom: 16 }}>
+      <div className="settings-tabs" role="tablist" aria-label="Onglets parametres">
         {([['ia', 'Extraction IA'], ['ocr', 'Pipeline OCR'], ['rules', 'Regles'], ['about', 'A propos']] as const).map(([key, label]) => (
           <button key={key}
+            role="tab"
+            aria-selected={activeTab === key}
+            aria-controls={`tab-panel-${key}`}
             className={`btn ${activeTab === key ? 'btn-primary' : 'btn-secondary'}`}
-            onClick={() => setActiveTab(key)}
-            style={{ fontSize: 11, padding: '6px 14px' }}>
+            onClick={() => setActiveTab(key)}>
             {label}
           </button>
         ))}
       </div>
 
-      {/* AI Extraction */}
-      {activeTab === 'ia' && <div className="card">
+      {activeTab === 'ia' && <div className="card" role="tabpanel" id="tab-panel-ia">
         <h2><Brain size={14} /> Extraction IA</h2>
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 20 }}>
-          <p style={{ fontSize: 13, color: 'var(--slate-500)', margin: 0, maxWidth: 520 }}>
+        <div className="settings-toggle-row">
+          <p className="settings-desc">
             L'IA Claude analyse les documents PDF et extrait les donnees structurees.
             Sans IA, seuls les patterns regex sont utilises.
           </p>
           <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
             {aiSettings?.apiKeyConfigured ? (
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--emerald-600)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="settings-ai-status configured">
                 <CheckCircle size={12} /> Configure
               </span>
             ) : (
-              <span style={{ fontSize: 11, fontWeight: 700, color: 'var(--danger)', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <span className="settings-ai-status not-configured">
                 <XCircle size={12} /> Non configure
               </span>
             )}
             <label className="toggle">
-              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} />
+              <input type="checkbox" checked={aiEnabled} onChange={e => setAiEnabled(e.target.checked)} aria-label="Activer l'extraction IA" />
               <span className="toggle-track" />
               <span className="toggle-thumb" />
             </label>
           </div>
         </div>
-        <div style={{ opacity: aiEnabled ? 1 : 0.4, pointerEvents: aiEnabled ? 'auto' : 'none', transition: 'opacity 0.2s' }}>
-          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 14, marginBottom: 14 }}>
+        <div className={`settings-disableable ${aiEnabled ? '' : 'disabled'}`}>
+          <div className="form-grid">
             <div>
-              <label className="form-label"><Key size={11} /> Cle API Anthropic</label>
-              <div style={{ position: 'relative' }}>
+              <label className="form-label" htmlFor="ai-api-key"><Key size={11} /> Cle API Anthropic</label>
+              <div className="form-input-wrap">
                 <input
+                  id="ai-api-key"
                   type={showApiKey ? 'text' : 'password'}
                   className="form-input"
                   value={aiApiKey}
@@ -119,25 +120,24 @@ export default function Settings() {
                 />
                 <button
                   type="button"
+                  className="form-input-icon"
                   onClick={() => setShowApiKey(!showApiKey)}
-                  style={{
-                    position: 'absolute', right: 8, top: '50%', transform: 'translateY(-50%)',
-                    background: 'none', border: 'none', cursor: 'pointer', color: 'var(--slate-400)', padding: 2
-                  }}
+                  aria-label={showApiKey ? 'Masquer la cle API' : 'Afficher la cle API'}
                 >
                   {showApiKey ? <EyeOff size={14} /> : <Eye size={14} />}
                 </button>
               </div>
             </div>
             <div>
-              <label className="form-label"><Cpu size={11} /> Modele</label>
-              <select className="form-select full-width" value={aiModel} onChange={e => setAiModel(e.target.value)}>
+              <label className="form-label" htmlFor="ai-model"><Cpu size={11} /> Modele</label>
+              <select id="ai-model" className="form-select full-width" value={aiModel} onChange={e => setAiModel(e.target.value)}>
                 {AI_MODELS.map(m => <option key={m.value} value={m.value}>{m.label} — {m.desc}</option>)}
               </select>
             </div>
-            <div style={{ gridColumn: '1 / -1' }}>
-              <label className="form-label"><Globe size={11} /> URL de base</label>
+            <div className="form-grid-full">
+              <label className="form-label" htmlFor="ai-base-url"><Globe size={11} /> URL de base</label>
               <input
+                id="ai-base-url"
                 type="text" className="form-input" value={aiBaseUrl}
                 onChange={e => setAiBaseUrl(e.target.value)}
                 placeholder="https://api.anthropic.com"
@@ -153,27 +153,26 @@ export default function Settings() {
 
       }
 
-      {/* OCR Pipeline */}
-      {activeTab === 'ocr' && <><div className="card">
+      {activeTab === 'ocr' && <><div className="card" role="tabpanel" id="tab-panel-ocr">
         <h2><ScanLine size={14} /> Pipeline OCR</h2>
-        <p style={{ fontSize: 13, color: 'var(--slate-500)', marginBottom: 16 }}>
+        <p className="settings-desc" style={{ marginBottom: 16 }}>
           Les documents PDF sont traites par une cascade de 3 moteurs OCR.
         </p>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+        <div className="engine-grid">
           {OCR_ENGINES.map(engine => (
             <div key={engine.tag} className="engine-card">
-              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+              <div className="engine-header">
                 <span className="tag" style={{ color: engine.color }}>{engine.tag}</span>
-                <span style={{ fontSize: 10, color: 'var(--slate-400)', fontWeight: 600 }}>Priorite {engine.priority}</span>
+                <span className="engine-priority">Priorite {engine.priority}</span>
               </div>
-              <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--slate-900)', marginBottom: 4 }}>{engine.name}</div>
-              <div style={{ fontSize: 12, color: 'var(--slate-500)', lineHeight: 1.5 }}>{engine.desc}</div>
+              <div className="engine-name">{engine.name}</div>
+              <div className="engine-desc">{engine.desc}</div>
             </div>
           ))}
         </div>
 
         <div className="alert alert-info" style={{ marginTop: 14 }}>
-          <Info size={14} style={{ flexShrink: 0 }} />
+          <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
           <span>
             <strong>Cascade intelligente :</strong> Tika extrait le texte natif. Si insuffisant (&lt;20 mots),
             PaddleOCR prend le relai. Si PaddleOCR est indisponible, Tesseract sert de fallback.
@@ -182,7 +181,6 @@ export default function Settings() {
         </div>
       </div>
 
-      {/* Raccourcis clavier */}
       <div className="card">
         <h2><Keyboard size={14} /> Raccourcis clavier</h2>
         <table className="data-table">
@@ -190,7 +188,7 @@ export default function Settings() {
           <tbody>
             {SHORTCUTS.map(s => (
               <tr key={s.keys}>
-                <td><kbd style={{ fontSize: 11, background: 'var(--slate-100)', padding: '2px 8px', borderRadius: 4, border: '1px solid var(--slate-200)', fontFamily: 'var(--font-mono)' }}>{s.keys}</kbd></td>
+                <td><kbd className="kbd-key">{s.keys}</kbd></td>
                 <td>{s.desc}</td>
               </tr>
             ))}
@@ -199,11 +197,9 @@ export default function Settings() {
       </div>
       </>}
 
-      {/* Validation Rules */}
-      {activeTab === 'rules' && <ValidationRulesSection />}
+      {activeTab === 'rules' && <div role="tabpanel" id="tab-panel-rules"><ValidationRulesSection /></div>}
 
-      {/* About */}
-      {activeTab === 'about' && <div className="card">
+      {activeTab === 'about' && <div className="card" role="tabpanel" id="tab-panel-about">
         <h2><Info size={14} /> A propos</h2>
         <div className="info-grid">
           <div>
@@ -243,12 +239,11 @@ function ValidationRulesSection() {
   return (
     <div className="card">
       <h2><ShieldCheck size={14} /> Regles de validation</h2>
-      <p style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 16 }}>
+      <p className="rule-desc" style={{ marginBottom: 16 }}>
         Activez ou desactivez les regles de verification croisee. Les regles desactivees ne seront pas executees lors de la validation.
       </p>
 
-      {/* System rules */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+      <div className="rules-section-label">
         Regles systeme ({systemRules.filter(r => !disabled.has(r.code)).length}/{systemRules.length} actives)
       </div>
       <table className="data-table" style={{ marginBottom: 20 }}>
@@ -267,23 +262,22 @@ function ValidationRulesSection() {
             <tr key={r.code} style={{ opacity: disabled.has(r.code) ? 0.4 : 1 }}>
               <td>
                 <label className="toggle">
-                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} />
+                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} aria-label={`Activer la regle ${r.code}`} />
                   <span className="toggle-track" />
                   <span className="toggle-thumb" />
                 </label>
               </td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{r.code}</td>
-              <td style={{ fontWeight: 600, fontSize: 12 }}>{r.label}</td>
-              <td style={{ fontSize: 11, color: 'var(--ink-40)' }}>{r.desc}</td>
-              <td>{r.appliesToBC ? <CheckCircle size={12} style={{ color: 'var(--success)' }} /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
-              <td>{r.appliesToContractuel ? <CheckCircle size={12} style={{ color: 'var(--success)' }} /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
+              <td className="rule-code">{r.code}</td>
+              <td className="rule-label">{r.label}</td>
+              <td className="rule-desc">{r.desc}</td>
+              <td>{r.appliesToBC ? <CheckCircle size={12} style={{ color: 'var(--success)' }} aria-label="Applicable" /> : <span style={{ color: 'var(--ink-20)' }} aria-label="Non applicable">—</span>}</td>
+              <td>{r.appliesToContractuel ? <CheckCircle size={12} style={{ color: 'var(--success)' }} aria-label="Applicable" /> : <span style={{ color: 'var(--ink-20)' }} aria-label="Non applicable">—</span>}</td>
             </tr>
           ))}
         </tbody>
       </table>
 
-      {/* Checklist rules */}
-      <div style={{ fontSize: 10, fontWeight: 700, color: 'var(--ink-40)', textTransform: 'uppercase', letterSpacing: 1, marginBottom: 8, fontFamily: 'var(--font-mono)' }}>
+      <div className="rules-section-label">
         Points de controle TC ({checklistRules.filter(r => !disabled.has(r.code)).length}/{checklistRules.length} actifs)
       </div>
       <table className="data-table">
@@ -300,14 +294,14 @@ function ValidationRulesSection() {
             <tr key={r.code} style={{ opacity: disabled.has(r.code) ? 0.4 : 1 }}>
               <td>
                 <label className="toggle">
-                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} />
+                  <input type="checkbox" checked={!disabled.has(r.code)} onChange={() => toggle(r.code)} aria-label={`Activer le point ${r.code}`} />
                   <span className="toggle-track" />
                   <span className="toggle-thumb" />
                 </label>
               </td>
-              <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700 }}>{r.code}</td>
-              <td style={{ fontWeight: 600, fontSize: 12 }}>{r.label}</td>
-              <td style={{ fontSize: 11, color: 'var(--ink-40)' }}>{r.desc}</td>
+              <td className="rule-code">{r.code}</td>
+              <td className="rule-label">{r.label}</td>
+              <td className="rule-desc">{r.desc}</td>
             </tr>
           ))}
         </tbody>

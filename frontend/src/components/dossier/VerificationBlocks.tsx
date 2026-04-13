@@ -53,7 +53,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const toggleBlock = useCallback((key: string) => {
     setCollapsedBlocks(prev => {
       const next = new Set(prev)
-      next.has(key) ? next.delete(key) : next.add(key)
+      if (next.has(key)) next.delete(key); else next.add(key)
       return next
     })
   }, [])
@@ -75,118 +75,80 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     autoKo: autocontroleItems.filter(i => i.status === 'ko').length,
   }), [systemResults, autocontroleItems])
 
+  const systemCollapsed = collapsedBlocks.has('system')
+  const autoCollapsed = collapsedBlocks.has('autocontrole')
+
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ===== BLOCK 1: Verifications automatiques ===== */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div
+          className="vblock-header vblock-header-system"
           onClick={() => toggleBlock('system')}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '12px 16px', cursor: 'pointer', userSelect: 'none',
-            background: 'linear-gradient(135deg, var(--ink) 0%, var(--ink-90) 100%)',
-            color: '#fff',
-          }}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!systemCollapsed}
+          aria-controls="vblock-system-content"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBlock('system') } }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <Zap size={14} />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Verifications automatiques</span>
+          <div className="vblock-title-group">
+            <Zap size={14} aria-hidden="true" />
+            <span className="vblock-title">Verifications automatiques</span>
             {hasResults && (
-              <span style={{ fontSize: 10, opacity: 0.7, fontFamily: 'var(--font-mono)' }}>
-                {sysOk} OK \u00b7 {sysKo} KO \u00b7 {systemResults.length} total
+              <span className="vblock-stats">
+                {sysOk} OK &middot; {sysKo} KO &middot; {systemResults.length} total
               </span>
             )}
           </div>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
+          <div className="vblock-actions">
             {!hasResults && (
-              <button className="btn btn-sm" onClick={e => { e.stopPropagation(); onValidate() }} disabled={validating}
-                style={{ background: 'var(--accent)', color: '#fff', border: 'none', fontSize: 10, padding: '4px 10px' }}>
+              <button className="btn btn-sm vblock-btn-launch" onClick={e => { e.stopPropagation(); onValidate() }} disabled={validating}>
                 {validating ? <Loader2 size={11} className="spin" /> : <ShieldCheck size={11} />}
                 {validating ? ' Verification...' : ' Lancer'}
               </button>
             )}
             {hasResults && (
-              <button className="btn btn-sm" onClick={e => { e.stopPropagation(); onValidate() }} disabled={validating}
-                style={{ background: 'rgba(255,255,255,0.15)', color: '#fff', border: 'none', fontSize: 10, padding: '3px 8px' }}>
+              <button className="btn btn-sm vblock-btn-rerun" onClick={e => { e.stopPropagation(); onValidate() }} disabled={validating} aria-label="Relancer la verification">
                 {validating ? <Loader2 size={10} className="spin" /> : '\u21bb'}
               </button>
             )}
-            {collapsedBlocks.has('system') ? <ChevronDown size={14} /> : <ChevronUp size={14} />}
+            {systemCollapsed ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
           </div>
         </div>
 
-        {!collapsedBlocks.has('system') && (
-          <div style={{ padding: '4px 0' }}>
+        <div id="vblock-system-content" className={`collapsible ${systemCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: systemCollapsed ? 0 : 2000 }}>
+          <div className="vblock-inner">
             {hasResults ? (
-              /* Show grouped results */
               groupedSystem.map(group => (
                 <div key={group.key}>
-                  <div style={{
-                    padding: '6px 16px', fontSize: 9, fontWeight: 700,
-                    color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1.5,
-                    fontFamily: 'var(--font-mono)', background: 'var(--ink-02)',
-                    borderBottom: '1px solid var(--ink-05)',
-                  }}>
-                    {group.label}
-                  </div>
+                  <div className="vblock-group-header">{group.label}</div>
                   {group.items.map(item => {
                     const r = item.result
                     const status: ItemStatus = r ? statutToItemStatus(r.statut) : 'pending'
                     const sd = STATUS_DISPLAY[status]
                     return (
-                      <div key={item.code} style={{
-                        display: 'flex', alignItems: 'center', gap: 8,
-                        padding: '7px 16px', borderBottom: '1px solid var(--ink-02)',
-                        transition: 'background 0.1s',
-                      }}
-                        onMouseOver={e => (e.currentTarget.style.background = 'var(--ink-02)')}
-                        onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                      >
-                        {/* Status pill */}
-                        <span style={{
-                          width: 22, height: 22, borderRadius: '50%',
-                          display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                          fontSize: 11, fontWeight: 800, flexShrink: 0,
-                          background: sd.bg, color: sd.color,
-                        }}>{sd.icon}</span>
-
-                        {/* Code */}
-                        <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', width: 28, flexShrink: 0 }}>
-                          {item.code}
-                        </span>
-
-                        {/* Label + detail */}
-                        <div style={{ flex: 1, minWidth: 0 }}>
-                          <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{item.label}</div>
-                          {r?.detail && (
-                            <div style={{ fontSize: 10, color: 'var(--ink-40)', marginTop: 1, whiteSpace: 'nowrap', overflow: 'hidden', textOverflow: 'ellipsis' }}>
-                              {r.detail}
-                            </div>
-                          )}
+                      <div key={item.code} className="vblock-item">
+                        <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
+                        <span className="vblock-code">{item.code}</span>
+                        <div className="vblock-content">
+                          <div className="vblock-label">{item.label}</div>
+                          {r?.detail && <div className="vblock-detail">{r.detail}</div>}
                         </div>
-
-                        {/* Inline correction */}
                         {r?.id && (
                           <select
+                            className="vblock-select"
                             value={r.statut}
                             onChange={e => handleCorrect(r.id!, e.target.value)}
                             disabled={saving === r.id}
-                            style={{
-                              fontSize: 9, padding: '2px 4px', border: '1px solid var(--ink-10)',
-                              borderRadius: 4, background: sd.bg, color: sd.color,
-                              fontWeight: 700, cursor: 'pointer', width: 'auto',
-                            }}
+                            style={{ background: sd.bg, color: sd.color }}
+                            aria-label={`Corriger le statut de ${item.code}`}
                           >
                             {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                           </select>
                         )}
-
-                        {/* Corrected badge */}
                         {r?.statutOriginal && r.statutOriginal !== r.statut && (
-                          <span style={{ fontSize: 8, color: 'var(--warning)', fontFamily: 'var(--font-mono)' }}>
-                            corrige
-                          </span>
+                          <span className="vblock-corrected">corrige</span>
                         )}
                       </div>
                     )
@@ -194,27 +156,13 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                 </div>
               ))
             ) : (
-              /* Pre-validation: show rule list */
               groupedSystem.map(group => (
                 <div key={group.key}>
-                  <div style={{
-                    padding: '6px 16px', fontSize: 9, fontWeight: 700,
-                    color: 'var(--ink-30)', textTransform: 'uppercase', letterSpacing: 1.5,
-                    fontFamily: 'var(--font-mono)', background: 'var(--ink-02)',
-                  }}>
-                    {group.label}
-                  </div>
+                  <div className="vblock-group-header">{group.label}</div>
                   {group.items.map(item => (
-                    <div key={item.code} style={{
-                      display: 'flex', alignItems: 'center', gap: 8,
-                      padding: '6px 16px', borderBottom: '1px solid var(--ink-02)',
-                    }}>
-                      <span style={{
-                        width: 22, height: 22, borderRadius: '50%',
-                        display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                        fontSize: 11, background: '#f8fafc', color: '#94a3b8',
-                      }}>{'\u00b7'}</span>
-                      <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', width: 28 }}>{item.code}</span>
+                    <div key={item.code} className="vblock-item">
+                      <span className="vblock-pill" style={{ background: 'var(--ink-05)', color: 'var(--ink-30)' }}>&middot;</span>
+                      <span className="vblock-code">{item.code}</span>
                       <span style={{ fontSize: 12, color: 'var(--ink-50)' }}>{item.label}</span>
                     </div>
                   ))}
@@ -222,89 +170,63 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
               ))
             )}
           </div>
-        )}
+        </div>
       </div>
 
       {/* ===== BLOCK 2: Verification autocontrole ===== */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
         <div
+          className="vblock-header vblock-header-autocontrole"
           onClick={() => toggleBlock('autocontrole')}
-          style={{
-            display: 'flex', alignItems: 'center', justifyContent: 'space-between',
-            padding: '12px 16px', cursor: 'pointer', userSelect: 'none',
-            background: 'linear-gradient(135deg, var(--accent-deep) 0%, var(--accent) 100%)',
-            color: '#fff',
-          }}
+          role="button"
+          tabIndex={0}
+          aria-expanded={!autoCollapsed}
+          aria-controls="vblock-auto-content"
+          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleBlock('autocontrole') } }}
         >
-          <div style={{ display: 'flex', alignItems: 'center', gap: 8 }}>
-            <ClipboardCheck size={14} />
-            <span style={{ fontWeight: 700, fontSize: 13 }}>Verification autocontrole</span>
+          <div className="vblock-title-group">
+            <ClipboardCheck size={14} aria-hidden="true" />
+            <span className="vblock-title">Verification autocontrole</span>
             {hasAutocontrole && (
-              <span style={{ fontSize: 10, opacity: 0.7, fontFamily: 'var(--font-mono)' }}>
-                {autoOk} OK \u00b7 {autoKo} KO \u00b7 {autocontroleItems.length} points
+              <span className="vblock-stats">
+                {autoOk} OK &middot; {autoKo} KO &middot; {autocontroleItems.length} points
               </span>
             )}
-            {hasAutocontrole && <span style={{ fontSize: 8, background: 'rgba(255,255,255,0.2)', padding: '1px 6px', borderRadius: 3 }}>Extrait du document</span>}
+            {hasAutocontrole && <span className="vblock-source-badge">Extrait du document</span>}
           </div>
-          {collapsedBlocks.has('autocontrole') ? <ChevronDown size={14} style={{ color: '#fff' }} /> : <ChevronUp size={14} style={{ color: '#fff' }} />}
+          {autoCollapsed ? <ChevronDown size={14} aria-hidden="true" /> : <ChevronUp size={14} aria-hidden="true" />}
         </div>
 
-        {!collapsedBlocks.has('autocontrole') && (
+        <div id="vblock-auto-content" className={`collapsible ${autoCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: autoCollapsed ? 0 : 2000 }}>
           <div>
-            {/* Header info */}
             {hasAutocontrole && (
-              <div style={{
-                display: 'flex', gap: 16, padding: '8px 16px',
-                background: 'var(--ink-02)', borderBottom: '1px solid var(--ink-05)',
-                fontSize: 11,
-              }}>
+              <div className="vblock-info-row">
                 <div>
-                  <span style={{ fontWeight: 700, fontSize: 9, color: 'var(--ink-30)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Prestataire: </span>
+                  <span className="vblock-info-label">Prestataire: </span>
                   {(dossier.checklistAutocontrole?.prestataire as string) || dossier.fournisseur || '\u2014'}
                 </div>
                 <div>
-                  <span style={{ fontWeight: 700, fontSize: 9, color: 'var(--ink-30)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Ref: </span>
+                  <span className="vblock-info-label">Ref: </span>
                   {(dossier.checklistAutocontrole?.referenceFacture as string) || '\u2014'}
                 </div>
                 <div style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--ink-30)', fontFamily: 'var(--font-mono)' }}>CCF-EN-04-V02</div>
               </div>
             )}
 
-            {/* Points */}
-            <div style={{ padding: '4px 0' }}>
+            <div className="vblock-inner">
               {autocontroleItems.map((item, i) => {
                 const sd = STATUS_DISPLAY[item.status]
                 return (
-                  <div key={i} style={{
-                    display: 'flex', alignItems: 'center', gap: 8,
-                    padding: '7px 16px', borderBottom: '1px solid var(--ink-02)',
-                    transition: 'background 0.1s',
-                  }}
-                    onMouseOver={e => (e.currentTarget.style.background = 'var(--ink-02)')}
-                    onMouseOut={e => (e.currentTarget.style.background = 'transparent')}
-                  >
-                    <span style={{
-                      width: 22, height: 22, borderRadius: '50%',
-                      display: 'inline-flex', alignItems: 'center', justifyContent: 'center',
-                      fontSize: 11, fontWeight: 800, flexShrink: 0,
-                      background: sd.bg, color: sd.color,
-                    }}>{sd.icon}</span>
-
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 9, fontWeight: 700, color: 'var(--ink-30)', width: 22, flexShrink: 0 }}>
-                      {item.num}
-                    </span>
-
-                    <div style={{ flex: 1, minWidth: 0 }}>
-                      <div style={{ fontSize: 12, fontWeight: 500, color: 'var(--ink)' }}>{item.desc}</div>
-                      {item.observation && item.observation !== '\\u2014' && (
-                        <div style={{ fontSize: 10, color: 'var(--ink-40)', marginTop: 1 }}>{item.observation}</div>
+                  <div key={i} className="vblock-item">
+                    <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
+                    <span className="vblock-code" style={{ width: 22 }}>{item.num}</span>
+                    <div className="vblock-content">
+                      <div className="vblock-label">{item.desc}</div>
+                      {item.observation && item.observation !== '\u2014' && (
+                        <div className="vblock-detail">{item.observation}</div>
                       )}
                     </div>
-
-                    <span style={{
-                      fontSize: 9, fontWeight: 700, padding: '2px 8px',
-                      borderRadius: 4, background: sd.bg, color: sd.color,
-                    }}>
+                    <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
                       {sd.label}
                     </span>
                   </div>
@@ -312,7 +234,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
               })}
             </div>
           </div>
-        )}
+        </div>
       </div>
     </div>
   )

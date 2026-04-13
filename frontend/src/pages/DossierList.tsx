@@ -106,7 +106,7 @@ export default function DossierList() {
       <div className="page-header">
         <h1><FolderOpen size={22} /> Dossiers de paiement</h1>
         <div className="header-actions">
-          <button className="btn btn-secondary" onClick={load}><RefreshCw size={15} /></button>
+          <button className="btn btn-secondary" onClick={load} aria-label="Rafraichir la liste"><RefreshCw size={15} /></button>
           {data && data.content.length > 0 && (
             <button className="btn btn-secondary" onClick={() => {
               const rows = data.content.map(d => [d.reference, d.fournisseur || '', d.type, d.montantTtc ?? '', d.statut, d.nbDocuments, new Date(d.dateCreation).toLocaleDateString('fr-FR')].join(';'))
@@ -139,8 +139,8 @@ export default function DossierList() {
           <Loader2 size={18} className="spin" style={{ color: 'var(--teal-600)' }} />
         ) : (
           <>
-            <Upload size={16} style={{ color: 'var(--slate-400)', display: 'inline', marginRight: 8 }} />
-            <span style={{ fontSize: 12, color: 'var(--slate-500)' }}>
+            <Upload size={16} style={{ color: 'var(--ink-40)', display: 'inline', marginRight: 8 }} aria-hidden="true" />
+            <span className="inline-hint">
               Deposez des PDFs ici pour creer un dossier rapidement
             </span>
           </>
@@ -256,7 +256,7 @@ export default function DossierList() {
                     <button
                       className="btn btn-danger btn-sm"
                       onClick={(e) => { e.preventDefault(); setDeleteTarget(d) }}
-                      title="Supprimer"
+                      aria-label={`Supprimer le dossier ${d.reference}`}
                     >
                       <Trash2 size={14} />
                     </button>

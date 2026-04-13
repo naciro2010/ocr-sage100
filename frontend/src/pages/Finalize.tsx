@@ -20,7 +20,6 @@ interface ControlPoint {
 const STORAGE_KEY_SIG = 'recondoc_signature'
 const STORAGE_KEY_NAME = 'recondoc_signataire'
 
-// Default 10 checklist points (CCF-EN-04-V02) used as fallback
 const DEFAULT_CHECKLIST = [
   'Concordance facture / modalites contractuelles / livrables',
   'Verification arithmetique des montants',
@@ -50,12 +49,10 @@ export default function Finalize() {
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
 
-  // Cleanup blob URL on unmount
   useEffect(() => {
     return () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl) }
   }, [pdfBlobUrl])
 
-  // Load saved signature
   useEffect(() => {
     const saved = localStorage.getItem(STORAGE_KEY_SIG)
     if (saved && canvasRef.current) {
@@ -76,7 +73,6 @@ export default function Finalize() {
     }).catch(() => toast('error', 'Dossier introuvable'))
   }, [id])
 
-  // Build control points from autocontrole + validation results
   const buildPoints = (d: DossierDetail) => {
     const pts: ControlPoint[] = []
     const parsed = parseChecklistPoints(d)
@@ -109,7 +105,6 @@ export default function Finalize() {
         })
       }
     } else {
-      // Fallback: use default checklist points
       for (const desc of DEFAULT_CHECKLIST) {
         const match = d.resultatsValidation.find(r =>
           r.libelle.toLowerCase().includes(desc.substring(0, 20).toLowerCase()) ||
@@ -125,7 +120,6 @@ export default function Finalize() {
     setPoints(pts)
   }
 
-  // Find the autocontrole document for viewing
   const autocontroleDoc: DocumentInfo | undefined = dossier?.documents.find(
     d => d.typeDocument === 'CHECKLIST_AUTOCONTROLE'
   )
@@ -146,7 +140,6 @@ export default function Finalize() {
     finally { setLoadingPdf(false) }
   }
 
-  // Canvas signature handlers
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
     const rect = canvasRef.current!.getBoundingClientRect()
     if ('touches' in e) {
@@ -229,15 +222,15 @@ export default function Finalize() {
     <div>
       <div className="page-header">
         <h1>
-          <Link to={`/dossiers/${id}`} className="back-link"><ArrowLeft size={18} /></Link>
+          <Link to={`/dossiers/${id}`} className="back-link" aria-label="Retour au dossier"><ArrowLeft size={18} /></Link>
           Finalisation — {dossier.reference}
         </h1>
         <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
-          <div style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>
+          <div className="finalize-meta">
             {dossier.fournisseur} | {dossier.type === 'BC' ? 'Bon de commande' : 'Contractuel'}
           </div>
           {autocontroleDoc && (
-            <button className="btn btn-secondary btn-sm" disabled={loadingPdf} onClick={loadAutocontrolePdf}>
+            <button className="btn btn-secondary btn-sm" disabled={loadingPdf} onClick={loadAutocontrolePdf} aria-label={showDocViewer ? 'Masquer le document autocontrole' : 'Voir le document autocontrole'}>
               {loadingPdf ? <Loader2 size={12} className="spin" /> : showDocViewer ? <XCircle size={12} /> : <Eye size={12} />}
               {showDocViewer ? 'Masquer' : 'Voir autocontrole'}
             </button>
@@ -245,15 +238,14 @@ export default function Finalize() {
         </div>
       </div>
 
-      {/* Autocontrole document viewer */}
       {showDocViewer && pdfBlobUrl && (
         <div className="card" style={{ padding: 0, overflow: 'hidden', marginBottom: 16 }}>
-          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '8px 14px', background: 'var(--ink-02)', borderBottom: '1px solid var(--ink-05)' }}>
+          <div className="card-flex" style={{ padding: '8px 14px', background: 'var(--ink-02)', borderBottom: '1px solid var(--ink-05)' }}>
             <span style={{ fontSize: 11, fontWeight: 600 }}>
-              <FileText size={12} style={{ marginRight: 4 }} />
+              <FileText size={12} style={{ marginRight: 4 }} aria-hidden="true" />
               {autocontroleDoc?.nomFichier}
             </span>
-            <button className="btn btn-secondary btn-sm" onClick={() => { setShowDocViewer(false); if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(null) } }}>
+            <button className="btn btn-secondary btn-sm" onClick={() => { setShowDocViewer(false); if (pdfBlobUrl) { URL.revokeObjectURL(pdfBlobUrl); setPdfBlobUrl(null) } }} aria-label="Fermer le viewer">
               <X size={12} />
             </button>
           </div>
@@ -261,19 +253,17 @@ export default function Finalize() {
         </div>
       )}
 
-      {/* Source badge */}
       {hasAutocontrole && (
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 12, padding: '8px 14px', background: 'var(--success-bg)', borderRadius: 6, border: '1px solid rgba(16,185,129,0.1)' }}>
-          <CheckCircle size={14} style={{ color: 'var(--success)' }} />
-          <span style={{ fontSize: 11, color: 'var(--accent-deep)' }}>
+        <div className="finalize-source-info">
+          <CheckCircle size={14} style={{ color: 'var(--success)' }} aria-hidden="true" />
+          <span className="finalize-source-text">
             Points pre-remplis depuis la checklist d'autocontrole + resultats de verification
           </span>
         </div>
       )}
 
-      {/* Checklist / TC */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+        <div className="card-flex" style={{ marginBottom: 12 }}>
           <h2 style={{ marginBottom: 0 }}>
             <ShieldCheck size={14} /> Tableau de Controle
             <span style={{ fontWeight: 500, fontSize: 11, color: 'var(--ink-40)', marginLeft: 8, textTransform: 'none', letterSpacing: 0 }}>
@@ -300,7 +290,7 @@ export default function Finalize() {
           <tbody>
             {points.map((pt, i) => (
               <tr key={i} style={{ opacity: pt.skip ? 0.35 : 1 }}>
-                <td style={{ fontFamily: 'var(--font-mono)', fontSize: 10, fontWeight: 700, color: 'var(--ink-30)' }}>
+                <td className="rule-code" style={{ color: 'var(--ink-30)' }}>
                   {i + 1}
                 </td>
                 <td>
@@ -310,13 +300,14 @@ export default function Finalize() {
                     <span style={{ fontWeight: 500 }}>{pt.description}</span>
                   ) : (
                     <input className="form-input" placeholder="Description du point..." value={pt.description}
-                      onChange={e => updatePoint(i, 'description', e.target.value)} style={{ fontSize: 11, padding: '3px 6px' }} />
+                      onChange={e => updatePoint(i, 'description', e.target.value)} style={{ fontSize: 11, padding: '3px 6px' }} aria-label={`Description du point ${i + 1}`} />
                   )}
                 </td>
                 <td>
                   {!pt.skip && (
                     <select className="form-select" value={pt.observation}
                       onChange={e => updatePoint(i, 'observation', e.target.value)}
+                      aria-label={`Observation du point ${i + 1}`}
                       style={{
                         fontSize: 10, padding: '2px 4px', width: '100%',
                         color: pt.observation === 'Conforme' ? 'var(--success)' : pt.observation === 'Non conforme' ? 'var(--danger)' : 'var(--ink-40)',
@@ -332,7 +323,7 @@ export default function Finalize() {
                   {!pt.skip && (
                     <input className="form-input" placeholder="..." value={pt.commentaire}
                       onChange={e => updatePoint(i, 'commentaire', e.target.value)}
-                      style={{ fontSize: 10, padding: '2px 6px' }} />
+                      style={{ fontSize: 10, padding: '2px 6px' }} aria-label={`Commentaire du point ${i + 1}`} />
                   )}
                 </td>
                 <td>
@@ -346,6 +337,7 @@ export default function Finalize() {
                 </td>
                 <td>
                   <button className="btn btn-secondary btn-sm" title={pt.skip ? 'Inclure' : 'Exclure'}
+                    aria-label={pt.skip ? `Inclure le point ${i + 1}` : `Exclure le point ${i + 1}`}
                     onClick={() => updatePoint(i, 'skip', !pt.skip)} style={{ padding: '2px 4px' }}>
                     {pt.skip ? <CheckCircle size={12} /> : <SkipForward size={12} />}
                   </button>
@@ -356,53 +348,51 @@ export default function Finalize() {
         </table>
       </div>
 
-      {/* OP Summary */}
       <div className="card">
         <h2><FileText size={14} /> Ordre de Paiement</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 10, marginBottom: 12 }}>
+        <div className="finalize-op-grid">
           <div>
             <div className="form-label">Beneficiaire</div>
-            <div style={{ fontSize: 13, fontWeight: 700 }}>{dossier.fournisseur || '\u2014'}</div>
+            <div className="finalize-op-value bold">{dossier.fournisseur || '\u2014'}</div>
           </div>
           <div>
             <div className="form-label">Montant TTC</div>
-            <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 600 }}>{fmt(dossier.montantTtc)}</div>
+            <div className="finalize-op-value">{fmt(dossier.montantTtc)}</div>
           </div>
           <div>
             <div className="form-label">Montant HT</div>
-            <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)' }}>{fmt(dossier.montantHt)}</div>
+            <div className="finalize-op-value">{fmt(dossier.montantHt)}</div>
           </div>
           <div>
             <div className="form-label">Net a payer</div>
-            <div style={{ fontSize: 13, fontFamily: 'var(--font-mono)', fontWeight: 700, color: 'var(--accent-deep)' }}>{fmt(dossier.montantNetAPayer || dossier.montantTtc)} MAD</div>
+            <div className="finalize-op-value accent">{fmt(dossier.montantNetAPayer || dossier.montantTtc)} MAD</div>
           </div>
         </div>
-        <div className="form-label">Synthese du controleur financier</div>
-        <textarea className="form-input" rows={2} value={commentaire} onChange={e => setCommentaire(e.target.value)}
+        <label className="form-label" htmlFor="commentaire-general">Synthese du controleur financier</label>
+        <textarea id="commentaire-general" className="form-input" rows={2} value={commentaire} onChange={e => setCommentaire(e.target.value)}
           placeholder="Ex: Montant facture conforme au BC. Bon service fait atteste par..." style={{ fontSize: 11 }} />
       </div>
 
-      {/* Signature */}
       <div className="card">
         <h2><Pencil size={14} /> Signature electronique</h2>
-        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16, alignItems: 'start' }}>
+        <div className="finalize-sig-grid">
           <div>
-            <div className="form-label">Nom et prenom du signataire</div>
-            <input className="form-input" value={signataire} onChange={e => setSignataire(e.target.value)} placeholder="Ex: EL HARRAK Siham" />
-            <div style={{ fontSize: 10, color: 'var(--ink-30)', marginTop: 6, fontFamily: 'var(--font-mono)' }}>
+            <label className="form-label" htmlFor="signataire-name">Nom et prenom du signataire</label>
+            <input id="signataire-name" className="form-input" value={signataire} onChange={e => setSignataire(e.target.value)} placeholder="Ex: EL HARRAK Siham" />
+            <div className="finalize-sig-date">
               Date : {new Date().toLocaleDateString('fr-FR')}
             </div>
           </div>
           <div>
             <div className="form-label">Signature</div>
-            <div style={{ position: 'relative', display: 'inline-block' }}>
+            <div className="finalize-canvas-wrap">
               <canvas ref={canvasRef} width={300} height={100}
-                style={{ border: '1px solid var(--ink-10)', borderRadius: 6, background: '#fff', cursor: 'crosshair', display: 'block' }}
+                className="finalize-canvas"
+                aria-label="Zone de signature"
                 onMouseDown={startDraw} onMouseMove={draw} onMouseUp={stopDraw} onMouseLeave={stopDraw}
                 onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={stopDraw} />
               {hasSigned && (
-                <button onClick={clearSignature} title="Effacer"
-                  style={{ position: 'absolute', top: 4, right: 4, background: 'rgba(255,255,255,0.8)', border: 'none', borderRadius: 4, cursor: 'pointer', padding: 2 }}>
+                <button onClick={clearSignature} className="finalize-canvas-clear" aria-label="Effacer la signature">
                   <X size={14} style={{ color: 'var(--danger)' }} />
                 </button>
               )}
@@ -411,30 +401,27 @@ export default function Finalize() {
         </div>
       </div>
 
-      {/* Submit */}
       {!result && (
-        <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-          <button className="btn btn-primary" onClick={handleSubmit} disabled={submitting || !signataire.trim()}
-            style={{ padding: '10px 20px', fontSize: 13 }}>
+        <div className="finalize-submit-row">
+          <button className="btn btn-primary finalize-submit-btn" onClick={handleSubmit} disabled={submitting || !signataire.trim()}>
             {submitting ? <><Loader2 size={15} className="spin" /> Generation en cours...</> : <><Send size={15} /> Signer et generer les documents</>}
           </button>
-          <Link to={`/dossiers/${id}`} className="btn btn-secondary" style={{ textDecoration: 'none', padding: '10px 16px' }}>
+          <Link to={`/dossiers/${id}`} className="btn btn-secondary finalize-cancel-btn">
             Annuler
           </Link>
         </div>
       )}
 
-      {/* Result */}
       {result && id && (
-        <div className="card" style={{ borderColor: 'var(--accent)', borderWidth: 2 }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 12 }}>
-            <CheckCircle size={20} style={{ color: 'var(--success)' }} />
+        <div className="card finalize-result">
+          <div className="finalize-result-header">
+            <CheckCircle size={20} style={{ color: 'var(--success)' }} aria-hidden="true" />
             <div>
-              <div style={{ fontWeight: 700, fontSize: 14, color: 'var(--ink)' }}>Documents generes avec succes</div>
-              <div style={{ fontSize: 11, color: 'var(--ink-40)' }}>Signe par {signataire} le {new Date().toLocaleDateString('fr-FR')}</div>
+              <div className="finalize-result-title">Documents generes avec succes</div>
+              <div className="finalize-result-sub">Signe par {signataire} le {new Date().toLocaleDateString('fr-FR')}</div>
             </div>
           </div>
-          <div style={{ display: 'flex', gap: 10 }}>
+          <div className="finalize-result-actions">
             <button className="btn btn-secondary" onClick={() => openWithAuth(getExportTCUrl(id))}>
               <Download size={14} /> Tableau de Controle
             </button>

@@ -8,7 +8,6 @@ import Modal from '../components/Modal'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
 import { AlertTriangle, XCircle } from 'lucide-react'
 
-// Micro-components — lazy loaded for code splitting
 const DossierHeader = lazy(() => import('../components/dossier/DossierHeader'))
 const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm'))
 const WorkflowTimeline = lazy(() => import('../components/dossier/WorkflowTimeline'))
@@ -17,6 +16,24 @@ const CompareView = lazy(() => import('../components/dossier/CompareView'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
 const VerificationBlocks = lazy(() => import('../components/dossier/VerificationBlocks'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
+
+function DetailSkeleton() {
+  return (
+    <div className="skeleton">
+      <div className="skeleton-bar h-lg w-60" />
+      <div className="skeleton-card" style={{ height: 60 }} />
+      <div className="skeleton-card" style={{ height: 40 }} />
+      <div className="skeleton-grid">
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+      </div>
+      <div className="skeleton-card" style={{ height: 200 }} />
+      <div className="skeleton-card" style={{ height: 150 }} />
+    </div>
+  )
+}
 
 export default function DossierDetail() {
   const { id } = useParams<{ id: string }>()
@@ -31,7 +48,6 @@ export default function DossierDetail() {
   const [showCompare, setShowCompare] = useState(false)
   const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  // SSE: real-time document processing progress
   const liveProgress = useDocumentEvents(id, () => load())
 
   const loadAudit = useCallback(() => {
@@ -49,7 +65,6 @@ export default function DossierDetail() {
       if (processing && !pollRef.current) {
         pollRef.current = setInterval(() => {
           getDossier(id).then(fresh => {
-            // Change-detection: skip re-render if data is identical
             const fingerprint = JSON.stringify(fresh.documents.map(doc => doc.statutExtraction)) + fresh.resultatsValidation.length
             if (fingerprint !== dossierRef.current) {
               dossierRef.current = fingerprint
@@ -123,12 +138,11 @@ export default function DossierDetail() {
     dossier?.documents.some(d => d.statutExtraction === 'EN_COURS') ?? false, [dossier])
 
   if (error && !dossier) return <div className="alert alert-error"><AlertTriangle size={18} /> {error}</div>
-  if (!dossier) return <div className="loading">Chargement...</div>
+  if (!dossier) return <DetailSkeleton />
 
   return (
-    <Suspense fallback={<div className="loading">Chargement...</div>}>
+    <Suspense fallback={<DetailSkeleton />}>
       <div>
-        {/* Header + Actions */}
         {editing ? (
           <DossierEditForm dossier={dossier} id={id!} onDone={() => { setEditing(false); load(); loadAudit() }} onCancel={() => setEditing(false)} />
         ) : (
@@ -155,31 +169,20 @@ export default function DossierDetail() {
           onConfirm={() => handleStatut('REJETE')}
           onCancel={() => { setRejectModal(false); setMotifRejet('') }}>
           <div style={{ marginBottom: 16 }}>
-            <label className="form-label">Motif de rejet (optionnel)</label>
-            <input className="form-input" value={motifRejet} onChange={e => setMotifRejet(e.target.value)}
+            <label className="form-label" htmlFor="motif-rejet">Motif de rejet (optionnel)</label>
+            <input id="motif-rejet" className="form-input" value={motifRejet} onChange={e => setMotifRejet(e.target.value)}
               placeholder="Ex: Documents manquants, montants incoherents..." />
           </div>
         </Modal>
 
-        {/* Workflow */}
         <WorkflowTimeline dossier={dossier} hasProcessing={hasProcessing} />
-
-        {/* Metrics */}
         <MetricsBar dossier={dossier} nbConformes={nbConformes} fmt={fmt} />
-
-        {/* Compare */}
         {showCompare && <CompareView dossier={dossier} />}
-
-        {/* Documents */}
         <DocumentManager dossier={dossier} id={id!} liveProgress={liveProgress}
           onReload={load} onReloadAudit={loadAudit} />
-
-        {/* Verification: system + autocontrole */}
         {dossier.documents.length > 0 && (
           <VerificationBlocks dossier={dossier} validating={validating} onValidate={handleValidate} />
         )}
-
-        {/* Audit */}
         <AuditLog audit={audit} />
       </div>
     </Suspense>

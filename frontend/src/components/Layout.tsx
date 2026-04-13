@@ -30,7 +30,7 @@ export default function Layout({ user, onLogout }: Props) {
 
   return (
     <div className="app">
-      <nav className="sidebar">
+      <nav className="sidebar" aria-label="Navigation principale">
         <div className="sidebar-header">
           <div className="sidebar-brand">
             <div className="sidebar-logo"><Shield size={17} /></div>
@@ -60,43 +60,33 @@ export default function Layout({ user, onLogout }: Props) {
           </li>
         </ul>
 
-        <div style={{ padding: '0 12px', marginBottom: 12 }}>
-          <button
-            onClick={() => setSearchOpen(true)}
-            style={{
-              width: '100%', display: 'flex', alignItems: 'center', gap: 10,
-              padding: '9px 14px', background: 'rgba(255,255,255,0.04)',
-              border: '1px solid rgba(255,255,255,0.08)', borderRadius: 6,
-              color: 'rgba(255,255,255,0.35)', cursor: 'pointer', fontSize: 12,
-              transition: 'all 0.15s',
-            }}
-          >
+        <div className="sidebar-actions">
+          <button className="sidebar-search-btn" onClick={() => setSearchOpen(true)} aria-label="Rechercher (Ctrl+K)">
             <Search size={14} />
             <span style={{ flex: 1, textAlign: 'left' }}>Rechercher...</span>
-            <kbd style={{ fontSize: 9, opacity: 0.5, background: 'rgba(255,255,255,0.08)', padding: '1px 5px', borderRadius: 3 }}>Ctrl+K</kbd>
+            <kbd>Ctrl+K</kbd>
           </button>
         </div>
 
-        <div style={{ padding: '4px 14px' }}>
-          <button onClick={() => setDark(!dark)} title={dark ? 'Mode clair' : 'Mode sombre'}
-            style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', padding: '4px 0', display: 'flex', alignItems: 'center', gap: 6, fontSize: 10 }}>
-            {dark ? <Sun size={12} /> : <Moon size={12} />} {dark ? 'Mode clair' : 'Mode sombre'}
+        <div className="sidebar-theme-wrap">
+          <button className="sidebar-theme-btn" onClick={() => setDark(!dark)} aria-label={dark ? 'Activer le mode clair' : 'Activer le mode sombre'}>
+            {dark ? <Sun size={12} /> : <Moon size={12} />} <span>{dark ? 'Mode clair' : 'Mode sombre'}</span>
           </button>
         </div>
 
         {user && (
-          <div style={{ padding: '8px 14px', borderTop: '1px solid rgba(255,255,255,0.06)', fontSize: 11 }}>
-            <div style={{ color: '#fff', fontWeight: 600, marginBottom: 2 }}>{user.nom}</div>
-            <div style={{ color: 'rgba(255,255,255,0.35)', fontSize: 9, textTransform: 'uppercase', letterSpacing: 0.5 }}>{user.role}</div>
+          <div className="sidebar-user">
+            <div className="sidebar-user-name">{user.nom}</div>
+            <div className="sidebar-user-role">{user.role}</div>
             {onLogout && (
-              <button onClick={onLogout} style={{ background: 'none', border: 'none', color: 'rgba(255,255,255,0.3)', cursor: 'pointer', fontSize: 10, padding: '4px 0', display: 'flex', alignItems: 'center', gap: 4 }}>
-                <LogOut size={10} /> Deconnexion
+              <button className="sidebar-logout" onClick={onLogout} aria-label="Se deconnecter">
+                <LogOut size={10} /> <span>Deconnexion</span>
               </button>
             )}
           </div>
         )}
         <div className="sidebar-footer">
-          <div className="dot" />
+          <div className="dot" aria-hidden="true" />
           <span>Systeme operationnel</span>
         </div>
       </nav>

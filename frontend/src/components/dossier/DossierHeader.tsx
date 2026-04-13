@@ -35,13 +35,15 @@ export default memo(function DossierHeader({
     <>
       <div className="page-header">
         <h1>
-          <Link to="/dossiers" className="back-link"><ArrowLeft size={20} /></Link>
+          <Link to="/dossiers" className="back-link" aria-label="Retour aux dossiers"><ArrowLeft size={20} /></Link>
           <span onClick={onCopyRef} style={{ cursor: 'pointer' }} title="Cliquer pour copier">{dossier.reference}</span>
-          <Copy size={14} style={{ color: 'var(--slate-400)', cursor: 'pointer' }} onClick={onCopyRef} />
+          <button className="btn btn-secondary btn-sm" onClick={onCopyRef} aria-label="Copier la reference" style={{ padding: '2px 6px', border: 'none', background: 'transparent' }}>
+            <Copy size={14} style={{ color: 'var(--ink-40)' }} />
+          </button>
         </h1>
         <div className="header-actions">
-          {hasProcessing && <span style={{ fontSize: 11, color: 'var(--amber-600)', display: 'flex', alignItems: 'center', gap: 4 }}><Loader2 size={14} className="spin" /> Extraction en cours...</span>}
-          <button className="btn btn-secondary" onClick={onLoad}><RefreshCw size={15} /></button>
+          {hasProcessing && <span style={{ fontSize: 11, color: 'var(--warning)', display: 'flex', alignItems: 'center', gap: 4 }} role="status"><Loader2 size={14} className="spin" /> Extraction en cours...</span>}
+          <button className="btn btn-secondary" onClick={onLoad} aria-label="Rafraichir"><RefreshCw size={15} /></button>
           {dossier.statut === 'BROUILLON' && !editing && (
             <button className="btn btn-secondary" onClick={onStartEdit}><Pencil size={15} /> Modifier</button>
           )}
@@ -63,7 +65,7 @@ export default memo(function DossierHeader({
             </button>
           )}
           {dossier.resultatsValidation.length > 0 && dossier.statut !== 'VALIDE' && (
-            <Link to={`/dossiers/${id}/finalize`} className="btn btn-primary" style={{ textDecoration: 'none', background: 'linear-gradient(135deg, var(--accent-deep), var(--accent))' }}>
+            <Link to={`/dossiers/${id}/finalize`} className="btn btn-primary" style={{ textDecoration: 'none' }}>
               <FileText size={15} /> Finaliser
             </Link>
           )}
@@ -73,15 +75,14 @@ export default memo(function DossierHeader({
         </div>
       </div>
 
-      {/* Info bar */}
       <div className="card">
-        <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
-          <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+        <div className="card-flex">
+          <div className="card-flex-start">
             <span className="status-badge" style={{ background: cfg.bg, color: cfg.color, fontSize: 12 }}>{cfg.label}</span>
             <span className="tag">{dossier.type === 'BC' ? 'Bon de commande' : 'Contractuel'}</span>
-            {dossier.fournisseur && <strong style={{ fontSize: 15, color: 'var(--slate-900)' }}>{dossier.fournisseur}</strong>}
+            {dossier.fournisseur && <strong style={{ fontSize: 15 }}>{dossier.fournisseur}</strong>}
           </div>
-          {dossier.description && <span style={{ fontSize: 13, color: 'var(--slate-500)' }}>{dossier.description}</span>}
+          {dossier.description && <span style={{ fontSize: 13, color: 'var(--ink-50)' }}>{dossier.description}</span>}
         </div>
       </div>
     </>

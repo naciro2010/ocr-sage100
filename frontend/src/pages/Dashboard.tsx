@@ -9,6 +9,22 @@ import {
   Shield, TrendingUp, Upload, FileText, Plus, Loader2
 } from 'lucide-react'
 
+function DashboardSkeleton() {
+  return (
+    <div className="skeleton">
+      <div className="skeleton-bar h-lg w-40" />
+      <div className="skeleton-card" style={{ height: 120, marginBottom: 16 }} />
+      <div className="skeleton-grid">
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+        <div className="skeleton-grid-item" />
+      </div>
+      <div className="skeleton-card" style={{ height: 200 }} />
+    </div>
+  )
+}
+
 export default function Dashboard() {
   const { toast } = useToast()
   const navigate = useNavigate()
@@ -45,14 +61,14 @@ export default function Dashboard() {
     else toast('warning', 'Seuls les fichiers PDF sont acceptes')
   }
 
-  if (!stats) return <div className="loading">Chargement...</div>
+  if (!stats) return <DashboardSkeleton />
 
   const isEmpty = stats.total === 0
   const total = stats.total || 1
   const statutBars = [
-    { label: 'Brouillons', value: stats.brouillons, color: 'var(--slate-500)' },
-    { label: 'En verification', value: stats.enVerification, color: 'var(--amber-600)' },
-    { label: 'Valides', value: stats.valides, color: 'var(--emerald-600)' },
+    { label: 'Brouillons', value: stats.brouillons, color: 'var(--ink-50)' },
+    { label: 'En verification', value: stats.enVerification, color: 'var(--warning)' },
+    { label: 'Valides', value: stats.valides, color: 'var(--success)' },
     { label: 'Rejetes', value: stats.rejetes, color: 'var(--danger)' },
   ]
   const tauxValidation = stats.total > 0 ? Math.round((stats.valides / stats.total) * 100) : 0
@@ -69,7 +85,6 @@ export default function Dashboard() {
         )}
       </div>
 
-      {/* Hero drop zone - always visible, bigger when empty */}
       <div
         className={`hero-drop ${dragging ? 'dragging' : ''}`}
         style={isEmpty ? {} : { padding: '20px 24px', marginBottom: 16 }}
@@ -77,6 +92,10 @@ export default function Dashboard() {
         onDragLeave={() => setDragging(false)}
         onDrop={handleDrop}
         onClick={() => inputRef.current?.click()}
+        role="button"
+        tabIndex={0}
+        aria-label="Deposer des fichiers PDF pour creer un dossier"
+        onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') inputRef.current?.click() }}
       >
         <input ref={inputRef} type="file" accept=".pdf" multiple hidden onChange={e => {
           const files = Array.from(e.target.files || [])
@@ -84,12 +103,12 @@ export default function Dashboard() {
         }} />
         {uploading ? (
           <>
-            <Loader2 size={isEmpty ? 40 : 20} className="spin" style={{ color: 'var(--teal-600)', marginBottom: isEmpty ? 12 : 0 }} />
+            <Loader2 size={isEmpty ? 40 : 20} className="spin" style={{ color: 'var(--accent)', marginBottom: isEmpty ? 12 : 0 }} />
             {isEmpty && <div className="hero-drop-title">Creation du dossier en cours...</div>}
           </>
         ) : (
           <>
-            <Upload size={isEmpty ? 40 : 18} className="hero-drop-icon" style={isEmpty ? {} : { marginBottom: 0, display: 'inline' }} />
+            <Upload size={isEmpty ? 40 : 18} className="hero-drop-icon" style={isEmpty ? {} : { marginBottom: 0, display: 'inline' }} aria-hidden="true" />
             {isEmpty ? (
               <>
                 <div className="hero-drop-title">Deposez vos documents PDF pour creer un dossier</div>
@@ -99,7 +118,7 @@ export default function Dashboard() {
                 </div>
               </>
             ) : (
-              <span style={{ fontSize: 12, color: 'var(--slate-500)', marginLeft: 8 }}>
+              <span className="inline-hint">
                 Deposez des PDFs pour creer un nouveau dossier rapidement
               </span>
             )}
@@ -108,20 +127,18 @@ export default function Dashboard() {
       </div>
 
       {isEmpty ? (
-        /* Empty state */
         <div className="card" style={{ textAlign: 'center', padding: '32px 20px' }}>
-          <FileText size={32} style={{ color: 'var(--slate-300)', marginBottom: 12 }} />
-          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--slate-600)', marginBottom: 4 }}>
+          <FileText size={32} style={{ color: 'var(--ink-20)', marginBottom: 12 }} aria-hidden="true" />
+          <div style={{ fontSize: 14, fontWeight: 700, color: 'var(--ink-60)', marginBottom: 4 }}>
             Aucun dossier de paiement
           </div>
-          <div style={{ fontSize: 12, color: 'var(--slate-400)', marginBottom: 16 }}>
+          <div style={{ fontSize: 12, color: 'var(--ink-40)', marginBottom: 16 }}>
             Deposez des PDFs ci-dessus ou creez un dossier manuellement
           </div>
           <Link to="/dossiers" className="btn btn-primary"><Plus size={14} /> Creer un dossier</Link>
         </div>
       ) : (
         <>
-          {/* Stats */}
           <div className="stats-grid">
             <div className="stat-card">
               <div className="stat-icon teal"><FolderOpen size={16} /></div>
@@ -162,28 +179,28 @@ export default function Dashboard() {
             </div>
             <div className="card">
               <h2><TrendingUp size={12} /> Indicateurs</h2>
-              <div style={{ display: 'flex', flexDirection: 'column', gap: 14 }}>
+              <div className="indicator-group">
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--slate-500)' }}>Validation</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: 'var(--emerald-600)' }}>{tauxValidation}%</span>
+                  <div className="indicator-row">
+                    <span className="indicator-label">Validation</span>
+                    <span className="indicator-value success">{tauxValidation}%</span>
                   </div>
-                  <div style={{ height: 4, background: 'var(--slate-100)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${tauxValidation}%`, background: 'var(--emerald-600)', borderRadius: 2, transition: 'width 0.4s' }} />
+                  <div className="indicator-track">
+                    <div className="indicator-fill success" style={{ width: `${tauxValidation}%` }} />
                   </div>
                 </div>
                 <div>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginBottom: 4 }}>
-                    <span style={{ fontSize: 11, fontWeight: 600, color: 'var(--slate-500)' }}>Rejet</span>
-                    <span style={{ fontFamily: 'var(--font-mono)', fontSize: 18, fontWeight: 700, color: 'var(--danger)' }}>{tauxRejet}%</span>
+                  <div className="indicator-row">
+                    <span className="indicator-label">Rejet</span>
+                    <span className="indicator-value danger">{tauxRejet}%</span>
                   </div>
-                  <div style={{ height: 4, background: 'var(--slate-100)', borderRadius: 2, overflow: 'hidden' }}>
-                    <div style={{ height: '100%', width: `${tauxRejet}%`, background: 'var(--danger)', borderRadius: 2, transition: 'width 0.4s' }} />
+                  <div className="indicator-track">
+                    <div className="indicator-fill danger" style={{ width: `${tauxRejet}%` }} />
                   </div>
                 </div>
-                <div style={{ borderTop: '1px solid var(--slate-200)', paddingTop: 12 }}>
+                <div className="indicator-divider">
                   <div className="stat-label" style={{ marginBottom: 4 }}>Montant total</div>
-                  <div style={{ fontSize: 22, fontWeight: 700, color: 'var(--slate-900)', fontFamily: 'var(--font-mono)', letterSpacing: -0.5 }}>
+                  <div className="indicator-amount">
                     {Number(stats.montantTotal).toLocaleString('fr-FR', { minimumFractionDigits: 2 })}
                   </div>
                   <div className="stat-label">MAD</div>
@@ -192,11 +209,10 @@ export default function Dashboard() {
             </div>
           </div>
 
-          {/* Recent dossiers */}
           <div className="card">
-            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+            <div className="card-flex" style={{ marginBottom: 10 }}>
               <h2 style={{ marginBottom: 0 }}><FolderOpen size={12} /> Dossiers recents</h2>
-              <Link to="/dossiers" style={{ fontSize: 11, fontWeight: 600, color: 'var(--teal-700)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
+              <Link to="/dossiers" style={{ fontSize: 11, fontWeight: 600, color: 'var(--accent-deep)', textDecoration: 'none', display: 'flex', alignItems: 'center', gap: 4 }}>
                 Voir tout <ArrowRight size={12} />
               </Link>
             </div>
@@ -221,7 +237,7 @@ export default function Dashboard() {
                       <td><span className="tag">{d.type}</span></td>
                       <td className="cell-mono">{d.montantTtc != null ? Number(d.montantTtc).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' MAD' : '\u2014'}</td>
                       <td><span className="status-badge" style={{ background: c.bg, color: c.color }}>{c.label}</span></td>
-                      <td style={{ color: 'var(--slate-500)' }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                      <td style={{ color: 'var(--ink-50)' }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
                     </tr>
                   )
                 })}
@@ -232,8 +248,8 @@ export default function Dashboard() {
       )}
 
       <div className="card" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '10px 16px' }}>
-        <Shield size={14} style={{ color: 'var(--teal-700)', opacity: 0.4 }} />
-        <span style={{ fontSize: 11, color: 'var(--slate-400)' }}>
+        <Shield size={14} style={{ color: 'var(--accent-deep)', opacity: 0.4 }} aria-hidden="true" />
+        <span style={{ fontSize: 11, color: 'var(--ink-40)' }}>
           <strong>ReconDoc MADAEF</strong> — Reconciliation documentaire | Groupe CDG
         </span>
       </div>
