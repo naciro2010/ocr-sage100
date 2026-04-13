@@ -148,12 +148,18 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h2 style={{ marginBottom: 0 }}><FileText size={14} /> Documents du dossier</h2>
           {dossier.documents.length > 0 && (
-            <button className="btn btn-secondary btn-sm" aria-label="Relancer le traitement de tous les documents" onClick={async () => {
-              await Promise.allSettled(dossier.documents.map(doc => reprocessDocument(id, doc.id)))
-              toast('info', `${dossier.documents.length} documents relances`)
+            <button className="btn btn-secondary btn-sm" aria-label="Relancer les documents en erreur" disabled={uploading} onClick={async () => {
+              const failed = dossier.documents.filter(doc => doc.statutExtraction === 'ERREUR')
+              if (failed.length === 0) { toast('info', 'Aucun document en erreur'); return }
+              setUploading(true)
+              for (const doc of failed) {
+                try { await reprocessDocument(id, doc.id) } catch { /* continue */ }
+              }
+              setUploading(false)
+              toast('info', `${failed.length} document(s) relance(s)`)
               onReload()
             }}>
-              <RefreshCw size={11} /> Tout relancer
+              <RefreshCw size={11} /> {uploading ? 'Relance...' : 'Relancer'}
             </button>
           )}
         </div>
