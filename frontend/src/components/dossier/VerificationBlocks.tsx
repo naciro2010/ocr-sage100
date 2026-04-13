@@ -1,7 +1,8 @@
 import { memo, useState, useMemo, useCallback } from 'react'
-import type { DossierDetail, StatutCheck } from '../../api/dossierTypes'
+import type { DossierDetail } from '../../api/dossierTypes'
 import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS } from '../../config/validationRules'
+import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
 import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp } from 'lucide-react'
 
@@ -10,30 +11,6 @@ interface Props {
   validating: boolean
   onValidate: () => void
 }
-
-type ItemStatus = 'ok' | 'ko' | 'warn' | 'na' | 'pending'
-
-function statusFromCheck(statut: StatutCheck): ItemStatus {
-  if (statut === 'CONFORME') return 'ok'
-  if (statut === 'NON_CONFORME') return 'ko'
-  if (statut === 'AVERTISSEMENT') return 'warn'
-  return 'na'
-}
-
-const STATUS_DISPLAY: Record<ItemStatus, { label: string; color: string; bg: string; icon: string }> = {
-  ok:      { label: 'Conforme',       color: '#059669', bg: '#ecfdf5', icon: '\u2713' },
-  ko:      { label: 'Non conforme',   color: '#dc2626', bg: '#fef2f2', icon: '\u2717' },
-  warn:    { label: 'Avertissement',  color: '#d97706', bg: '#fffbeb', icon: '!' },
-  na:      { label: 'N/A',           color: '#6b7280', bg: '#f3f4f6', icon: '\u2014' },
-  pending: { label: 'En attente',    color: '#94a3b8', bg: '#f8fafc', icon: '\u00b7' },
-}
-
-const STATUT_OPTIONS: { value: string; label: string }[] = [
-  { value: 'CONFORME', label: 'Conforme' },
-  { value: 'NON_CONFORME', label: 'Non conforme' },
-  { value: 'AVERTISSEMENT', label: 'Avertissement' },
-  { value: 'NON_APPLICABLE', label: 'N/A' },
-]
 
 export default memo(function VerificationBlocks({ dossier, validating, onValidate }: Props) {
   const { toast } = useToast()
@@ -57,28 +34,21 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     return { ...g, items }
   }).filter(g => g.items.length > 0), [systemRuleDefs, systemResults])
 
-  const checklistData = dossier.checklistAutocontrole
-  const extractedPoints = useMemo(() =>
-    (checklistData?.points as Array<Record<string, unknown>> | undefined) || [], [checklistData])
-  const hasAutocontrole = extractedPoints.length > 0
+  const parsedPoints = useMemo(() => parseChecklistPoints(dossier), [dossier.checklistAutocontrole])
+  const hasAutocontrole = parsedPoints.length > 0
 
   const autocontroleItems = useMemo(() => {
     if (hasAutocontrole) {
-      return extractedPoints.map((pt, i) => {
-        const desc = String(pt.description || `Point ${pt.numero || i + 1}`)
-        let status: ItemStatus = 'pending'
-        if (hasResults) {
-          if (pt.estValide === true) status = 'ok'
-          else if (pt.estValide === false) status = 'ko'
-          else status = 'na'
-        }
-        return { num: pt.numero != null ? Number(pt.numero) : i + 1, desc, status, observation: pt.observation as string | null }
-      })
+      return parsedPoints.map(pt => ({
+        num: pt.num, desc: pt.desc,
+        status: estValideToItemStatus(pt.estValide, hasResults),
+        observation: pt.observation,
+      }))
     }
     return activeRules.filter(r => r.category === 'checklist').map((r, i) => ({
       num: i + 1, desc: r.desc, status: 'pending' as ItemStatus, observation: null as string | null,
     }))
-  }, [extractedPoints, hasAutocontrole, hasResults, activeRules])
+  }, [parsedPoints, hasAutocontrole, hasResults, activeRules])
 
   const toggleBlock = useCallback((key: string) => {
     setCollapsedBlocks(prev => {
@@ -162,7 +132,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                   </div>
                   {group.items.map(item => {
                     const r = item.result
-                    const status: ItemStatus = r ? statusFromCheck(r.statut) : 'pending'
+                    const status: ItemStatus = r ? statutToItemStatus(r.statut) : 'pending'
                     const sd = STATUS_DISPLAY[status]
                     return (
                       <div key={item.code} style={{
@@ -290,11 +260,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
               }}>
                 <div>
                   <span style={{ fontWeight: 700, fontSize: 9, color: 'var(--ink-30)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Prestataire: </span>
-                  {(checklistData?.prestataire as string) || dossier.fournisseur || '\u2014'}
+                  {(dossier.checklistAutocontrole?.prestataire as string) || dossier.fournisseur || '\u2014'}
                 </div>
                 <div>
                   <span style={{ fontWeight: 700, fontSize: 9, color: 'var(--ink-30)', textTransform: 'uppercase', fontFamily: 'var(--font-mono)' }}>Ref: </span>
-                  {(checklistData?.referenceFacture as string) || '\u2014'}
+                  {(dossier.checklistAutocontrole?.referenceFacture as string) || '\u2014'}
                 </div>
                 <div style={{ marginLeft: 'auto', fontSize: 9, color: 'var(--ink-30)', fontFamily: 'var(--font-mono)' }}>CCF-EN-04-V02</div>
               </div>

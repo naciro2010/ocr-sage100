@@ -2,6 +2,7 @@ import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl, openWithAuth, getDocumentFileUrl } from '../api/dossierApi'
 import type { DossierDetail, DocumentInfo } from '../api/dossierTypes'
+import { parseChecklistPoints } from '../config/checklistUtils'
 import { useToast } from '../components/Toast'
 import {
   ArrowLeft, ShieldCheck, FileText, Download, Loader2,
@@ -78,22 +79,17 @@ export default function Finalize() {
   // Build control points from autocontrole + validation results
   const buildPoints = (d: DossierDetail) => {
     const pts: ControlPoint[] = []
-    const checklistData = d.checklistAutocontrole
-    const extractedPoints = (checklistData?.points as Array<Record<string, unknown>> | undefined) || []
+    const parsed = parseChecklistPoints(d)
 
-    if (extractedPoints.length > 0) {
-      // Use actual autocontrole points from uploaded document
-      for (const pt of extractedPoints) {
-        const desc = String(pt.description || `Point ${pt.numero || ''}`)
-        // Find matching validation result or correction
+    if (parsed.length > 0) {
+      for (const pt of parsed) {
         const match = d.resultatsValidation.find(r =>
-          r.libelle.toLowerCase().includes(desc.substring(0, 20).toLowerCase()) ||
-          desc.toLowerCase().includes(r.libelle.substring(0, 20).toLowerCase())
+          r.libelle.toLowerCase().includes(pt.desc.substring(0, 20).toLowerCase()) ||
+          pt.desc.toLowerCase().includes(r.libelle.substring(0, 20).toLowerCase())
         )
 
         let obs: string
         if (match) {
-          // Use corrected status if available, otherwise validation result
           obs = match.statut === 'CONFORME' ? 'Conforme'
             : match.statut === 'NON_CONFORME' ? 'Non conforme' : 'NA'
         } else if (pt.estValide === true) {
@@ -105,9 +101,9 @@ export default function Finalize() {
         }
 
         pts.push({
-          description: desc,
+          description: pt.desc,
           observation: obs,
-          commentaire: match?.commentaire || (pt.observation != null ? String(pt.observation) : ''),
+          commentaire: match?.commentaire || pt.observation || '',
           skip: false,
           source: 'autocontrole',
         })
