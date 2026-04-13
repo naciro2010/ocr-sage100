@@ -71,7 +71,7 @@ export default function Finalize() {
       setDossier(d)
       buildPoints(d)
     }).catch(() => toast('error', 'Dossier introuvable'))
-  }, [id])
+  }, [id, toast])
 
   const buildPoints = (d: DossierDetail) => {
     const pts: ControlPoint[] = []
@@ -208,7 +208,6 @@ export default function Finalize() {
     } finally { setSubmitting(false) }
   }
 
-  if (!dossier) return <div className="loading">Chargement...</div>
   const fmt = useCallback((n: number | null | undefined) =>
     n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014', [])
   const { activeCount, conformeCount, nonConformeCount, hasAutocontrole } = useMemo(() => ({
@@ -217,6 +216,8 @@ export default function Finalize() {
     nonConformeCount: points.filter(p => !p.skip && p.observation === 'Non conforme').length,
     hasAutocontrole: points.some(p => p.source === 'autocontrole'),
   }), [points])
+
+  if (!dossier) return <div className="loading">Chargement...</div>
 
   return (
     <div>

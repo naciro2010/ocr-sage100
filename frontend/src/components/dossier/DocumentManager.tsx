@@ -171,7 +171,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
-          {dossier.documents.map((doc, _idx) => {
+          {dossier.documents.map((doc) => {
             const sameTypeDocs = dossier.documents.filter(d => d.typeDocument === doc.typeDocument)
             const isMulti = sameTypeDocs.length > 1
             const multiIdx = isMulti ? sameTypeDocs.indexOf(doc) + 1 : 0

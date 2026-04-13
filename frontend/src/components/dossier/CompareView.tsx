@@ -1,4 +1,4 @@
-import { memo, useState, useEffect } from 'react'
+import { memo, useState, useMemo } from 'react'
 import type { DossierDetail } from '../../api/dossierTypes'
 import { Columns2 } from 'lucide-react'
 
@@ -7,7 +7,7 @@ interface Props {
 }
 
 export default memo(function CompareView({ dossier }: Props) {
-  const docTypes = [
+  const docTypes = useMemo(() => [
     ...(dossier.factures || []).map((f, i) => ({
       key: `FACTURE_${i}`,
       label: `Facture${(dossier.factures?.length || 0) > 1 ? ` ${i + 1}` : ''} ${f.numeroFacture ? `(${f.numeroFacture})` : ''}`.trim(),
@@ -21,17 +21,11 @@ export default memo(function CompareView({ dossier }: Props) {
     { key: 'TABLEAU_CONTROLE', label: 'Tableau de controle', data: dossier.tableauControle },
     { key: 'PV_RECEPTION', label: 'PV de reception', data: dossier.pvReception },
     { key: 'ATTESTATION_FISCALE', label: 'Attestation fiscale', data: dossier.attestationFiscale },
-  ].filter(d => d.data != null)
+  ].filter(d => d.data != null), [dossier])
 
-  const [left, setLeft] = useState('FACTURE')
-  const [right, setRight] = useState('')
-
-  useEffect(() => {
-    if (!right && docTypes.length > 1) {
-      const auto = docTypes.find(d => d.key !== left)
-      if (auto) setRight(auto.key)
-    }
-  }, [docTypes.length])
+  const defaultRight = docTypes.length > 1 ? (docTypes.find(d => d.key !== docTypes[0]?.key)?.key || '') : ''
+  const [left, setLeft] = useState(() => docTypes[0]?.key || '')
+  const [right, setRight] = useState(() => defaultRight)
 
   const leftDoc = docTypes.find(d => d.key === left)
   const rightDoc = docTypes.find(d => d.key === right)

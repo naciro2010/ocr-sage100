@@ -90,7 +90,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     return { ...g, items }
   }).filter(g => g.items.length > 0), [systemRuleDefs, systemResults])
 
-  const parsedPoints = useMemo(() => parseChecklistPoints(dossier), [dossier.checklistAutocontrole])
+  const parsedPoints = useMemo(() => parseChecklistPoints(dossier), [dossier])
   const hasAutocontrole = parsedPoints.length > 0
 
   const autocontroleItems = useMemo(() => {
