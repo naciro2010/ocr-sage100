@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useCallback } from 'react'
+import { memo, useRef, useState, useCallback, useEffect } from 'react'
 import type { DossierDetail, DocumentInfo, TypeDocument } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import { uploadDocuments, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
@@ -27,6 +27,11 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   const [showPdf, setShowPdf] = useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl) }
+  }, [pdfBlobUrl])
 
   const handleUpload = useCallback(async (files: FileList | File[] | null) => {
     if (!files) return
@@ -135,7 +140,11 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h2 style={{ marginBottom: 0 }}><FileText size={14} /> Documents du dossier</h2>
           {dossier.documents.length > 0 && (
-            <button className="btn btn-secondary btn-sm" onClick={() => dossier.documents.forEach(doc => handleReprocess(doc.id))}>
+            <button className="btn btn-secondary btn-sm" onClick={async () => {
+              await Promise.allSettled(dossier.documents.map(doc => reprocessDocument(id, doc.id)))
+              toast('info', `${dossier.documents.length} documents relances`)
+              onReload()
+            }}>
               <RefreshCw size={11} /> Tout relancer
             </button>
           )}

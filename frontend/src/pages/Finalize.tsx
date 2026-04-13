@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
 import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl, openWithAuth, getDocumentFileUrl } from '../api/dossierApi'
 import type { DossierDetail, DocumentInfo } from '../api/dossierTypes'
@@ -48,6 +48,11 @@ export default function Finalize() {
   const [showDocViewer, setShowDocViewer] = useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
+
+  // Cleanup blob URL on unmount
+  useEffect(() => {
+    return () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl) }
+  }, [pdfBlobUrl])
 
   // Load saved signature
   useEffect(() => {
@@ -215,11 +220,14 @@ export default function Finalize() {
   }
 
   if (!dossier) return <div className="loading">Chargement...</div>
-  const fmt = (n: number | null | undefined) => n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
-  const activeCount = points.filter(p => !p.skip).length
-  const conformeCount = points.filter(p => !p.skip && p.observation === 'Conforme').length
-  const nonConformeCount = points.filter(p => !p.skip && p.observation === 'Non conforme').length
-  const hasAutocontrole = points.some(p => p.source === 'autocontrole')
+  const fmt = useCallback((n: number | null | undefined) =>
+    n != null ? Number(n).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014', [])
+  const { activeCount, conformeCount, nonConformeCount, hasAutocontrole } = useMemo(() => ({
+    activeCount: points.filter(p => !p.skip).length,
+    conformeCount: points.filter(p => !p.skip && p.observation === 'Conforme').length,
+    nonConformeCount: points.filter(p => !p.skip && p.observation === 'Non conforme').length,
+    hasAutocontrole: points.some(p => p.source === 'autocontrole'),
+  }), [points])
 
   return (
     <div>

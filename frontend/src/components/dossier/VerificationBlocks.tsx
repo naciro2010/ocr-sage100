@@ -1,4 +1,4 @@
-import { memo, useState } from 'react'
+import { memo, useState, useMemo, useCallback } from 'react'
 import type { DossierDetail, StatutCheck } from '../../api/dossierTypes'
 import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS } from '../../config/validationRules'
@@ -41,57 +41,54 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set())
 
   const hasResults = dossier.resultatsValidation.length > 0
-  const activeRules = getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL')
-  const systemRuleDefs = activeRules.filter(r => r.category === 'system')
-
-  // ========== BLOCK 1: System verification ==========
+  const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
+  const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
   const systemResults = dossier.resultatsValidation
 
-  // Group results by RULE_GROUPS
-  const groupedSystem = RULE_GROUPS.map(g => {
+  const groupedSystem = useMemo(() => RULE_GROUPS.map(g => {
     const groupRuleCodes = systemRuleDefs
       .filter(r => (r as { group?: string }).group === g.key)
       .map(r => r.code)
-
     const items = groupRuleCodes.map(code => {
       const ruleDef = systemRuleDefs.find(r => r.code === code)
-      // Find matching validation result (may have suffix like R17a, R17b)
       const result = systemResults.find(r => r.regle === code || r.regle.startsWith(code))
       return { code, label: ruleDef?.label || code, result }
     })
-
     return { ...g, items }
-  }).filter(g => g.items.length > 0)
+  }).filter(g => g.items.length > 0), [systemRuleDefs, systemResults])
 
-  // ========== BLOCK 2: Autocontrole verification ==========
   const checklistData = dossier.checklistAutocontrole
-  const extractedPoints = (checklistData?.points as Array<Record<string, unknown>> | undefined) || []
+  const extractedPoints = useMemo(() =>
+    (checklistData?.points as Array<Record<string, unknown>> | undefined) || [], [checklistData])
   const hasAutocontrole = extractedPoints.length > 0
 
-  // Match autocontrole points with R12 sub-results or checklist-specific results
-  const autocontroleItems = hasAutocontrole ? extractedPoints.map((pt, i) => {
-    const desc = String(pt.description || `Point ${pt.numero || i + 1}`)
-    let status: ItemStatus = 'pending'
-    if (hasResults) {
-      if (pt.estValide === true) status = 'ok'
-      else if (pt.estValide === false) status = 'ko'
-      else status = 'na'
+  const autocontroleItems = useMemo(() => {
+    if (hasAutocontrole) {
+      return extractedPoints.map((pt, i) => {
+        const desc = String(pt.description || `Point ${pt.numero || i + 1}`)
+        let status: ItemStatus = 'pending'
+        if (hasResults) {
+          if (pt.estValide === true) status = 'ok'
+          else if (pt.estValide === false) status = 'ko'
+          else status = 'na'
+        }
+        return { num: pt.numero != null ? Number(pt.numero) : i + 1, desc, status, observation: pt.observation as string | null }
+      })
     }
-    return { num: pt.numero != null ? Number(pt.numero) : i + 1, desc, status, observation: pt.observation as string | null }
-  }) : activeRules.filter(r => r.category === 'checklist').map((r, i) => ({
-    num: i + 1, desc: r.desc, status: 'pending' as ItemStatus, observation: null as string | null,
-  }))
+    return activeRules.filter(r => r.category === 'checklist').map((r, i) => ({
+      num: i + 1, desc: r.desc, status: 'pending' as ItemStatus, observation: null as string | null,
+    }))
+  }, [extractedPoints, hasAutocontrole, hasResults, activeRules])
 
-  const toggleBlock = (key: string) => {
+  const toggleBlock = useCallback((key: string) => {
     setCollapsedBlocks(prev => {
       const next = new Set(prev)
       next.has(key) ? next.delete(key) : next.add(key)
       return next
     })
-  }
+  }, [])
 
-  // Inline correction handler
-  const handleCorrect = async (resultId: string, newStatut: string) => {
+  const handleCorrect = useCallback(async (resultId: string, newStatut: string) => {
     setSaving(resultId)
     try {
       await updateValidationResult(dossier.id, resultId, { statut: newStatut })
@@ -99,13 +96,14 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
       onValidate()
     } catch { toast('error', 'Erreur') }
     finally { setSaving(null) }
-  }
+  }, [dossier.id, onValidate, toast])
 
-  // Counts
-  const sysOk = systemResults.filter(r => r.statut === 'CONFORME').length
-  const sysKo = systemResults.filter(r => r.statut === 'NON_CONFORME').length
-  const autoOk = autocontroleItems.filter(i => i.status === 'ok').length
-  const autoKo = autocontroleItems.filter(i => i.status === 'ko').length
+  const { sysOk, sysKo, autoOk, autoKo } = useMemo(() => ({
+    sysOk: systemResults.filter(r => r.statut === 'CONFORME').length,
+    sysKo: systemResults.filter(r => r.statut === 'NON_CONFORME').length,
+    autoOk: autocontroleItems.filter(i => i.status === 'ok').length,
+    autoKo: autocontroleItems.filter(i => i.status === 'ko').length,
+  }), [systemResults, autocontroleItems])
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>

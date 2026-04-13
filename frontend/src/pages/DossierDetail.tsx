@@ -38,6 +38,8 @@ export default function DossierDetail() {
     if (id) getAuditLog(id).then(setAudit).catch(() => {})
   }, [id])
 
+  const dossierRef = useRef<string | null>(null)
+
   const load = useCallback(() => {
     if (!id) return
     setError('')
@@ -47,7 +49,12 @@ export default function DossierDetail() {
       if (processing && !pollRef.current) {
         pollRef.current = setInterval(() => {
           getDossier(id).then(fresh => {
-            setDossier(fresh)
+            // Change-detection: skip re-render if data is identical
+            const fingerprint = JSON.stringify(fresh.documents.map(doc => doc.statutExtraction)) + fresh.resultatsValidation.length
+            if (fingerprint !== dossierRef.current) {
+              dossierRef.current = fingerprint
+              setDossier(fresh)
+            }
             const stillProcessing = fresh.documents.some(doc => doc.statutExtraction === 'EN_COURS' || doc.statutExtraction === 'EN_ATTENTE')
             if (!stillProcessing && pollRef.current) {
               clearInterval(pollRef.current)
@@ -64,7 +71,7 @@ export default function DossierDetail() {
     load()
     loadAudit()
     return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
-  }, [id, loadAudit])
+  }, [id, load, loadAudit])
 
   const handleValidate = useCallback(async () => {
     if (!id) return

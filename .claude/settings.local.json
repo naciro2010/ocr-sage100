@@ -68,7 +68,11 @@
       "mcp__Railway__list-deployments",
       "mcp__Railway__list-variables",
       "mcp__Railway__generate-domain",
-      "mcp__Railway__deploy"
+      "mcp__Railway__deploy",
+      "Bash(kill %1)",
+      "Bash(find /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.css\" \\\\\\) -exec wc -l {} +)",
+      "Bash(awk '{print $9, \":\", $5}')",
+      "mcp__Railway__list-services"
     ],
     "deny": []
   },
