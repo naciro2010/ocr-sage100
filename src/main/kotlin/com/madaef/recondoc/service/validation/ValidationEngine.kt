@@ -20,7 +20,8 @@ class ValidationEngine(
     private val log = LoggerFactory.getLogger(javaClass)
 
     companion object {
-        private val WHITESPACE_RE = "\\s".toRegex()
+        private val WHITESPACE_RE = "[\\s\\-.]".toRegex()
+        fun normalizeRib(rib: String?): String? = rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
         private val REF_NORMALIZE_RE = "[\\s\\-_/.']+".toRegex()
         private val MONTH_NAMES = listOf(
             "janvier", "fevrier", "mars", "avril", "mai", "juin",
@@ -32,7 +33,9 @@ class ValidationEngine(
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
 
+        dossier.resultatsValidation.clear()
         resultatRepository.deleteByDossierId(dossier.id!!)
+        resultatRepository.flush()
 
         val results = mutableListOf<ResultatValidation>()
         val tol = BigDecimal(toleranceMontant)
@@ -171,45 +174,67 @@ class ValidationEngine(
         }
 
         // R09 — Coherence ICE
-        if (facture != null) {
-            val rawIces = listOfNotNull(facture.ice, arf?.ice)
-            val normalizedIces = rawIces.mapNotNull { normalizeId(it) }.distinct()
+        run {
+            val iceFacture = facture?.ice?.trim()?.takeIf { it.isNotBlank() }
+            val iceArf = arf?.ice?.trim()?.takeIf { it.isNotBlank() }
+            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
+            val statut = when {
+                iceFacture == null && iceArf == null -> StatutCheck.AVERTISSEMENT
+                iceFacture == null || iceArf == null -> StatutCheck.AVERTISSEMENT
+                normalizedIces.size == 1 -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
             results += ResultatValidation(
                 dossier = dossier, regle = "R09",
                 libelle = "Coherence ICE fournisseur entre documents",
-                statut = if (normalizedIces.size <= 1) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = if (rawIces.size > 1) "ICE trouves: ${rawIces.joinToString(", ")}" else "ICE: ${rawIces.firstOrNull() ?: "non renseigne"}"
+                statut = statut,
+                valeurAttendue = iceFacture ?: "Absent de la facture",
+                valeurTrouvee = iceArf ?: "Absent de l'attestation fiscale",
+                detail = when (statut) {
+                    StatutCheck.AVERTISSEMENT -> "ICE absent dans ${if (iceFacture == null) "la facture" else "l'attestation fiscale"}"
+                    StatutCheck.NON_CONFORME -> "ICE differents: facture=$iceFacture, attestation=$iceArf"
+                    else -> "ICE identiques"
+                }
             )
         }
 
         // R10 — Coherence IF
-        if (facture != null) {
-            val rawIfs = listOfNotNull(facture.identifiantFiscal, arf?.identifiantFiscal)
-            val normalizedIfs = rawIfs.mapNotNull { normalizeId(it) }.distinct()
+        run {
+            val ifFacture = facture?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
+            val ifArf = arf?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
+            val normalizedIfs = listOfNotNull(ifFacture, ifArf).mapNotNull { normalizeId(it) }.distinct()
+            val statut = when {
+                ifFacture == null && ifArf == null -> StatutCheck.AVERTISSEMENT
+                ifFacture == null || ifArf == null -> StatutCheck.AVERTISSEMENT
+                normalizedIfs.size == 1 -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
             results += ResultatValidation(
                 dossier = dossier, regle = "R10",
                 libelle = "Coherence IF fournisseur entre documents",
-                statut = if (normalizedIfs.size <= 1) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "IF trouves: ${rawIfs.joinToString(", ").ifEmpty { "non renseigne" }}"
+                statut = statut,
+                valeurAttendue = ifFacture ?: "Absent de la facture",
+                valeurTrouvee = ifArf ?: "Absent de l'attestation fiscale",
+                detail = when (statut) {
+                    StatutCheck.AVERTISSEMENT -> "IF absent dans ${if (ifFacture == null) "la facture" else "l'attestation fiscale"}"
+                    StatutCheck.NON_CONFORME -> "IF differents: facture=$ifFacture, attestation=$ifArf"
+                    else -> "IF identiques"
+                }
             )
         }
 
         // R11 — Coherence RIB : collecte tous les RIBs de toutes les factures + OP
         if (allFactures.isNotEmpty() && op != null) {
-            val allFactureRibs = allFactures.mapNotNull { f ->
-                f.rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
-            }.distinct()
-            // Also check donneesExtraites.ribs arrays for multi-RIB documents
+            val allFactureRibs = allFactures.mapNotNull { f -> normalizeRib(f.rib) }.distinct()
             val allFactureRibsFromJson = allFactures.mapNotNull { f ->
                 @Suppress("UNCHECKED_CAST")
                 (f.document.donneesExtraites?.get("ribs") as? List<String>)
-            }.flatten().map { it.replace(WHITESPACE_RE, "") }.filter { it.isNotBlank() }.distinct()
+            }.flatten().mapNotNull { normalizeRib(it) }.distinct()
             val combinedFactureRibs = (allFactureRibs + allFactureRibsFromJson).distinct()
 
-            val ribOp = op.rib?.replace(WHITESPACE_RE, "")
-            val opRibs = listOfNotNull(ribOp) +
+            val opRibs = listOfNotNull(normalizeRib(op.rib)) +
                 ((@Suppress("UNCHECKED_CAST") (op.document.donneesExtraites?.get("ribs") as? List<String>))
-                    ?.map { it.replace(WHITESPACE_RE, "") }?.filter { it.isNotBlank() } ?: emptyList())
+                    ?.mapNotNull { normalizeRib(it) } ?: emptyList())
             val allOpRibs = opRibs.distinct()
 
             val hasMatch = combinedFactureRibs.any { fr -> allOpRibs.any { or -> fr == or } }

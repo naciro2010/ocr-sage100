@@ -91,8 +91,8 @@ class DossierService(
             DossierListResponse(
                 id = row[0] as UUID,
                 reference = row[1] as String,
-                type = row[2] as DossierType,
-                statut = row[3] as StatutDossier,
+                type = if (row[2] is DossierType) row[2] as DossierType else DossierType.valueOf(row[2].toString()),
+                statut = if (row[3] is StatutDossier) row[3] as StatutDossier else StatutDossier.valueOf(row[3].toString()),
                 fournisseur = row[4] as? String,
                 description = row[5] as? String,
                 montantTtc = row[6] as? BigDecimal,
@@ -154,6 +154,15 @@ class DossierService(
         }
         require(request.statut in allowed) {
             "Transition ${dossier.statut} -> ${request.statut} non autorisee. Transitions possibles: $allowed"
+        }
+        if (request.statut == StatutDossier.VALIDE) {
+            val criticalRules = setOf("R04", "R07", "R11", "R01", "R16")
+            val blockers = dossier.resultatsValidation
+                .filter { it.regle in criticalRules && it.statut == StatutCheck.NON_CONFORME }
+                .map { "${it.regle}: ${it.libelle}" }
+            require(blockers.isEmpty()) {
+                "Validation bloquee — regles critiques non conformes: ${blockers.joinToString("; ")}"
+            }
         }
         dossier.statut = request.statut
         if (request.statut == StatutDossier.VALIDE) {
@@ -748,8 +757,8 @@ class DossierService(
             DossierListResponse(
                 id = row[0] as UUID,
                 reference = row[1] as String,
-                type = row[2] as DossierType,
-                statut = row[3] as StatutDossier,
+                type = if (row[2] is DossierType) row[2] as DossierType else DossierType.valueOf(row[2].toString()),
+                statut = if (row[3] is StatutDossier) row[3] as StatutDossier else StatutDossier.valueOf(row[3].toString()),
                 fournisseur = row[4] as? String,
                 description = row[5] as? String,
                 montantTtc = row[6] as? BigDecimal,
