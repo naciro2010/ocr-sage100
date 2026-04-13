@@ -64,6 +64,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
 interface DocumentRepository : JpaRepository<Document, UUID> {
     fun findByDossierId(dossierId: UUID): List<Document>
     fun findByDossierIdAndTypeDocument(dossierId: UUID, type: TypeDocument): Document?
+    fun countByDossierId(dossierId: UUID): Long
 }
 
 interface FactureRepository : JpaRepository<Facture, UUID> {
@@ -102,6 +103,8 @@ interface AttestationFiscaleRepository : JpaRepository<AttestationFiscale, UUID>
 
 interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID> {
     fun findByDossierId(dossierId: UUID): List<ResultatValidation>
+    fun countByDossierId(dossierId: UUID): Long
+    fun countByDossierIdAndStatut(dossierId: UUID, statut: StatutCheck): Long
     fun deleteByDossierId(dossierId: UUID)
 }
 

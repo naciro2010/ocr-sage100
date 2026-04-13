@@ -88,8 +88,6 @@ class DossierService(
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
         val dossier = getDossier(id)
-        val nbDocs = documentRepo.findByDossierId(id).size
-        val results = resultatRepo.findByDossierId(id)
         return DossierSummaryResponse(
             id = dossier.id!!, reference = dossier.reference,
             type = dossier.type, statut = dossier.statut,
@@ -98,9 +96,9 @@ class DossierService(
             montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
             dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
             validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            nbDocuments = nbDocs,
-            nbChecksConformes = results.count { it.statut == StatutCheck.CONFORME },
-            nbChecksTotal = results.size
+            nbDocuments = documentRepo.countByDossierId(id).toInt(),
+            nbChecksConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt(),
+            nbChecksTotal = resultatRepo.countByDossierId(id).toInt()
         )
     }
 
@@ -111,17 +109,21 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun listDocumentsWithData(dossierId: UUID): Map<String, Any?> {
-        val dossier = getDossierFull(dossierId)
+        val docs = documentRepo.findByDossierId(dossierId)
+        val factures = factureRepo.findAllByDossierId(dossierId)
+
+        fun docData(type: TypeDocument) = docs.find { it.typeDocument == type }?.donneesExtraites
+
         return mapOf(
-            "documents" to dossier.documents.map { it.toResponse() },
-            "factures" to dossier.factures.map { factureToMap(it) },
-            "bonCommande" to dossier.bonCommande?.document?.donneesExtraites,
-            "contratAvenant" to dossier.contratAvenant?.document?.donneesExtraites,
-            "ordrePaiement" to dossier.ordrePaiement?.document?.donneesExtraites,
-            "checklistAutocontrole" to dossier.checklistAutocontrole?.document?.donneesExtraites,
-            "tableauControle" to dossier.tableauControle?.document?.donneesExtraites,
-            "pvReception" to dossier.pvReception?.document?.donneesExtraites,
-            "attestationFiscale" to dossier.attestationFiscale?.document?.donneesExtraites,
+            "documents" to docs.map { it.toResponse() },
+            "factures" to factures.map { factureToMap(it) },
+            "bonCommande" to docData(TypeDocument.BON_COMMANDE),
+            "contratAvenant" to docData(TypeDocument.CONTRAT_AVENANT),
+            "ordrePaiement" to docData(TypeDocument.ORDRE_PAIEMENT),
+            "checklistAutocontrole" to docData(TypeDocument.CHECKLIST_AUTOCONTROLE),
+            "tableauControle" to docData(TypeDocument.TABLEAU_CONTROLE),
+            "pvReception" to docData(TypeDocument.PV_RECEPTION),
+            "attestationFiscale" to docData(TypeDocument.ATTESTATION_FISCALE),
         )
     }
 
