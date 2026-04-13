@@ -19,7 +19,7 @@ export default function Login({ onLogin }: Props) {
     try {
       const res = await fetch(`${API_URL}/api/auth/login`, {
         method: 'POST',
-        headers: { 'Content-Type': 'application/json', 'Authorization': 'Basic ' + btoa(`${email}:${password}`) },
+        headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ email, password }),
       })
       if (!res.ok) {
