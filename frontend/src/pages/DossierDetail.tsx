@@ -1,5 +1,8 @@
 import { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
+
+const EMPTY_DOCS: never[] = []
+const EMPTY_RESULTS: never[] = []
 import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog } from '../api/dossierApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
 import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
@@ -261,9 +264,9 @@ export default function DossierDetail() {
     if (!summary) return null
     return {
       ...summary,
-      documents: docsData?.documents || [],
-      facture: docsData?.factures?.[0] || null,
-      factures: docsData?.factures || [],
+      documents: docsData?.documents ?? EMPTY_DOCS,
+      facture: docsData?.factures?.[0] ?? null,
+      factures: docsData?.factures ?? EMPTY_DOCS,
       bonCommande: docsData?.bonCommande || null,
       contratAvenant: docsData?.contratAvenant || null,
       ordrePaiement: docsData?.ordrePaiement || null,
@@ -271,7 +274,7 @@ export default function DossierDetail() {
       tableauControle: docsData?.tableauControle || null,
       pvReception: docsData?.pvReception || null,
       attestationFiscale: docsData?.attestationFiscale || null,
-      resultatsValidation: validationResults,
+      resultatsValidation: validationResults.length > 0 ? validationResults : EMPTY_RESULTS,
     }
   }, [summary, docsData, validationResults])
 

@@ -148,15 +148,20 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
       .finally(() => setSaving(null))
   }, [dossier.id, onRefreshResults, toast])
 
-  const { sysOk, sysKo, autoOk, autoKo } = useMemo(() => ({
-    sysOk: systemResults.filter(r => r.statut === 'CONFORME').length,
-    sysKo: systemResults.filter(r => r.statut === 'NON_CONFORME').length,
-    autoOk: autocontroleItems.filter(i => i.status === 'ok').length,
-    autoKo: autocontroleItems.filter(i => i.status === 'ko').length,
-  }), [systemResults, autocontroleItems])
-
-  const needsReviewCount = useMemo(() =>
-    systemResults.filter(r => needsHumanReview(r)).length, [systemResults])
+  const { sysOk, sysKo, needsReviewCount, autoOk, autoKo } = useMemo(() => {
+    let ok = 0, ko = 0, review = 0
+    for (const r of systemResults) {
+      if (r.statut === 'CONFORME') ok++
+      else if (r.statut === 'NON_CONFORME') ko++
+      if (needsHumanReview(r)) review++
+    }
+    let aOk = 0, aKo = 0
+    for (const i of autocontroleItems) {
+      if (i.status === 'ok') aOk++
+      else if (i.status === 'ko') aKo++
+    }
+    return { sysOk: ok, sysKo: ko, needsReviewCount: review, autoOk: aOk, autoKo: aKo }
+  }, [systemResults, autocontroleItems])
 
   const systemCollapsed = collapsedBlocks.has('system')
   const autoCollapsed = collapsedBlocks.has('autocontrole')

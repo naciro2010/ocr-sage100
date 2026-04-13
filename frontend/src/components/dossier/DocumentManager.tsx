@@ -177,10 +177,19 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
           </div>
         )}
         <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fill, minmax(210px, 1fr))', gap: 10, marginBottom: 12 }}>
-          {dossier.documents.map((doc) => {
-            const sameTypeDocs = dossier.documents.filter(d => d.typeDocument === doc.typeDocument)
-            const isMulti = sameTypeDocs.length > 1
-            const multiIdx = isMulti ? sameTypeDocs.indexOf(doc) + 1 : 0
+          {(() => {
+            // Precompute type counts to avoid O(n^2) in render
+            const typeCounts = new Map<string, number>()
+            const typeIndexes = new Map<string, number>()
+            for (const d of dossier.documents) {
+              typeCounts.set(d.typeDocument, (typeCounts.get(d.typeDocument) || 0) + 1)
+            }
+            return dossier.documents.map((doc) => {
+            const count = typeCounts.get(doc.typeDocument) || 1
+            const isMulti = count > 1
+            const idx = (typeIndexes.get(doc.typeDocument) || 0) + 1
+            typeIndexes.set(doc.typeDocument, idx)
+            const multiIdx = isMulti ? idx : 0
             return (
             <div key={doc.id} data-doc-id={doc.id} className={`doc-card ${selectedDoc?.id === doc.id ? 'selected' : ''}`}
               onClick={() => { setSelectedDoc(selectedDoc?.id === doc.id ? null : doc); setShowPdf(false); setShowExtracted(false) }}>
@@ -190,7 +199,7 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
                   onClick={e => e.stopPropagation()} onChange={e => { e.stopPropagation(); handleChangeType(doc.id, e.target.value) }}>
                   {Object.entries(TYPE_DOCUMENT_LABELS).map(([k, v]) => <option key={k} value={k}>{v}</option>)}
                 </select>
-                {isMulti && <span className="tag" style={{ fontSize: 8, flexShrink: 0 }}>{multiIdx}/{sameTypeDocs.length}</span>}
+                {isMulti && <span className="tag" style={{ fontSize: 8, flexShrink: 0 }}>{multiIdx}/{count}</span>}
               </div>
               <div style={{ fontSize: 11, color: 'var(--ink-50)', marginBottom: 6 }}>{doc.nomFichier}</div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 6 }}>
@@ -210,7 +219,8 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
               </div>
             </div>
             )
-          })}
+          })
+          })()}
 
           <div className="drop-zone" style={{ display: 'flex', flexDirection: 'column', alignItems: 'center', justifyContent: 'center', minHeight: 90, padding: 20 }}
             onClick={() => inputRef.current?.click()}>
