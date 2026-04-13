@@ -3,6 +3,25 @@ import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, Pa
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
 
+// Simple stale-while-revalidate cache
+const apiCache = new Map<string, { data: unknown; ts: number }>()
+const CACHE_TTL = 5000 // 5s
+
+async function cachedFetch<T>(url: string, ttl = CACHE_TTL): Promise<T> {
+  const cached = apiCache.get(url)
+  if (cached && (Date.now() - cached.ts) < ttl) return cached.data as T
+  const res = await apiFetch(url)
+  const data = await handleResponse<T>(res)
+  apiCache.set(url, { data, ts: Date.now() })
+  return data
+}
+
+function invalidateCache(prefix: string) {
+  for (const key of apiCache.keys()) {
+    if (key.includes(prefix)) apiCache.delete(key)
+  }
+}
+
 function authHeaders(): Record<string, string> {
   const auth = localStorage.getItem('recondoc_auth')
   return auth ? { 'Authorization': `Basic ${auth}` } : {}
@@ -65,9 +84,8 @@ export interface DossierSummary {
   nbDocuments: number; nbChecksConformes: number; nbChecksTotal: number
 }
 
-export async function getDossierSummary(id: string, signal?: AbortSignal): Promise<DossierSummary> {
-  const res = await apiFetch(`${BASE}/${id}/summary`, { signal })
-  return handleResponse(res)
+export async function getDossierSummary(id: string): Promise<DossierSummary> {
+  return cachedFetch(`${BASE}/${id}/summary`, 3000)
 }
 
 export interface DocumentsWithData {
@@ -82,9 +100,8 @@ export interface DocumentsWithData {
   attestationFiscale: Record<string, unknown> | null
 }
 
-export async function getDocumentsWithData(id: string, signal?: AbortSignal): Promise<DocumentsWithData> {
-  const res = await apiFetch(`${BASE}/${id}/documents`, { signal })
-  return handleResponse(res)
+export async function getDocumentsWithData(id: string): Promise<DocumentsWithData> {
+  return cachedFetch(`${BASE}/${id}/documents`, 5000)
 }
 
 export async function updateDossier(id: string, data: Record<string, unknown>): Promise<DossierDetail> {
@@ -102,6 +119,7 @@ export async function deleteDossier(id: string): Promise<void> {
 }
 
 export async function changeStatut(id: string, statut: string, motifRejet?: string, validePar?: string): Promise<DossierDetail> {
+  invalidateCache(id)
   const res = await apiFetch(`${BASE}/${id}/statut`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
@@ -118,13 +136,13 @@ export async function uploadDocuments(dossierId: string, files: File[]): Promise
 }
 
 export async function validateDossier(id: string): Promise<ValidationResult[]> {
+  invalidateCache(id)
   const res = await apiFetch(`${BASE}/${id}/valider`, { method: 'POST' })
   return handleResponse(res)
 }
 
 export async function getValidationResults(id: string): Promise<ValidationResult[]> {
-  const res = await apiFetch(`${BASE}/${id}/resultats-validation`)
-  return handleResponse(res)
+  return cachedFetch(`${BASE}/${id}/resultats-validation`, 3000)
 }
 
 export async function reprocessDocument(dossierId: string, docId: string): Promise<DocumentInfo> {
@@ -193,6 +211,7 @@ export async function openWithAuth(url: string) {
 }
 
 export async function updateValidationResult(dossierId: string, resultId: string, updates: { statut?: string; commentaire?: string; corrigePar?: string }): Promise<ValidationResult> {
+  invalidateCache(dossierId)
   const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },

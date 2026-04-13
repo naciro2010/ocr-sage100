@@ -55,8 +55,11 @@ class DossierController(
     }
 
     @GetMapping("/{id}/summary")
-    fun getSummary(@PathVariable id: UUID): DossierSummaryResponse {
-        return dossierService.getDossierSummary(id)
+    fun getSummary(@PathVariable id: UUID): ResponseEntity<DossierSummaryResponse> {
+        val summary = dossierService.getDossierSummary(id)
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=2")
+            .body(summary)
     }
 
     @PutMapping("/{id}")

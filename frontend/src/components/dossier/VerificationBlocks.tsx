@@ -133,14 +133,19 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     })
   }, [])
 
-  const handleCorrect = useCallback(async (resultId: string, newStatut: string) => {
+  const handleCorrect = useCallback((resultId: string, newStatut: string) => {
     setSaving(resultId)
-    try {
-      await updateValidationResult(dossier.id, resultId, { statut: newStatut })
-      toast('success', 'Statut corrige')
-      if (onRefreshResults) onRefreshResults()
-    } catch (e) { toast('error', e instanceof Error ? e.message : 'Erreur de correction') }
-    finally { setSaving(null) }
+    // Optimistic: fire API in background, don't block UI
+    updateValidationResult(dossier.id, resultId, { statut: newStatut })
+      .then(() => {
+        toast('success', 'Corrige')
+        if (onRefreshResults) onRefreshResults()
+      })
+      .catch(e => {
+        toast('error', e instanceof Error ? e.message : 'Erreur de correction')
+        if (onRefreshResults) onRefreshResults() // revert optimistic
+      })
+      .finally(() => setSaving(null))
   }, [dossier.id, onRefreshResults, toast])
 
   const { sysOk, sysKo, autoOk, autoKo } = useMemo(() => ({
