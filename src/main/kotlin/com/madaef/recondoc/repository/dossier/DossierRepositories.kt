@@ -24,6 +24,17 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     fun findByIdWithAll(id: UUID): Optional<DossierPaiement>
 
     @Query("""
+        SELECT d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
+               d.montantTtc, d.montantHt, d.montantTva, d.montantNetAPayer,
+               d.dateCreation, d.dateValidation, d.validePar, d.motifRejet,
+               (SELECT COUNT(doc) FROM Document doc WHERE doc.dossier.id = d.id),
+               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier.id = d.id AND rv.statut = 'CONFORME'),
+               (SELECT COUNT(rv) FROM ResultatValidation rv WHERE rv.dossier.id = d.id)
+        FROM DossierPaiement d WHERE d.id = :id
+    """)
+    fun findSummaryById(id: UUID): Array<Any>?
+
+    @Query("""
         SELECT d.statut AS statut, COUNT(d) AS cnt, COALESCE(SUM(d.montantTtc), 0) AS total
         FROM DossierPaiement d GROUP BY d.statut
     """)

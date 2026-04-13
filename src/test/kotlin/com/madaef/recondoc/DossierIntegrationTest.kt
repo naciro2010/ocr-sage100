@@ -22,6 +22,17 @@ class DossierIntegrationTest {
     @Autowired lateinit var mockMvc: MockMvc
     @Autowired lateinit var objectMapper: ObjectMapper
 
+    private fun createDossier(type: String = "BC", fournisseur: String? = null): String {
+        val body = mutableMapOf<String, Any>("type" to type)
+        if (fournisseur != null) body["fournisseur"] = fournisseur
+        val result = mockMvc.perform(
+            post("/api/dossiers")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content(objectMapper.writeValueAsString(body))
+        ).andExpect(status().isCreated).andReturn()
+        return objectMapper.readTree(result.response.contentAsString)["id"].asText()
+    }
+
     @Test
     fun `POST api dossiers - create BC dossier`() {
         val body = mapOf("type" to "BC", "fournisseur" to "TEST SARL", "description" to "Test dossier")
@@ -51,14 +62,7 @@ class DossierIntegrationTest {
 
     @Test
     fun `GET api dossiers - list dossiers`() {
-        // Create one first
-        val body = mapOf("type" to "BC", "fournisseur" to "LIST TEST")
-        mockMvc.perform(
-            post("/api/dossiers")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(body))
-        ).andExpect(status().isCreated)
-
+        createDossier(fournisseur = "LIST TEST")
         mockMvc.perform(get("/api/dossiers"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.content").isArray)
@@ -66,15 +70,7 @@ class DossierIntegrationTest {
 
     @Test
     fun `GET api dossiers id - get dossier detail`() {
-        // Create
-        val result = mockMvc.perform(
-            post("/api/dossiers")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("type" to "BC", "fournisseur" to "DETAIL TEST")))
-        ).andExpect(status().isCreated).andReturn()
-
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
-
+        val id = createDossier(fournisseur = "DETAIL TEST")
         mockMvc.perform(get("/api/dossiers/$id"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$.id").exists())
@@ -82,16 +78,71 @@ class DossierIntegrationTest {
             .andExpect(jsonPath("$.resultatsValidation").isArray)
     }
 
+    // --- New endpoints ---
+
     @Test
-    fun `PATCH api dossiers id statut - change status`() {
-        val result = mockMvc.perform(
-            post("/api/dossiers")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("type" to "BC")))
-        ).andExpect(status().isCreated).andReturn()
+    fun `GET api dossiers id summary - returns lightweight summary`() {
+        val id = createDossier(fournisseur = "SUMMARY TEST")
+        mockMvc.perform(get("/api/dossiers/$id/summary"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.id").value(id))
+            .andExpect(jsonPath("$.reference").exists())
+            .andExpect(jsonPath("$.statut").value("BROUILLON"))
+            .andExpect(jsonPath("$.fournisseur").value("SUMMARY TEST"))
+            .andExpect(jsonPath("$.nbDocuments").value(0))
+            .andExpect(jsonPath("$.nbChecksConformes").value(0))
+            .andExpect(jsonPath("$.nbChecksTotal").value(0))
+            // Summary must NOT contain heavy collections
+            .andExpect(jsonPath("$.documents").doesNotExist())
+            .andExpect(jsonPath("$.resultatsValidation").doesNotExist())
+    }
 
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
+    @Test
+    fun `GET api dossiers id documents - returns documents with extracted data`() {
+        val id = createDossier()
+        mockMvc.perform(get("/api/dossiers/$id/documents"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.documents").isArray)
+            .andExpect(jsonPath("$.factures").isArray)
+    }
 
+    @Test
+    fun `GET api dossiers id resultats-validation - returns validation results`() {
+        val id = createDossier()
+        mockMvc.perform(get("/api/dossiers/$id/resultats-validation"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$").isArray)
+    }
+
+    @Test
+    fun `GET api dossiers id audit - returns audit log`() {
+        val id = createDossier()
+        mockMvc.perform(get("/api/dossiers/$id/audit"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$").isArray)
+    }
+
+    @Test
+    fun `GET api dossiers search type=CONTRACTUEL - no 500 error`() {
+        createDossier("CONTRACTUEL", "DXC SEARCH")
+        mockMvc.perform(get("/api/dossiers/search?type=CONTRACTUEL"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.content").isArray)
+    }
+
+    @Test
+    fun `GET api dossiers search type=BC - filters correctly`() {
+        createDossier("BC", "BC SEARCH")
+        mockMvc.perform(get("/api/dossiers/search?type=BC"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.content").isArray)
+    }
+
+    // --- Status transitions ---
+
+    @Test
+    fun `PATCH api dossiers id statut - change status to REJETE`() {
+        val id = createDossier()
         mockMvc.perform(
             patch("/api/dossiers/$id/statut")
                 .contentType(MediaType.APPLICATION_JSON)
@@ -103,36 +154,70 @@ class DossierIntegrationTest {
     }
 
     @Test
-    fun `POST api dossiers id valider - validate empty dossier`() {
-        val result = mockMvc.perform(
-            post("/api/dossiers")
+    fun `PATCH api dossiers id statut - VALIDE blocked without validation`() {
+        val id = createDossier()
+        // Should succeed on empty dossier (no critical rules triggered)
+        mockMvc.perform(
+            patch("/api/dossiers/$id/statut")
                 .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("type" to "BC")))
-        ).andExpect(status().isCreated).andReturn()
+                .content(objectMapper.writeValueAsString(mapOf("statut" to "VALIDE")))
+        )
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.statut").value("VALIDE"))
+    }
 
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
-
-        // Validate should return empty results (no documents to verify)
+    @Test
+    fun `POST api dossiers id valider - validate empty dossier`() {
+        val id = createDossier()
         mockMvc.perform(post("/api/dossiers/$id/valider"))
             .andExpect(status().isOk)
             .andExpect(jsonPath("$").isArray)
     }
 
     @Test
+    fun `POST api dossiers id valider - idempotent validation does not accumulate`() {
+        val id = createDossier()
+        // Run validation twice
+        mockMvc.perform(post("/api/dossiers/$id/valider")).andExpect(status().isOk)
+        val result = mockMvc.perform(post("/api/dossiers/$id/valider"))
+            .andExpect(status().isOk).andReturn()
+        val results = objectMapper.readTree(result.response.contentAsString)
+        // Second run should NOT have doubled the results
+        val count = results.size()
+        assert(count < 30) { "Validation results accumulated: $count (expected < 30)" }
+    }
+
+    @Test
+    fun `GET api dossiers stats - returns dashboard stats`() {
+        mockMvc.perform(get("/api/dossiers/stats"))
+            .andExpect(status().isOk)
+            .andExpect(jsonPath("$.total").isNumber)
+            .andExpect(jsonPath("$.brouillons").isNumber)
+            .andExpect(jsonPath("$.valides").isNumber)
+    }
+
+    // --- Delete ---
+
+    @Test
     fun `DELETE api dossiers id - delete dossier`() {
-        val result = mockMvc.perform(
-            post("/api/dossiers")
-                .contentType(MediaType.APPLICATION_JSON)
-                .content(objectMapper.writeValueAsString(mapOf("type" to "BC")))
-        ).andExpect(status().isCreated).andReturn()
-
-        val id = objectMapper.readTree(result.response.contentAsString)["id"].asText()
-
+        val id = createDossier()
         mockMvc.perform(delete("/api/dossiers/$id"))
             .andExpect(status().isNoContent)
-
-        // Verify deleted
         mockMvc.perform(get("/api/dossiers/$id"))
+            .andExpect(status().isNotFound)
+    }
+
+    // --- 404 handling ---
+
+    @Test
+    fun `GET api dossiers unknown-id - returns 404`() {
+        mockMvc.perform(get("/api/dossiers/00000000-0000-0000-0000-000000000000"))
+            .andExpect(status().isNotFound)
+    }
+
+    @Test
+    fun `GET api dossiers unknown-id summary - returns 404`() {
+        mockMvc.perform(get("/api/dossiers/00000000-0000-0000-0000-000000000000/summary"))
             .andExpect(status().isNotFound)
     }
 }

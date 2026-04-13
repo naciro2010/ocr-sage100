@@ -87,7 +87,11 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
-        val dossier = getDossier(id)
+        val dossier = dossierRepo.findById(id)
+            .orElseThrow { NoSuchElementException("Dossier not found: $id") }
+        val nbDocs = documentRepo.countByDossierId(id).toInt()
+        val nbConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt()
+        val nbTotal = resultatRepo.countByDossierId(id).toInt()
         return DossierSummaryResponse(
             id = dossier.id!!, reference = dossier.reference,
             type = dossier.type, statut = dossier.statut,
@@ -96,9 +100,7 @@ class DossierService(
             montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
             dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
             validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            nbDocuments = documentRepo.countByDossierId(id).toInt(),
-            nbChecksConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt(),
-            nbChecksTotal = resultatRepo.countByDossierId(id).toInt()
+            nbDocuments = nbDocs, nbChecksConformes = nbConformes, nbChecksTotal = nbTotal
         )
     }
 
@@ -110,13 +112,17 @@ class DossierService(
     @Transactional(readOnly = true)
     fun listDocumentsWithData(dossierId: UUID): Map<String, Any?> {
         val docs = documentRepo.findByDossierId(dossierId)
-        val factures = factureRepo.findAllByDossierId(dossierId)
 
         fun docData(type: TypeDocument) = docs.find { it.typeDocument == type }?.donneesExtraites
+        val factureDocs = docs.filter { it.typeDocument == TypeDocument.FACTURE }
+        val factureDataList = factureDocs.map { doc ->
+            val data = doc.donneesExtraites ?: emptyMap()
+            data + mapOf("documentId" to doc.id?.toString())
+        }
 
         return mapOf(
             "documents" to docs.map { it.toResponse() },
-            "factures" to factures.map { factureToMap(it) },
+            "factures" to factureDataList,
             "bonCommande" to docData(TypeDocument.BON_COMMANDE),
             "contratAvenant" to docData(TypeDocument.CONTRAT_AVENANT),
             "ordrePaiement" to docData(TypeDocument.ORDRE_PAIEMENT),
