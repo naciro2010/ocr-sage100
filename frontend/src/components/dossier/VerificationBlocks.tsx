@@ -21,13 +21,21 @@ function needsHumanReview(r: ValidationResult): boolean {
   return false
 }
 
+function sourceLabel(source: string): string {
+  if (source === 'deterministe' || source === 'regex' || source === 'DETERMINISTE') return 'Verifie'
+  if (source === 'llm' || source === 'ia') return 'Extrait par IA'
+  if (source === 'CHECKLIST') return 'Autocontrole'
+  return 'Systeme'
+}
+
 function confidenceLevel(r: ValidationResult): { label: string; color: string; pct: number } {
-  if (r.source === 'deterministe' || r.source === 'regex') return { label: 'Deterministe', color: 'var(--info)', pct: 100 }
+  if (r.source === 'deterministe' || r.source === 'regex' || r.source === 'DETERMINISTE') return { label: 'Fiable', color: 'var(--info)', pct: 100 }
   if (r.source === 'llm' || r.source === 'ia') {
-    if (r.statut === 'CONFORME') return { label: 'IA — confiance elevee', color: 'var(--success)', pct: 85 }
-    return { label: 'IA — verification recommandee', color: 'var(--warning)', pct: 60 }
+    if (r.statut === 'CONFORME') return { label: 'Fiable', color: 'var(--success)', pct: 85 }
+    return { label: 'A verifier', color: 'var(--warning)', pct: 60 }
   }
-  return { label: 'Systeme', color: 'var(--ink-40)', pct: 90 }
+  if (r.source === 'CHECKLIST') return { label: 'A verifier', color: 'var(--warning)', pct: 70 }
+  return { label: 'Fiable', color: 'var(--ink-40)', pct: 90 }
 }
 
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onNavigateDoc }: Props) {
@@ -139,7 +147,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
             )}
             {hasResults && needsReviewCount > 0 && (
               <span className="vblock-review-badge">
-                <User size={10} /> {needsReviewCount} a revoir
+                <User size={10} /> {needsReviewCount} a verifier
               </span>
             )}
           </div>
@@ -188,14 +196,14 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
                           {/* Source badge */}
                           {r?.source && (
-                            <span className={`vblock-source-tag ${r.source === 'deterministe' || r.source === 'regex' ? 'deterministe' : 'llm'}`}>
-                              {r.source === 'deterministe' || r.source === 'regex' ? 'Exact' : 'IA'}
+                            <span className={`vblock-source-tag ${needsHumanReview(r) ? 'llm' : 'deterministe'}`}>
+                              {sourceLabel(r.source)}
                             </span>
                           )}
 
                           {/* Review indicator */}
                           {review && (
-                            <span className="vblock-review-icon" title="Verification humaine recommandee">
+                            <span className="vblock-review-icon" title="A verifier manuellement">
                               <AlertTriangle size={12} />
                             </span>
                           )}
@@ -249,7 +257,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             <div className="vblock-expand-meta">
                               {r?.source && (
                                 <span className="vblock-expand-meta-item">
-                                  Source : <strong>{r.source}</strong>
+                                  Source : <strong>{sourceLabel(r.source)}</strong>
                                 </span>
                               )}
                               {conf && (
@@ -262,7 +270,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                               )}
                               {review && (
                                 <span className="vblock-expand-meta-item vblock-expand-review">
-                                  <AlertTriangle size={11} /> Verification humaine recommandee
+                                  <AlertTriangle size={11} /> A verifier manuellement
                                 </span>
                               )}
                               {r?.commentaire && (
@@ -394,7 +402,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                         )}
                         <div className="vblock-expand-meta">
                           <span className="vblock-expand-meta-item">
-                            Source : <strong>{hasAutocontrole ? 'Document autocontrole (OCR/IA)' : 'Regle systeme'}</strong>
+                            Source : <strong>{hasAutocontrole ? 'Autocontrole — extrait du document' : 'Verifie par le systeme'}</strong>
                           </span>
                           <span className="vblock-expand-meta-item">
                             Confiance : <strong style={{ color: hasAutocontrole ? 'var(--warning)' : 'var(--info)' }}>{hasAutocontrole ? '70%' : '100%'}</strong>
@@ -404,7 +412,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           </span>
                           {hasAutocontrole && (
                             <span className="vblock-expand-meta-item vblock-expand-review">
-                              <AlertTriangle size={11} /> Verification humaine recommandee (extraction IA)
+                              <AlertTriangle size={11} /> A verifier manuellement (extraction IA)
                             </span>
                           )}
                         </div>
