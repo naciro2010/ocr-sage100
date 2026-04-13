@@ -22,6 +22,8 @@ import javax.imageio.ImageIO
  * 1. Tika       : extraction texte natif (PDF numeriques) - instantane
  * 2. PaddleOCR  : OCR deep learning via microservice Python - meilleure precision
  * 3. Tesseract  : OCR local fallback si PaddleOCR indisponible
+ *
+ * Strategie : combiner les resultats des moteurs pour maximiser le contenu extrait.
  */
 @Service
 class OcrService(
@@ -32,7 +34,7 @@ class OcrService(
     @Value("\${ocr.tesseract.languages:fra+ara}") private val languages: String,
     @Value("\${ocr.tesseract.dpi:300}") private val dpi: Int,
     @Value("\${ocr.tesseract.oem:1}") private val oem: Int,
-    @Value("\${ocr.confidence-threshold:30}") private val confidenceThreshold: Int
+    @Value("\${ocr.confidence-threshold:25}") private val confidenceThreshold: Int
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -61,7 +63,6 @@ class OcrService(
             log.info("Tesseract OCR available (dataPath={}, languages={})", resolvedTessDataPath, languages)
         }
 
-        // PaddleOCR check is async-friendly; we'll re-check on first use
         try {
             paddleAvailable = paddleOcrClient.isAvailable()
             if (paddleAvailable) {
@@ -81,7 +82,7 @@ class OcrService(
         val pageCount: Int = 1
     )
 
-    enum class OcrEngine { TIKA, TESSERACT, PADDLEOCR, TIKA_PLUS_TESSERACT }
+    enum class OcrEngine { TIKA, TESSERACT, PADDLEOCR, TIKA_PLUS_TESSERACT, COMBINED }
 
     fun extractText(inputStream: InputStream, fileName: String): String {
         return extractWithDetails(inputStream, fileName, null).text
@@ -95,84 +96,105 @@ class OcrService(
         val tikaWords = countSignificantWords(tikaText)
         log.info("Tika extracted {} chars ({} words) from {}", tikaText.length, tikaWords, fileName)
 
-        // Only skip OCR if Tika found substantial text (>100 words = truly native PDF)
-        if (tikaWords >= 100) {
+        // Si Tika a trouve beaucoup de texte natif, c'est un PDF numerique
+        if (tikaWords >= 200) {
             log.info("Tika extraction rich for {} ({}+ words), skipping OCR", fileName, tikaWords)
             return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = countPages(filePath))
         }
 
-        // Phase 2: Always try PaddleOCR if available (even if Tika found some text)
+        // Phase 2: PaddleOCR (toujours tenter si disponible)
+        var paddleResult: OcrResult? = null
         if (filePath != null) {
-            val paddleResult = tryPaddleOcr(filePath)
+            paddleResult = tryPaddleOcr(filePath)
             if (paddleResult != null) {
-                // Keep the result with more content
                 val paddleWords = countSignificantWords(paddleResult.text)
+                log.info("PaddleOCR: {} words, {:.1f}% confidence for {}", paddleWords, paddleResult.confidence, fileName)
+
+                // Combiner Tika + Paddle si les deux ont du contenu
+                if (tikaWords >= 20 && paddleWords >= 20) {
+                    val combined = mergeTexts(tikaText, paddleResult.text)
+                    val combinedWords = countSignificantWords(combined)
+                    if (combinedWords > paddleWords && combinedWords > tikaWords) {
+                        log.info("Combined Tika+Paddle: {} words (was Tika={}, Paddle={})", combinedWords, tikaWords, paddleWords)
+                        return OcrResult(text = combined, engine = OcrEngine.COMBINED, confidence = paddleResult.confidence, pageCount = paddleResult.pageCount)
+                    }
+                }
+
+                // Sinon garder le meilleur
                 if (paddleWords > tikaWords) {
-                    log.info("PaddleOCR better than Tika ({} vs {} words) for {}", paddleWords, tikaWords, fileName)
                     return paddleResult
                 }
-                if (tikaWords > 0) {
-                    log.info("Tika better than PaddleOCR ({} vs {} words) for {}", tikaWords, paddleWords, fileName)
+                if (tikaWords >= 30) {
                     return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = paddleResult.pageCount)
                 }
                 return paddleResult
             }
         }
 
-        // Phase 3: Tesseract fallback
+        // Phase 3: Tesseract fallback (si PaddleOCR indisponible ou echoue)
         if (tesseractAvailable && filePath != null) {
             val tessResult = tryTesseract(filePath, fileName, tikaText)
-            if (tessResult != null) return tessResult
+            if (tessResult != null) {
+                val tessWords = countSignificantWords(tessResult.text)
+                // Combiner Tika + Tesseract
+                if (tikaWords >= 10 && tessWords >= 10) {
+                    val combined = mergeTexts(tikaText, tessResult.text)
+                    val combinedWords = countSignificantWords(combined)
+                    if (combinedWords > tessWords && combinedWords > tikaWords) {
+                        return OcrResult(text = combined, engine = OcrEngine.TIKA_PLUS_TESSERACT, pageCount = tessResult.pageCount)
+                    }
+                }
+                return tessResult
+            }
         }
 
-        // Dernier recours
         return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = 1)
     }
 
     /**
-     * Appelle le microservice PaddleOCR. Retourne null si indisponible.
-     * Essaie d'abord en francais, puis en arabe si le resultat est pauvre.
+     * PaddleOCR avec fallback arabe si le francais est pauvre.
      */
     private fun tryPaddleOcr(filePath: Path): OcrResult? {
-        // Re-check availability (le service peut demarrer apres le backend)
         if (!paddleAvailable) {
-            try {
-                paddleAvailable = paddleOcrClient.isAvailable()
-            } catch (_: Exception) { return null }
+            try { paddleAvailable = paddleOcrClient.isAvailable() } catch (_: Exception) { return null }
         }
         if (!paddleAvailable) return null
 
         return try {
-            // Primary attempt with French
             val result = paddleOcrClient.ocr(filePath, "fr")
             val normalized = textNormalizationService.normalize(result.text)
             val frWords = countSignificantWords(normalized)
 
-            // If French yielded very little, the service already tries Arabic internally
+            // Si le francais est pauvre, tenter en arabe
+            if (frWords < 15) {
+                try {
+                    val arResult = paddleOcrClient.ocr(filePath, "ar")
+                    val arNormalized = textNormalizationService.normalize(arResult.text)
+                    val arWords = countSignificantWords(arNormalized)
+                    if (arWords > frWords) {
+                        log.info("PaddleOCR Arabic better ({} vs {} words)", arWords, frWords)
+                        // Combiner fr + ar
+                        val combined = if (frWords > 5) mergeTexts(normalized, arNormalized) else arNormalized
+                        return OcrResult(text = combined, engine = OcrEngine.PADDLEOCR, confidence = arResult.confidence * 100, pageCount = arResult.pageCount)
+                    }
+                } catch (e: Exception) {
+                    log.debug("PaddleOCR Arabic fallback failed: {}", e.message)
+                }
+            }
+
             if (normalized.isBlank()) {
                 log.warn("PaddleOCR returned empty text, falling back")
                 return null
             }
 
-            log.info("PaddleOCR: {} chars, {} words, {} pages, {:.1f}% confidence",
-                normalized.length, frWords, result.pageCount, result.confidence * 100)
-
-            OcrResult(
-                text = normalized,
-                engine = OcrEngine.PADDLEOCR,
-                confidence = result.confidence * 100,
-                pageCount = result.pageCount
-            )
+            OcrResult(text = normalized, engine = OcrEngine.PADDLEOCR, confidence = result.confidence * 100, pageCount = result.pageCount)
         } catch (e: Exception) {
-            log.warn("PaddleOCR call failed, falling back to Tesseract: {}", e.message)
-            paddleAvailable = false // disable until next health check
+            log.warn("PaddleOCR call failed: {}", e.message)
+            paddleAvailable = false
             null
         }
     }
 
-    /**
-     * Tesseract OCR local avec multi-PSM et preprocessing.
-     */
     private fun tryTesseract(filePath: Path, fileName: String, tikaText: String): OcrResult? {
         val isImage = isImageFile(fileName)
         val isPdf = isPdfFile(fileName)
@@ -185,7 +207,6 @@ class OcrService(
 
         if (tesseractResult.text.isBlank()) return null
 
-        // Comparer avec Tika si Tika avait un peu de texte
         if (tikaText.isNotBlank()) {
             val tikaWords = countSignificantWords(tikaText)
             val tessWords = countSignificantWords(tesseractResult.text)
@@ -222,7 +243,19 @@ class OcrService(
                 for (page in 0 until pageCount) {
                     val pageImage = renderer.renderImageWithDPI(page, dpi.toFloat(), ImageType.RGB)
                     val processedImage = preprocessingService.preprocess(pageImage)
-                    val pageText = ocrWithBestPsm(processedImage)
+                    var pageText = ocrWithBestPsm(processedImage)
+
+                    // DPI adaptatif : si le score est faible, retenter a DPI superieur
+                    if (scoreOcrResult(pageText) < 40 && dpi < 400) {
+                        log.debug("Low OCR score on page {}, retrying at 400 DPI", page)
+                        val highDpiImage = renderer.renderImageWithDPI(page, 400f, ImageType.RGB)
+                        val highDpiProcessed = preprocessingService.preprocess(highDpiImage)
+                        val highDpiText = ocrWithBestPsm(highDpiProcessed)
+                        if (scoreOcrResult(highDpiText) > scoreOcrResult(pageText)) {
+                            pageText = highDpiText
+                        }
+                    }
+
                     allText.append(pageText).append("\n\n")
                 }
 
@@ -247,11 +280,13 @@ class OcrService(
         }
     }
 
+    /**
+     * Essaie les PSMs en ordre, short-circuit si le score est bon.
+     */
     private fun ocrWithBestPsm(image: BufferedImage): String {
         data class PsmResult(val psm: Int, val text: String, val score: Int)
         val results = mutableListOf<PsmResult>()
 
-        // PSM 3: Auto, PSM 6: Uniform block, PSM 4: Column, PSM 11: Sparse text
         for (psm in listOf(3, 6, 4, 11)) {
             try {
                 val tesseract = createTesseract(psm)
@@ -259,31 +294,53 @@ class OcrService(
                 val score = scoreOcrResult(text)
                 if (score >= confidenceThreshold) {
                     results.add(PsmResult(psm, text, score))
-                } else {
-                    log.debug("PSM {} score {} below threshold {}", psm, score, confidenceThreshold)
+                    // Short-circuit : si le score est tres bon, pas besoin de tester les autres PSMs
+                    if (score >= 80) {
+                        log.debug("PSM {} excellent score ({}), short-circuiting", psm, score)
+                        break
+                    }
                 }
             } catch (e: Exception) {
                 log.debug("PSM {} failed: {}", psm, e.message)
             }
         }
 
-        val best = results.maxByOrNull { it.score }
-        if (best != null) {
-            log.debug("Best PSM: {} (score={})", best.psm, best.score)
-        }
-        return best?.text ?: ""
+        return results.maxByOrNull { it.score }?.text ?: ""
     }
 
+    /**
+     * Scoring elargi : plus de keywords financiers marocains + structure detection.
+     */
     private fun scoreOcrResult(text: String): Int {
         if (text.isBlank()) return 0
-        var score = text.split(Regex("\\s+")).count { it.length > 2 } * 2
+        val words = text.split(Regex("\\s+"))
+        var score = words.count { it.length > 2 } * 2
+
+        // Bonus pour les nombres (montants, references)
         score += Regex("\\d{3,}").findAll(text).count() * 5
-        val keywords = listOf("facture", "total", "tva", "montant", "ice", "ht", "ttc",
-            "fournisseur", "client", "date", "rib", "banque", "paiement")
+        // Bonus pour les montants avec decimales
+        score += Regex("\\d+[.,]\\d{2}").findAll(text).count() * 8
+
+        // Keywords elargis — financiers marocains
+        val keywords = listOf(
+            "facture", "total", "tva", "montant", "ice", "ht", "ttc",
+            "fournisseur", "client", "date", "rib", "banque", "paiement",
+            "commande", "contrat", "avenant", "prestation", "reception",
+            "attestation", "fiscale", "identifiant", "patente", "cnss",
+            "dirham", "dh", "mad", "net", "brut", "retenue",
+            "bon", "ordre", "controle", "autocontrole", "checklist",
+            "signature", "visa", "objet", "reference", "numero"
+        )
         for (kw in keywords) {
-            if (text.contains(kw, ignoreCase = true)) score += 10
+            if (text.contains(kw, ignoreCase = true)) score += 8
         }
+
+        // Bonus pour structure de document (lignes avec ":" qui indiquent des champs)
+        score += text.lines().count { it.contains(":") && it.length > 10 } * 3
+
+        // Penalite pour les lignes tres courtes (bruit)
         score -= text.lines().count { it.trim().length in 1..2 } * 3
+
         return score
     }
 
@@ -299,12 +356,31 @@ class OcrService(
         }
     }
 
-    // --- Utils ---
+    // --- Merge ---
 
-    private fun isTextSufficient(text: String): Boolean {
-        if (text.isBlank()) return false
-        return text.split(Regex("\\s+")).count { it.length > 1 } >= 20
+    /**
+     * Fusionne deux textes OCR pour maximiser le contenu.
+     * Garde les lignes uniques des deux sources.
+     */
+    private fun mergeTexts(text1: String, text2: String): String {
+        val lines1 = text1.lines().map { it.trim() }.filter { it.length > 3 }
+        val lines2 = text2.lines().map { it.trim() }.filter { it.length > 3 }
+
+        // Prendre text1 comme base, ajouter les lignes de text2 qui ne sont pas deja presentes
+        val normalized1 = lines1.map { it.lowercase().replace(Regex("\\s+"), " ") }.toSet()
+        val extraLines = lines2.filter { line ->
+            val norm = line.lowercase().replace(Regex("\\s+"), " ")
+            normalized1.none { existing -> existing.contains(norm) || norm.contains(existing) }
+        }
+
+        return if (extraLines.isEmpty()) {
+            text1
+        } else {
+            text1 + "\n\n--- Complement ---\n" + extraLines.joinToString("\n")
+        }
     }
+
+    // --- Utils ---
 
     private fun countSignificantWords(text: String): Int =
         text.split(Regex("\\s+")).count { it.length > 1 }
