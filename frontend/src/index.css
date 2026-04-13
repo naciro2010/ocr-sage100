@@ -1223,6 +1223,18 @@ body {
 
 [data-theme="dark"] .vblock-legend { background: #0c1018; border-color: #1c2333; }
 
+.vblock-doc-links {
+  display: flex; gap: 4px; margin-top: 3px;
+}
+.vblock-doc-link {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-size: 9px; color: var(--accent-deep); background: none;
+  border: none; cursor: pointer; padding: 1px 4px; border-radius: 3px;
+  font-family: var(--font-mono); text-decoration: none;
+  transition: background 0.1s;
+}
+.vblock-doc-link:hover { background: var(--accent-muted); }
+
 .vblock-expand-docs {
   display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px;
   padding-top: 8px; border-top: 1px solid var(--ink-05);

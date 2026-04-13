@@ -360,7 +360,7 @@ export default function DossierDetail() {
           <BlockError message={validationError} onRetry={loadValidation} />
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
           <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
-            <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate}
+            <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate} onRefreshResults={loadValidation}
               onNavigateDoc={(docId) => {
                 const el = document.querySelector(`[data-doc-id="${docId}"]`)
                 if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }

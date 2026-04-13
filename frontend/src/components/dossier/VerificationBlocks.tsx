@@ -11,6 +11,7 @@ interface Props {
   dossier: DossierDetail
   validating: boolean
   onValidate: () => void
+  onRefreshResults?: () => void
   onNavigateDoc?: (docId: string) => void
 }
 
@@ -66,7 +67,7 @@ function Legend() {
   )
 }
 
-export default memo(function VerificationBlocks({ dossier, validating, onValidate, onNavigateDoc }: Props) {
+export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onNavigateDoc }: Props) {
   const { toast } = useToast()
   const [saving, setSaving] = useState<string | null>(null)
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
@@ -136,11 +137,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     setSaving(resultId)
     try {
       await updateValidationResult(dossier.id, resultId, { statut: newStatut })
-      toast('success', 'Corrige')
-      onValidate()
-    } catch { toast('error', 'Erreur') }
+      toast('success', 'Statut corrige')
+      if (onRefreshResults) onRefreshResults()
+    } catch (e) { toast('error', e instanceof Error ? e.message : 'Erreur de correction') }
     finally { setSaving(null) }
-  }, [dossier.id, onValidate, toast])
+  }, [dossier.id, onRefreshResults, toast])
 
   const { sysOk, sysKo, autoOk, autoKo } = useMemo(() => ({
     sysOk: systemResults.filter(r => r.statut === 'CONFORME').length,
@@ -225,29 +226,24 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           <div className="vblock-content">
                             <div className="vblock-label">{item.label}</div>
                             {r?.detail && !isExpanded && <div className="vblock-detail">{r.detail}</div>}
+                            {/* Document sources inline */}
+                            {r?.documentIds && !isExpanded && onNavigateDoc && (
+                              <div className="vblock-doc-links">
+                                {r.documentIds.slice(0, 3).map(docId => {
+                                  const doc = dossier.documents.find(d => d.id === docId)
+                                  return doc ? (
+                                    <button key={docId} className="vblock-doc-link"
+                                      onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
+                                      <FileText size={10} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument]?.split(' ')[0] || doc.typeDocument}
+                                    </button>
+                                  ) : null
+                                })}
+                              </div>
+                            )}
                           </div>
 
-                          {/* Status label — toujours visible */}
-                          <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
-                            {sd.label}
-                          </span>
-
-                          {/* Source badge */}
-                          {r?.source && (
-                            <span className={`vblock-source-tag ${needsHumanReview(r) ? 'llm' : 'deterministe'}`}>
-                              {sourceLabel(r.source)}
-                            </span>
-                          )}
-
-                          {/* Review indicator */}
-                          {review && (
-                            <span className="vblock-review-icon" title="A verifier manuellement">
-                              <AlertTriangle size={12} />
-                            </span>
-                          )}
-
-                          {/* Inline correction */}
-                          {r?.id && (
+                          {/* Inline correction dropdown OR static status badge */}
+                          {r?.id ? (
                             <select
                               className="vblock-select"
                               value={r.statut}
@@ -259,10 +255,20 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             >
                               {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
                             </select>
+                          ) : (
+                            <span className="vblock-status-badge" style={{ background: sd.bg, color: sd.color }}>
+                              {sd.label}
+                            </span>
                           )}
 
                           {r?.statutOriginal && r.statutOriginal !== r.statut && (
                             <span className="vblock-corrected">corrige</span>
+                          )}
+
+                          {review && (
+                            <span className="vblock-review-icon" title="A verifier manuellement">
+                              <AlertTriangle size={12} />
+                            </span>
                           )}
 
                           {isExpanded ? <ChevronUp size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} /> : <ChevronDown size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} />}

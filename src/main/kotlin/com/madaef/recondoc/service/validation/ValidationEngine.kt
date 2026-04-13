@@ -428,6 +428,38 @@ class ValidationEngine(
             }
         }
 
+        // Assign documentIds based on rule -> document type mapping
+        val ruleDocTypes = mapOf(
+            "R01" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R02" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R03" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R03b" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R04" to listOf(TypeDocument.FACTURE, TypeDocument.ORDRE_PAIEMENT),
+            "R05" to listOf(TypeDocument.FACTURE, TypeDocument.ORDRE_PAIEMENT),
+            "R07" to listOf(TypeDocument.FACTURE, TypeDocument.ORDRE_PAIEMENT),
+            "R08" to listOf(TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT, TypeDocument.ORDRE_PAIEMENT),
+            "R09" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
+            "R10" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
+            "R14" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
+            "R15" to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT, TypeDocument.PV_RECEPTION),
+            "R16" to listOf(TypeDocument.FACTURE),
+            "R17" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
+            "R18" to listOf(TypeDocument.ATTESTATION_FISCALE),
+            "R20" to emptyList(),
+        )
+        for (r in results) {
+            if (r.documentIds == null) {
+                val types = ruleDocTypes[r.regle]
+                if (types != null && types.isNotEmpty()) {
+                    r.documentIds = dossier.documents
+                        .filter { it.typeDocument in types }
+                        .mapNotNull { it.id?.toString() }
+                        .joinToString(",")
+                        .ifBlank { null }
+                }
+            }
+        }
+
         // Save all results
         results.forEach { it.dateExecution = LocalDateTime.now() }
         resultatRepository.saveAll(results)
