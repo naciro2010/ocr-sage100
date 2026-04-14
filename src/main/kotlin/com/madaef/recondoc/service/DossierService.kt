@@ -81,8 +81,37 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierResponse(id: UUID): DossierResponse {
-        val dossier = getDossierFull(id)
-        return buildFullResponse(dossier)
+        val dossier = getDossier(id)
+        // Load only what we need: documents, factures, validation results
+        val documents = documentRepo.findByDossierId(id)
+        val factures = factureRepo.findAllByDossierId(id)
+        val resultats = resultatRepo.findByDossierId(id)
+
+        // Build donneesExtraites map by type from documents (avoids loading 7 entity tables)
+        val byType = documents.groupBy { it.typeDocument }
+        fun extractedFor(type: TypeDocument): Map<String, Any?>? =
+            byType[type]?.firstOrNull()?.donneesExtraites
+
+        return DossierResponse(
+            id = dossier.id!!, reference = dossier.reference,
+            type = dossier.type, statut = dossier.statut,
+            fournisseur = dossier.fournisseur, description = dossier.description,
+            montantTtc = dossier.montantTtc, montantHt = dossier.montantHt,
+            montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
+            dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
+            validePar = dossier.validePar, motifRejet = dossier.motifRejet,
+            documents = documents.map { it.toResponse() },
+            facture = factures.firstOrNull()?.let { factureToMap(it) },
+            factures = factures.map { factureToMap(it) },
+            bonCommande = extractedFor(TypeDocument.BON_COMMANDE),
+            contratAvenant = extractedFor(TypeDocument.CONTRAT_AVENANT),
+            ordrePaiement = extractedFor(TypeDocument.ORDRE_PAIEMENT),
+            checklistAutocontrole = extractedFor(TypeDocument.CHECKLIST_AUTOCONTROLE),
+            tableauControle = extractedFor(TypeDocument.TABLEAU_CONTROLE),
+            pvReception = extractedFor(TypeDocument.PV_RECEPTION),
+            attestationFiscale = extractedFor(TypeDocument.ATTESTATION_FISCALE),
+            resultatsValidation = resultats.map { it.toResponse() }
+        )
     }
 
     @Transactional(readOnly = true)
@@ -478,6 +507,14 @@ class DossierService(
         val dossier = getDossierFull(dossierId)
         log.info("Finalizing dossier {} with {} points", dossier.reference, request.points.size)
 
+        // Emit progress so the frontend knows finalization started
+        try {
+            progressService.emit(dossierId, DocumentProgress(
+                documentId = "finalize", nomFichier = "Finalisation",
+                step = "tc", statut = "active", detail = "Generation du Tableau de Controle..."
+            ))
+        } catch (_: Exception) {}
+
         // Generate TC PDF
         val tcPdf = pdfGenerator.generateTC(dossier, request)
         val tcPath = Path.of(uploadDir, dossierId.toString(), "TC_${dossier.reference}.pdf")
@@ -489,6 +526,13 @@ class DossierService(
             statutExtraction = StatutExtraction.EXTRAIT
         )
         documentRepo.save(tcDoc)
+
+        try {
+            progressService.emit(dossierId, DocumentProgress(
+                documentId = "finalize", nomFichier = "Finalisation",
+                step = "op", statut = "active", detail = "Generation de l'Ordre de Paiement..."
+            ))
+        } catch (_: Exception) {}
 
         // Generate OP PDF
         val opPdf = pdfGenerator.generateOP(dossier, request)
@@ -507,6 +551,13 @@ class DossierService(
         dossier.validePar = request.signataire
 
         audit(dossierId, "FINALISATION", "TC + OP generes, signe par ${request.signataire}")
+
+        try {
+            progressService.emit(dossierId, DocumentProgress(
+                documentId = "finalize", nomFichier = "Finalisation",
+                step = "done", statut = "done", detail = "Finalisation terminee"
+            ))
+        } catch (_: Exception) {}
 
         return mapOf(
             "tcDocId" to tcDoc.id.toString(),
