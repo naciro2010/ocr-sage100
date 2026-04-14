@@ -152,11 +152,11 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
               const failed = dossier.documents.filter(doc => doc.statutExtraction === 'ERREUR')
               if (failed.length === 0) { toast('info', 'Aucun document en erreur'); return }
               setUploading(true)
-              for (const doc of failed) {
-                try { await reprocessDocument(id, doc.id) } catch { /* continue */ }
-              }
+              const results = await Promise.allSettled(failed.map(doc => reprocessDocument(id, doc.id)))
+              const ok = results.filter(r => r.status === 'fulfilled').length
+              const ko = results.filter(r => r.status === 'rejected').length
               setUploading(false)
-              toast('info', `${failed.length} document(s) relance(s)`)
+              toast(ko > 0 ? 'warning' : 'info', `${ok} relance(s) ok${ko > 0 ? `, ${ko} echec(s)` : ''}`)
               onReload()
             }}>
               <RefreshCw size={11} /> {uploading ? 'Relance...' : 'Relancer'}

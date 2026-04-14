@@ -3,17 +3,29 @@ import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, Pa
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
 
-// Simple stale-while-revalidate cache
+// Cache + request deduplication
 const apiCache = new Map<string, { data: unknown; ts: number }>()
+const inflightRequests = new Map<string, Promise<unknown>>()
 const CACHE_TTL = 5000 // 5s
 
 async function cachedFetch<T>(url: string, ttl = CACHE_TTL): Promise<T> {
   const cached = apiCache.get(url)
   if (cached && (Date.now() - cached.ts) < ttl) return cached.data as T
-  const res = await apiFetch(url)
-  const data = await handleResponse<T>(res)
-  apiCache.set(url, { data, ts: Date.now() })
-  return data
+
+  // Deduplicate: if same URL is already in-flight, reuse its promise
+  const inflight = inflightRequests.get(url)
+  if (inflight) return inflight as Promise<T>
+
+  const promise = apiFetch(url)
+    .then(res => handleResponse<T>(res))
+    .then(data => {
+      apiCache.set(url, { data, ts: Date.now() })
+      return data
+    })
+    .finally(() => inflightRequests.delete(url))
+
+  inflightRequests.set(url, promise)
+  return promise
 }
 
 function invalidateCache(prefix: string) {
@@ -55,8 +67,8 @@ export async function createDossier(type: DossierType, fournisseur?: string, des
   return handleResponse(res)
 }
 
-export async function listDossiers(page = 0, size = 20): Promise<PageResponse<DossierListItem>> {
-  const res = await apiFetch(`${BASE}?page=${page}&size=${size}`)
+export async function listDossiers(page = 0, size = 20, signal?: AbortSignal): Promise<PageResponse<DossierListItem>> {
+  const res = await apiFetch(`${BASE}?page=${page}&size=${size}`, { signal })
   return handleResponse(res)
 }
 
@@ -219,7 +231,7 @@ export function getDocumentFileUrl(dossierId: string, docId: string): string {
 }
 
 export async function searchDossiers(params: {
-  page?: number, size?: number, statut?: string, type?: string, fournisseur?: string
+  page?: number, size?: number, statut?: string, type?: string, fournisseur?: string, signal?: AbortSignal
 }): Promise<PageResponse<DossierListItem>> {
   const q = new URLSearchParams()
   if (params.page != null) q.set('page', String(params.page))
@@ -227,6 +239,6 @@ export async function searchDossiers(params: {
   if (params.statut) q.set('statut', params.statut)
   if (params.type) q.set('type', params.type)
   if (params.fournisseur) q.set('fournisseur', params.fournisseur)
-  const res = await apiFetch(`${BASE}/search?${q}`)
+  const res = await apiFetch(`${BASE}/search?${q}`, { signal: params.signal })
   return handleResponse(res)
 }

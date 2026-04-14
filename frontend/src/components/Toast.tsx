@@ -23,6 +23,13 @@ export function useToast() {
 
 let nextId = 0
 
+const TOAST_ICONS = {
+  success: <CheckCircle size={16} />,
+  error: <XCircle size={16} />,
+  warning: <AlertTriangle size={16} />,
+  info: <Info size={16} />,
+}
+
 export function ToastProvider({ children }: { children: React.ReactNode }) {
   const [toasts, setToasts] = useState<Toast[]>([])
 
@@ -34,13 +41,6 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
 
   const remove = (id: number) => setToasts(prev => prev.filter(t => t.id !== id))
 
-  const icons = {
-    success: <CheckCircle size={16} />,
-    error: <XCircle size={16} />,
-    warning: <AlertTriangle size={16} />,
-    info: <Info size={16} />,
-  }
-
   return (
     <ToastContext.Provider value={{ toast: addToast }}>
       {children}
@@ -48,7 +48,7 @@ export function ToastProvider({ children }: { children: React.ReactNode }) {
         <div className="toast-container" role="status" aria-live="polite">
           {toasts.map(t => (
             <div key={t.id} className={`toast ${t.type}`}>
-              {icons[t.type]}
+              {TOAST_ICONS[t.type]}
               <span>{t.message}</span>
               <button className="toast-close" onClick={() => remove(t.id)} aria-label="Fermer la notification"><X size={14} /></button>
             </div>

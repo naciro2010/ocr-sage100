@@ -45,8 +45,10 @@ class DossierController(
     }
 
     @GetMapping("/stats")
-    fun stats(): DashboardStatsResponse {
-        return dossierService.getDashboardStats()
+    fun stats(): ResponseEntity<DashboardStatsResponse> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=30")
+            .body(dossierService.getDashboardStats())
     }
 
     @GetMapping("/{id}")
@@ -101,8 +103,10 @@ class DossierController(
     }
 
     @GetMapping("/{id}/resultats-validation")
-    fun getValidationResults(@PathVariable id: UUID): List<ValidationResultResponse> {
-        return dossierService.getValidationResults(id)
+    fun getValidationResults(@PathVariable id: UUID): ResponseEntity<List<ValidationResultResponse>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=5")
+            .body(dossierService.getValidationResults(id))
     }
 
     @PatchMapping("/{id}/validation/{resultId}")
@@ -141,8 +145,10 @@ class DossierController(
     }
 
     @GetMapping("/{id}/audit")
-    fun getAudit(@PathVariable id: UUID): List<AuditLogResponse> {
-        return dossierService.getAuditLog(id)
+    fun getAudit(@PathVariable id: UUID): ResponseEntity<List<AuditLogResponse>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=60")
+            .body(dossierService.getAuditLog(id))
     }
 
     @GetMapping("/{id}/documents/{docId}/file")

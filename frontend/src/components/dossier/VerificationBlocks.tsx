@@ -12,6 +12,7 @@ interface Props {
   validating: boolean
   onValidate: () => void
   onRefreshResults?: () => void
+  onOptimisticUpdate?: (resultId: string, newStatut: string) => void
   onNavigateDoc?: (docId: string) => void
 }
 
@@ -39,16 +40,18 @@ function confidenceLevel(r: ValidationResult): { label: string; color: string; p
   return { label: 'Fiable', color: 'var(--ink-40)', pct: 90 }
 }
 
+const LEGEND_ITEMS = [
+  { icon: '\u2713', bg: '#ecfdf5', color: '#059669', label: 'Conforme' },
+  { icon: '\u2717', bg: '#fef2f2', color: '#dc2626', label: 'Non conforme' },
+  { icon: '!', bg: '#fffbeb', color: '#d97706', label: 'A verifier' },
+  { icon: '\u2014', bg: '#f3f4f6', color: '#6b7280', label: 'Non applicable' },
+] as const
+
 function Legend() {
   return (
     <div className="vblock-legend">
       <span className="vblock-legend-title">Legende :</span>
-      {[
-        { icon: '\u2713', bg: '#ecfdf5', color: '#059669', label: 'Conforme' },
-        { icon: '\u2717', bg: '#fef2f2', color: '#dc2626', label: 'Non conforme' },
-        { icon: '!', bg: '#fffbeb', color: '#d97706', label: 'A verifier' },
-        { icon: '\u2014', bg: '#f3f4f6', color: '#6b7280', label: 'Non applicable' },
-      ].map(s => (
+      {LEGEND_ITEMS.map(s => (
         <span key={s.label} className="vblock-legend-item">
           <span className="vblock-legend-pill" style={{ background: s.bg, color: s.color }}>{s.icon}</span>
           {s.label}
@@ -67,7 +70,7 @@ function Legend() {
   )
 }
 
-export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onNavigateDoc }: Props) {
+export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc }: Props) {
   const { toast } = useToast()
   const [saving, setSaving] = useState<string | null>(null)
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
@@ -135,18 +138,17 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
   const handleCorrect = useCallback((resultId: string, newStatut: string) => {
     setSaving(resultId)
-    // Optimistic: fire API in background, don't block UI
+    if (onOptimisticUpdate) onOptimisticUpdate(resultId, newStatut)
     updateValidationResult(dossier.id, resultId, { statut: newStatut })
       .then(() => {
         toast('success', 'Corrige')
-        if (onRefreshResults) onRefreshResults()
       })
       .catch(e => {
         toast('error', e instanceof Error ? e.message : 'Erreur de correction')
-        if (onRefreshResults) onRefreshResults() // revert optimistic
+        if (onRefreshResults) onRefreshResults()
       })
       .finally(() => setSaving(null))
-  }, [dossier.id, onRefreshResults, toast])
+  }, [dossier.id, onOptimisticUpdate, onRefreshResults, toast])
 
   const { sysOk, sysKo, needsReviewCount, autoOk, autoKo } = useMemo(() => {
     let ok = 0, ko = 0, review = 0

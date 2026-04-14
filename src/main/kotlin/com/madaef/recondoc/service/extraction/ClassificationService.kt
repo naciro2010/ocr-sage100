@@ -12,26 +12,34 @@ class ClassificationService(
 
     companion object {
         val CLASSIFICATION_PROMPT = """
-            Tu es un classificateur de documents financiers marocains MADAEF.
+            Tu es un classificateur de documents financiers marocains MADAEF (Groupe CDG).
             Classifie ce document dans une des categories suivantes :
             FACTURE, BON_COMMANDE, CONTRAT_AVENANT, ORDRE_PAIEMENT,
             CHECKLIST_AUTOCONTROLE, CHECKLIST_PIECES, TABLEAU_CONTROLE,
             PV_RECEPTION, ATTESTATION_FISCALE, FORMULAIRE_FOURNISSEUR
 
-            Indices :
-            - FACTURE : contient "facture", montant HT/TTC/TVA, numero facture
-            - BON_COMMANDE : contient "bon de commande", "CF SIE", reference BC
-            - CONTRAT_AVENANT : contient "contrat", "avenant", articles contractuels
-            - ORDRE_PAIEMENT : contient "ordre de paiement", "OP", synthese controleur financier
-            - CHECKLIST_AUTOCONTROLE : contient "CCF-EN-04", autocontrole, points de verification coches
-            - CHECKLIST_PIECES : contient "CCF-EN-01", pieces justificatives
-            - TABLEAU_CONTROLE : contient "tableau de controle", observations "Conforme"/"NA"
-            - PV_RECEPTION : contient "proces-verbal", "PV de reception", attestation service fait
-            - ATTESTATION_FISCALE : contient "attestation de regularite fiscale", DGI
+            Indices par categorie :
+            - FACTURE : contient "facture", montant HT/TTC/TVA, numero facture, lignes de detail
+            - BON_COMMANDE : contient "bon de commande", "CF SIE", reference BC, designation et prix
+            - CONTRAT_AVENANT : contient "contrat", "avenant", "convention", articles contractuels, parties
+            - ORDRE_PAIEMENT : contient "ordre de paiement", "OP", synthese controleur financier, retenues a la source
+            - CHECKLIST_AUTOCONTROLE : contient "CCF-EN-04", autocontrole, points de verification coches OUI/NON
+            - CHECKLIST_PIECES : contient "CCF-EN-01", liasse de pieces justificatives, presence des documents
+            - TABLEAU_CONTROLE : contient "tableau de controle", observations "Conforme"/"NA"/"Non conforme", points financiers
+            - PV_RECEPTION : contient "proces-verbal", "PV de reception", attestation service fait, prestations recues
+            - ATTESTATION_FISCALE : contient "attestation de regularite fiscale", DGI, situation fiscale reguliere
             - FORMULAIRE_FOURNISSEUR : contient "ouverture de compte", coordonnees bancaires fournisseur
 
-            Reponds UNIQUEMENT avec le nom de la categorie, rien d'autre.
+            Attention aux confusions frequentes :
+            - ORDRE_PAIEMENT mentionne souvent "tableau de controle" dans ses pieces jointes → ne pas confondre avec TABLEAU_CONTROLE
+            - CHECKLIST_AUTOCONTROLE (CCF-EN-04) vs CHECKLIST_PIECES (CCF-EN-01) : regarder le code formulaire
+            - Un document avec "facture" ET "bon de commande" est probablement une FACTURE (qui reference le BC)
+
+            Reponds UNIQUEMENT au format JSON : {"categorie":"NOM_CATEGORIE","confidence":0.95}
+            confidence = ta confiance de 0 a 1 (1 = certain, 0.5 = hesitant).
         """.trimIndent()
+
+        private const val CONFIDENCE_THRESHOLD = 0.6
     }
 
     fun classify(rawText: String): TypeDocument {
@@ -42,14 +50,32 @@ class ClassificationService(
             return keywordResult
         }
 
-        // Fallback to LLM classification
+        // Fallback to LLM classification with confidence scoring
         try {
             val result = llmExtractionService.callClaude(CLASSIFICATION_PROMPT, rawText)
-            val cleaned = result.trim().uppercase().replace(" ", "_")
-            val type = TypeDocument.entries.find { it.name == cleaned }
-            if (type != null) {
-                log.info("Document classified by LLM: {}", type)
-                return type
+            val cleaned = result.trim()
+
+            // Try JSON format first: {"categorie":"...", "confidence": 0.95}
+            val jsonMatch = Regex("""\{[^}]*"categorie"\s*:\s*"([^"]+)"[^}]*"confidence"\s*:\s*([\d.]+)[^}]*\}""").find(cleaned)
+            if (jsonMatch != null) {
+                val categorie = jsonMatch.groupValues[1].uppercase().replace(" ", "_")
+                val confidence = jsonMatch.groupValues[2].toDoubleOrNull() ?: 0.0
+                val type = TypeDocument.entries.find { it.name == categorie }
+                if (type != null) {
+                    if (confidence < CONFIDENCE_THRESHOLD) {
+                        log.warn("LLM classification {} with low confidence {}, marking as INCONNU", type, confidence)
+                        return TypeDocument.INCONNU
+                    }
+                    log.info("Document classified by LLM: {} (confidence={})", type, confidence)
+                    return type
+                }
+            }
+
+            // Fallback: plain text response (backward compat)
+            val plainType = TypeDocument.entries.find { it.name == cleaned.uppercase().replace(" ", "_") }
+            if (plainType != null) {
+                log.info("Document classified by LLM (plain): {}", plainType)
+                return plainType
             }
         } catch (e: Exception) {
             log.warn("LLM classification failed: {}", e.message)

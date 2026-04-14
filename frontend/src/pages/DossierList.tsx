@@ -1,6 +1,6 @@
-import { useEffect, useState, useRef, useCallback } from 'react'
+import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, openWithAuth } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, openWithAuth, getDossierSummary, getDocumentsWithData } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
@@ -17,6 +17,16 @@ const STATUT_CHIPS = [
   { value: 'VALIDE', label: 'Valides', color: 'var(--success)' },
   { value: 'REJETE', label: 'Rejetes', color: 'var(--danger)' },
 ]
+
+const TABLE_COLUMNS = [
+  { key: 'reference', label: 'Reference' },
+  { key: 'fournisseur', label: 'Fournisseur' },
+  { key: 'type', label: 'Type' },
+  { key: 'montantTtc', label: 'Montant TTC' },
+  { key: 'nbDocuments', label: 'Docs' },
+  { key: 'statut', label: 'Statut' },
+  { key: 'dateCreation', label: 'Date' },
+] as const
 
 export default function DossierList() {
   const { toast } = useToast()
@@ -52,18 +62,24 @@ export default function DossierList() {
     }, 300)
   }, [])
 
+  const abortRef = useRef<AbortController | null>(null)
   useEffect(() => () => { if (debounceRef.current) clearTimeout(debounceRef.current) }, [])
 
-  const load = () => {
+  const load = useCallback(() => {
+    if (abortRef.current) abortRef.current.abort()
+    const ac = new AbortController()
+    abortRef.current = ac
     const hasFilters = filterStatut || filterType || debouncedFournisseur
-    if (hasFilters) {
-      searchDossiers({ page, statut: filterStatut || undefined, type: filterType || undefined, fournisseur: debouncedFournisseur || undefined })
-        .then(setData).catch(e => setError(e.message))
-    } else {
-      listDossiers(page).then(setData).catch(e => setError(e.message))
-    }
-  }
-  useEffect(load, [page, filterStatut, filterType, debouncedFournisseur])
+    const promise = hasFilters
+      ? searchDossiers({ page, statut: filterStatut || undefined, type: filterType || undefined, fournisseur: debouncedFournisseur || undefined, signal: ac.signal })
+      : listDossiers(page, 20, ac.signal)
+    promise.then(result => {
+      if (!ac.signal.aborted) setData(result)
+    }).catch(e => {
+      if (!ac.signal.aborted && e instanceof Error && e.name !== 'AbortError') setError(e.message)
+    })
+  }, [page, filterStatut, filterType, debouncedFournisseur])
+  useEffect(() => { load(); return () => { if (abortRef.current) abortRef.current.abort() } }, [load])
 
   const handleCreate = async () => {
     setCreating(true)
@@ -80,16 +96,38 @@ export default function DossierList() {
   }
 
   const handleDelete = async () => {
-    if (!deleteTarget) return
+    if (!deleteTarget || !data) return
+    const target = deleteTarget
+    // Optimistic: remove from list immediately
+    setData(prev => prev ? {
+      ...prev,
+      content: prev.content.filter(d => d.id !== target.id),
+      totalElements: prev.totalElements - 1,
+    } : prev)
+    setDeleteTarget(null)
     try {
-      await deleteDossier(deleteTarget.id)
-      toast('success', `Dossier ${deleteTarget.reference} supprime`)
-      setDeleteTarget(null)
-      load()
+      await deleteDossier(target.id)
+      toast('success', `Dossier ${target.reference} supprime`)
     } catch (e: unknown) {
+      // Revert: put it back
+      setData(prev => prev ? {
+        ...prev,
+        content: [...prev.content, target].sort((a, b) =>
+          new Date(b.dateCreation).getTime() - new Date(a.dateCreation).getTime()
+        ),
+        totalElements: prev.totalElements + 1,
+      } : prev)
       toast('error', e instanceof Error ? e.message : 'Erreur de suppression')
     }
   }
+
+  const prefetchedRef = useRef(new Set<string>())
+  const handlePrefetch = useCallback((dossierId: string) => {
+    if (prefetchedRef.current.has(dossierId)) return
+    prefetchedRef.current.add(dossierId)
+    getDossierSummary(dossierId)
+    getDocumentsWithData(dossierId)
+  }, [])
 
   const handleQuickUpload = async (files: File[]) => {
     if (files.length === 0) return
@@ -114,12 +152,12 @@ export default function DossierList() {
   const fmt = (n: number | null) => n != null ? n.toLocaleString('fr-FR', { minimumFractionDigits: 2 }) : '\u2014'
   const hasFilters = filterStatut || filterType || debouncedFournisseur
   const isEmpty = data && data.content.length === 0 && !hasFilters
-  const sorted = data?.content.slice().sort((a, b) => {
+  const sorted = useMemo(() => data?.content.slice().sort((a, b) => {
     const va = (a as unknown as Record<string, unknown>)[sortKey]
     const vb = (b as unknown as Record<string, unknown>)[sortKey]
     const cmp = String(va ?? '').localeCompare(String(vb ?? ''), 'fr', { numeric: true })
     return sortDir === 'asc' ? cmp : -cmp
-  })
+  }), [data, sortKey, sortDir])
 
   return (
     <div>
@@ -279,15 +317,7 @@ export default function DossierList() {
           <table className="data-table">
             <thead>
               <tr>
-                {[
-                  { key: 'reference', label: 'Reference' },
-                  { key: 'fournisseur', label: 'Fournisseur' },
-                  { key: 'type', label: 'Type' },
-                  { key: 'montantTtc', label: 'Montant TTC' },
-                  { key: 'nbDocuments', label: 'Docs' },
-                  { key: 'statut', label: 'Statut' },
-                  { key: 'dateCreation', label: 'Date' },
-                ].map(col => (
+                {TABLE_COLUMNS.map(col => (
                   <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => { setSortKey(col.key); setSortDir(prev => sortKey === col.key ? (prev === 'asc' ? 'desc' : 'asc') : 'desc') }}>
                     {col.label} {sortKey === col.key ? (sortDir === 'asc' ? '\u25B2' : '\u25BC') : ''}
@@ -301,7 +331,7 @@ export default function DossierList() {
                 const cfg = STATUT_CONFIG[d.statut]
                 const isFinalized = d.statut === 'VALIDE'
                 return (
-                  <tr key={d.id}>
+                  <tr key={d.id} onMouseEnter={() => handlePrefetch(d.id)}>
                     <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
                     <td>{d.fournisseur || '\u2014'}</td>
                     <td><span className="tag">{d.type}</span></td>

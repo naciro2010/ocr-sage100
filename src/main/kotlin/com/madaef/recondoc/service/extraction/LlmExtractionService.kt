@@ -49,6 +49,7 @@ class LlmExtractionService(
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to 8192,
+            "temperature" to 0,
             "system" to systemPrompt,
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )

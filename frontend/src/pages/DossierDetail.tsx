@@ -1,4 +1,4 @@
-import { useEffect, useState, useRef, useCallback, useMemo, lazy, Suspense } from 'react'
+import { useEffect, useState, useCallback, useMemo, lazy, Suspense } from 'react'
 import { useParams } from 'react-router-dom'
 
 const EMPTY_DOCS: never[] = []
@@ -146,9 +146,8 @@ export default function DossierDetail() {
   const [motifRejet, setMotifRejet] = useState('')
   const [editing, setEditing] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
-  const pollRef = useRef<ReturnType<typeof setInterval> | null>(null)
 
-  const liveProgress = useDocumentEvents(id, () => loadDocs())
+  const liveProgress = useDocumentEvents(id, () => { loadDocs(); loadSummary() })
 
   // --- Independent loaders with error handling ---
   const loadSummary = useCallback(() => {
@@ -181,24 +180,8 @@ export default function DossierDetail() {
         return
       }
       setDocsData(data)
-      const processing = data.documents.some(d => d.statutExtraction === 'EN_COURS' || d.statutExtraction === 'EN_ATTENTE')
-      if (processing && !pollRef.current) {
-        pollRef.current = setInterval(() => {
-          getDocumentsWithData(id).then(fresh => {
-            if (!fresh || !fresh.documents) return
-            setDocsData(fresh)
-            const still = fresh.documents.some(d => d.statutExtraction === 'EN_COURS' || d.statutExtraction === 'EN_ATTENTE')
-            if (!still && pollRef.current) {
-              clearInterval(pollRef.current)
-              pollRef.current = null
-              loadSummary()
-              loadAudit()
-            }
-          }).catch(() => {})
-        }, 3000)
-      }
     }).catch(e => setDocsError(e instanceof Error ? e.message : 'Erreur de chargement des documents'))
-  }, [id, loadSummary, loadAudit])
+  }, [id])
 
   // Load all blocks in parallel on mount
   useEffect(() => {
@@ -206,7 +189,6 @@ export default function DossierDetail() {
     loadDocs()
     loadValidation()
     loadAudit()
-    return () => { if (pollRef.current) { clearInterval(pollRef.current); pollRef.current = null } }
   }, [id, loadSummary, loadDocs, loadValidation, loadAudit])
 
   const reloadAll = useCallback(() => {
@@ -220,6 +202,7 @@ export default function DossierDetail() {
       const results = await validateDossier(id)
       setValidationResults(results)
       toast('success', 'Verification terminee')
+      // Refresh summary for updated check counts, audit for new entry
       loadSummary()
       loadAudit()
     } catch (e: unknown) {
@@ -228,19 +211,31 @@ export default function DossierDetail() {
   }, [id, loadSummary, loadAudit, toast])
 
   const handleStatut = useCallback(async (statut: string) => {
-    if (!id) return
+    if (!id || !summary) return
     setActionLoading(true)
+    // Optimistic: update summary statut immediately
+    const previousSummary = summary
+    setSummary(prev => prev ? { ...prev, statut: statut as DossierSummary['statut'] } : prev)
+    setRejectModal(false)
     try {
-      await changeStatut(id, statut, statut === 'REJETE' ? motifRejet : undefined)
+      const detail = await changeStatut(id, statut, statut === 'REJETE' ? motifRejet : undefined)
+      // Inject server response into summary (dateValidation, validePar, motifRejet updated)
+      setSummary(prev => prev ? {
+        ...prev,
+        statut: detail.statut as DossierSummary['statut'],
+        dateValidation: detail.dateValidation,
+        validePar: detail.validePar,
+        motifRejet: detail.motifRejet,
+      } : prev)
       toast('success', statut === 'VALIDE' ? 'Dossier valide' : statut === 'REJETE' ? 'Dossier rejete' : 'Statut mis a jour')
-      setRejectModal(false)
       setMotifRejet('')
-      loadSummary()
       loadAudit()
     } catch (e: unknown) {
+      // Revert optimistic update
+      setSummary(previousSummary)
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setActionLoading(false) }
-  }, [id, motifRejet, loadSummary, loadAudit, toast])
+  }, [id, summary, motifRejet, loadAudit, toast])
 
   const copyRef = useCallback(() => {
     if (!summary) return
@@ -364,6 +359,9 @@ export default function DossierDetail() {
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
           <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
             <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate} onRefreshResults={loadValidation}
+              onOptimisticUpdate={(resultId, newStatut) => {
+                setValidationResults(prev => prev.map(r => r.id === resultId ? { ...r, statut: newStatut as ValidationResult['statut'] } : r))
+              }}
               onNavigateDoc={(docId) => {
                 const el = document.querySelector(`[data-doc-id="${docId}"]`)
                 if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }

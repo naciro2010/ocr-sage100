@@ -87,20 +87,26 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
-        val dossier = dossierRepo.findById(id)
-            .orElseThrow { NoSuchElementException("Dossier not found: $id") }
-        val nbDocs = documentRepo.countByDossierId(id).toInt()
-        val nbConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt()
-        val nbTotal = resultatRepo.countByDossierId(id).toInt()
+        val row = dossierRepo.findSummaryById(id)
+            ?: throw NoSuchElementException("Dossier not found: $id")
         return DossierSummaryResponse(
-            id = dossier.id!!, reference = dossier.reference,
-            type = dossier.type, statut = dossier.statut,
-            fournisseur = dossier.fournisseur, description = dossier.description,
-            montantTtc = dossier.montantTtc, montantHt = dossier.montantHt,
-            montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
-            dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
-            validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            nbDocuments = nbDocs, nbChecksConformes = nbConformes, nbChecksTotal = nbTotal
+            id = row[0] as UUID,
+            reference = row[1] as String,
+            type = row[2] as DossierType,
+            statut = row[3] as StatutDossier,
+            fournisseur = row[4] as String?,
+            description = row[5] as String?,
+            montantTtc = row[6] as BigDecimal?,
+            montantHt = row[7] as BigDecimal?,
+            montantTva = row[8] as BigDecimal?,
+            montantNetAPayer = row[9] as BigDecimal?,
+            dateCreation = row[10] as LocalDateTime,
+            dateValidation = row[11] as LocalDateTime?,
+            validePar = row[12] as String?,
+            motifRejet = row[13] as String?,
+            nbDocuments = (row[14] as Number).toInt(),
+            nbChecksConformes = (row[15] as Number).toInt(),
+            nbChecksTotal = (row[16] as Number).toInt()
         )
     }
 
@@ -311,13 +317,13 @@ class DossierService(
 
         // Try to extract text: from file first (full OCR cascade), then from stored text
         val path = Path.of(doc.cheminFichier)
-        val rawText = if (Files.exists(path)) {
+        val ocrResult = if (Files.exists(path)) {
             val result = ocrService.extractWithDetails(Files.newInputStream(path), doc.nomFichier, path)
             log.info("Re-extracted {} chars from {} via {}", result.text.length, doc.nomFichier, result.engine)
-            result.text
+            result
         } else if (!doc.texteExtrait.isNullOrBlank()) {
             log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
-            doc.texteExtrait!!
+            OcrService.OcrResult(text = doc.texteExtrait!!, engine = OcrService.OcrEngine.TIKA)
         } else {
             log.error("No file and no stored text for {}", doc.nomFichier)
             doc.statutExtraction = StatutExtraction.ERREUR
@@ -325,7 +331,7 @@ class DossierService(
             return
         }
 
-        processDocumentWithText(doc, rawText, skipClassification)
+        processDocumentWithText(doc, ocrResult, skipClassification)
     }
 
     private fun emitProgress(doc: Document, step: String, statut: String, detail: String? = null) {
@@ -338,7 +344,8 @@ class DossierService(
         } catch (_: Exception) {}
     }
 
-    private fun processDocumentWithText(doc: Document, rawText: String, skipClassification: Boolean = false) {
+    private fun processDocumentWithText(doc: Document, ocrResult: OcrService.OcrResult, skipClassification: Boolean = false) {
+        val rawText = ocrResult.text
         doc.statutExtraction = StatutExtraction.EN_COURS
         emitProgress(doc, "ocr", "active", "Extraction du texte...")
 
@@ -376,7 +383,14 @@ class DossierService(
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
-                    val jsonText = llmService.callClaude(prompt, rawText)
+                    val ocrContext = buildString {
+                        append("[OCR: moteur=${ocrResult.engine}")
+                        if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
+                        if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
+                        append(", ${rawText.length} caracteres]\n\n")
+                        append(rawText)
+                    }
+                    val jsonText = llmService.callClaude(prompt, ocrContext)
                     val data = parseLlmResponse(jsonText)
                     if (data != null) {
                         doc.donneesExtraites = data
