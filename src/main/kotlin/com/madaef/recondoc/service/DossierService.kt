@@ -741,6 +741,7 @@ class DossierService(
         op.referenceBcOuContrat = data["referenceBcOuContrat"] as? String
         op.referenceSage = data["referenceSage"] as? String
         op.conclusionControleur = data["conclusionControleur"] as? String
+        op.piecesJustificatives = (data["piecesJustificatives"] as? List<*>)?.joinToString("||")
         val retList = data["retenues"] as? List<Map<String, Any?>>
         if (retList != null) {
             op.retenues.clear()
@@ -773,8 +774,21 @@ class DossierService(
                 cl.points.add(PointControle(
                     checklist = cl,
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    description = p["description"] as? String,
                     estValide = p["estValide"] as? Boolean,
                     observation = p["observation"] as? String
+                ))
+            }
+        }
+        val signataires = data["signataires"] as? List<Map<String, Any?>>
+        if (signataires != null) {
+            cl.signataires.clear()
+            for (s in signataires) {
+                cl.signataires.add(SignataireChecklist(
+                    checklist = cl,
+                    nom = s["nom"] as? String,
+                    dateSignature = parseDate(s["date"] as? String),
+                    aSignature = s["aSignature"] as? Boolean ?: false
                 ))
             }
         }
@@ -796,6 +810,7 @@ class DossierService(
                 tc.points.add(PointControleFinancier(
                     tableauControle = tc,
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    description = p["description"] as? String,
                     observation = p["observation"] as? String,
                     commentaire = p["commentaire"] as? String
                 ))

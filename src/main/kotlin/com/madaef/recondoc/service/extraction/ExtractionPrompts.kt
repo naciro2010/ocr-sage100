@@ -76,23 +76,37 @@ object ExtractionPrompts {
     val BON_COMMANDE = """
         Tu es un extracteur de donnees de bons de commande marocains pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
+        IMPORTANT : extrais TOUTES les lignes du tableau des articles/prestations, sans en omettre aucune.
 
         Schema JSON attendu :
         {
           "reference": "string",
           "dateBc": "YYYY-MM-DD",
           "fournisseur": "string",
-          "objet": "string",
+          "objet": "string (description generale du BC)",
           "montantHT": number,
           "montantTVA": number,
           "tauxTVA": number,
           "montantTTC": number,
           "signataire": "string ou null",
+          "lignes": [
+            {
+              "numero": number,
+              "designation": "string (description de l'article ou prestation)",
+              "quantite": number,
+              "unite": "string ou null (ex: unite, forfait, m2, jour, mois)",
+              "prixUnitaireHT": number,
+              "montantLigneHT": number,
+              "tauxTva": "number ou null (taux TVA de cette ligne si different)"
+            }
+          ],
           "_confidence": number,
           "_warnings": ["string"]
         }
 
         Regles specifiques BC :
+        - Extrais CHAQUE ligne du tableau des articles/prestations avec tous les details (quantite, prix unitaire, montant).
+        - Si le tableau a des sous-totaux par section, extrais chaque ligne individuelle, pas les sous-totaux.
         - montantTVA : somme TOTALE de la TVA. Si plusieurs taux TVA existent, additionne toutes les TVA.
         - tauxTVA : le taux TVA dominant (applique au plus grand montant HT).
         - montantHT et montantTTC : totaux generaux du bon de commande.
@@ -104,33 +118,54 @@ object ExtractionPrompts {
     val ORDRE_PAIEMENT = """
         Tu es un extracteur de donnees d'ordres de paiement pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
+        IMPORTANT : extrais TOUT le detail de la synthese du controleur financier, toutes les retenues, et la liste complete des pieces justificatives.
 
         Schema JSON attendu :
         {
           "numeroOp": "string",
           "dateEmission": "YYYY-MM-DD",
           "emetteur": "string",
-          "natureOperation": "string",
-          "description": "string",
-          "beneficiaire": "string",
-          "rib": "string",
-          "ribs": ["string"],
-          "banque": "string",
+          "natureOperation": "string (ex: Reglement facture, Acompte, Avoir...)",
+          "description": "string (objet detaille de l'operation)",
+          "beneficiaire": "string (nom complet du beneficiaire)",
+          "rib": "string (RIB principal du beneficiaire)",
+          "ribs": ["string (tous les RIB trouves)"],
+          "banque": "string (nom de la banque)",
+          "montantBrut": "number ou null (montant avant retenues, = TTC facture)",
           "montantOperation": number,
           "referenceFacture": "string ou null",
           "referenceBcOuContrat": "string ou null",
-          "referenceSage": "string ou null",
-          "retenues": [{"type":"TVA_SOURCE|IS_HONORAIRES|GARANTIE|AUTRE","articleCGI":"string ou null","base":number,"taux":number,"montant":number}],
-          "piecesJustificatives": ["string"],
-          "conclusionControleur": "string",
+          "referenceSage": "string ou null (reference comptable Sage)",
+          "retenues": [
+            {
+              "type": "TVA_SOURCE|IS_HONORAIRES|GARANTIE|AUTRE",
+              "designation": "string (libelle de la retenue tel qu'ecrit dans le document)",
+              "articleCGI": "string ou null (ex: art. 157, art. 15 bis...)",
+              "base": number,
+              "taux": number,
+              "montant": number
+            }
+          ],
+          "syntheseControleur": {
+            "montantHT": "number ou null",
+            "montantTVA": "number ou null",
+            "montantTTC": "number ou null",
+            "totalRetenues": "number ou null",
+            "netAPayer": "number ou null",
+            "observations": "string ou null (texte libre du controleur)"
+          },
+          "piecesJustificatives": ["string (liste de toutes les pieces mentionnees)"],
+          "conclusionControleur": "string (conclusion finale: favorable, defavorable, avec reserve...)",
           "_confidence": number,
           "_warnings": ["string"]
         }
 
         Regles specifiques OP :
-        - Les retenues a la source sont dans la Synthese du Controleur Financier.
-        - Si montantOperation < TTC facture, il y a des retenues. Identifie articles CGI et taux.
-        - Types de retenues courants : TVA a la source (art. 157 CGI), IS sur honoraires (art. 15 CGI), retenue de garantie.
+        - Extrais TOUTES les retenues a la source. Elles sont dans la Synthese du Controleur Financier.
+        - Si montantOperation < montantBrut, il y a des retenues. Identifie chacune avec article CGI et taux.
+        - Types de retenues courants : TVA a la source (art. 157 CGI, 75%), IS sur honoraires (art. 15 CGI, 10%), retenue de garantie (7-10%).
+        - La liste des pieces justificatives est souvent en fin de document : extrais CHAQUE piece mentionnee.
+        - syntheseControleur : extrais le recapitulatif chiffre du controleur si present (HT, TVA, TTC, retenues, net a payer).
 
         $COMMON_RULES
     """.trimIndent()
@@ -163,23 +198,52 @@ object ExtractionPrompts {
     val CHECKLIST_AUTOCONTROLE = """
         Tu es un extracteur de donnees de check-lists d'autocontrole MADAEF (formulaire CCF-EN-04-V02).
         Retourne UNIQUEMENT un objet JSON valide.
+        IMPORTANT : extrais TOUS les points de controle avec leur description complete ET tous les signataires.
 
         Schema JSON attendu :
         {
-          "reference": "string",
-          "nomProjet": "string",
-          "referenceFacture": "string",
-          "prestataire": "string",
-          "points": [{"numero":1,"description":"string","estValide":true,"observation":"string ou null"}],
-          "signataires": [{"nom":"string","date":"YYYY-MM-DD ou null","aSignature":true}],
+          "reference": "string (reference du formulaire, ex: CCF-EN-04-V02)",
+          "nomProjet": "string (nom du projet ou de la prestation)",
+          "referenceFacture": "string (numero de la facture concernee)",
+          "prestataire": "string (nom du fournisseur/prestataire)",
+          "montantFacture": "number ou null (montant TTC de la facture si mentionne)",
+          "referenceBc": "string ou null (reference du bon de commande si mentionne)",
+          "points": [
+            {
+              "numero": 1,
+              "description": "string (libelle COMPLET du point de controle, ex: 'Concordance entre la facture et le BC ou le contrat')",
+              "estValide": true,
+              "observation": "string ou null (commentaire ou annotation du verificateur)"
+            }
+          ],
+          "signataires": [
+            {
+              "nom": "string (nom complet du signataire)",
+              "fonction": "string ou null (ex: Responsable Achats, Controleur Financier, Chef de Projet)",
+              "date": "YYYY-MM-DD ou null",
+              "aSignature": true
+            }
+          ],
+          "dateEtablissement": "YYYY-MM-DD ou null",
           "_confidence": number,
           "_warnings": ["string"]
         }
 
         Regles specifiques checklist :
-        - Points numerotes de 1 a 10. Extrais la description de chaque point (ex: "Concordance facture / BC", "Verification arithmetique", etc.)
+        - Extrais TOUS les points (generalement 10). Pour chaque point, extrais la DESCRIPTION COMPLETE telle qu'ecrite dans le document.
+        - Points typiques CCF-EN-04 :
+          1. Concordance facture / BC ou contrat
+          2. Verification arithmetique de la facture
+          3. Conformite des prestations / livraisons
+          4. Existence du PV de reception
+          5. Conformite de l'attestation fiscale
+          6. Verification des references (ICE, IF, RC, Patente)
+          7. Conformite du RIB
+          8. Visa du responsable budgetaire
+          9. Visa du responsable des engagements
+          10. Verification des retenues a la source
         - estValide=true si coche/valide, false si non coche/non valide, null si indetermine ou NA.
-        - Pour les signataires, extrais le nom complet, la date de signature si presente, et aSignature=true si la signature est apposee.
+        - Pour les signataires, extrais le nom complet, la fonction si visible, la date de signature, et aSignature=true si une signature manuscrite est presente.
         - Si le texte OCR est peu lisible sur les coches, mettre estValide=null et ajouter un warning.
 
         $COMMON_RULES
@@ -188,21 +252,48 @@ object ExtractionPrompts {
     val TABLEAU_CONTROLE = """
         Tu es un extracteur de donnees de tableaux de controle financier MADAEF.
         Retourne UNIQUEMENT un objet JSON valide.
+        IMPORTANT : extrais TOUS les points du tableau avec leur description complete et le detail des observations.
 
         Schema JSON attendu :
         {
-          "societeGeree": "string",
+          "societeGeree": "string (nom de la societe geree, ex: MADAEF, MADAEF GOLFS, HRM)",
           "referenceFacture": "string",
           "fournisseur": "string",
-          "points": [{"numero":1,"observation":"Conforme|NA|Non conforme","commentaire":"string ou null"}],
-          "signataire": "string",
+          "objetDepense": "string ou null (objet de la depense si mentionne)",
+          "montantTTC": "number ou null (montant TTC si mentionne dans le tableau)",
+          "points": [
+            {
+              "numero": 1,
+              "description": "string (libelle COMPLET du point de controle, ex: 'Imputation budgetaire', 'Exactitude des calculs', 'Conformite fiscale')",
+              "observation": "Conforme|NA|Non conforme",
+              "commentaire": "string ou null (detail, remarque ou reserve du controleur)"
+            }
+          ],
+          "signataire": "string (nom du controleur financier)",
+          "dateControle": "YYYY-MM-DD ou null",
+          "conclusionGenerale": "string ou null (conclusion globale si presente: Favorable, Defavorable, Avec reserves)",
           "_confidence": number,
           "_warnings": ["string"]
         }
 
         Regles specifiques tableau :
-        - observation doit etre exactement "Conforme", "NA" ou "Non conforme". Si ambigu, utiliser "NA" et ajouter un warning.
-        - Extraire tous les points de controle numerotes.
+        - Extrais CHAQUE point du tableau. Le tableau a generalement 8-15 points de controle financier.
+        - Pour chaque point, extrais :
+          - Le NUMERO du point
+          - La DESCRIPTION complete (pas juste le numero)
+          - L'OBSERVATION : exactement "Conforme", "NA" ou "Non conforme". Si ambigu, utiliser "NA" et ajouter un warning.
+          - Le COMMENTAIRE : toute remarque, reserve ou detail inscrit par le controleur
+        - Points typiques d'un tableau de controle MADAEF :
+          1. Imputation budgetaire
+          2. Disponibilite des credits
+          3. Exactitude des calculs (HT, TVA, TTC)
+          4. Conformite de la facture au BC/contrat
+          5. Service fait / PV de reception
+          6. Conformite fiscale (attestation de regularite)
+          7. Retenues a la source applicables
+          8. Pieces justificatives completes
+          9. Visa hierarchique
+          10. Conclusion du controleur financier
 
         $COMMON_RULES
     """.trimIndent()
