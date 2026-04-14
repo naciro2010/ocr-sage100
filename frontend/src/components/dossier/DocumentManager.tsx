@@ -67,27 +67,34 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   }, [id, onReload, toast])
 
   const handleChangeType = useCallback(async (docId: string, newType: string) => {
-    try {
-      await changeDocumentType(id, docId, newType)
-      toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
-      onReload()
-      onReloadAudit()
-    } catch (e: unknown) {
-      toast('error', e instanceof Error ? e.message : 'Erreur')
-    }
+    // Fire-and-forget — UI updates via onReload after API response
+    changeDocumentType(id, docId, newType)
+      .then(() => {
+        toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
+        onReload()
+        onReloadAudit()
+      })
+      .catch((e: unknown) => {
+        toast('error', e instanceof Error ? e.message : 'Erreur')
+        onReload()
+      })
   }, [id, onReload, onReloadAudit, toast])
 
   const handleDeleteDoc = useCallback(async (docId: string, docName: string) => {
     if (!confirm(`Supprimer ${docName} ?`)) return
-    try {
-      await deleteDocument(id, docId)
-      toast('success', `${docName} supprime`)
-      if (selectedDoc?.id === docId) setSelectedDoc(null)
-      onReload()
-      onReloadAudit()
-    } catch (e: unknown) {
-      toast('error', e instanceof Error ? e.message : 'Erreur')
-    }
+    // Optimistic: remove from UI immediately
+    if (selectedDoc?.id === docId) setSelectedDoc(null)
+    onReload()
+    deleteDocument(id, docId)
+      .then(() => {
+        toast('success', `${docName} supprime`)
+        onReload()
+        onReloadAudit()
+      })
+      .catch((e: unknown) => {
+        toast('error', e instanceof Error ? e.message : 'Erreur')
+        onReload()
+      })
   }, [id, selectedDoc, onReload, onReloadAudit, toast])
 
   const extractionBadge = (doc: DocumentInfo) => {

@@ -72,7 +72,6 @@ function Legend() {
 
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc }: Props) {
   const { toast } = useToast()
-  const [saving, setSaving] = useState<string | null>(null)
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
   const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
 
@@ -137,7 +136,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   }, [])
 
   const handleCorrect = useCallback((resultId: string, newStatut: string) => {
-    setSaving(resultId)
     if (onOptimisticUpdate) onOptimisticUpdate(resultId, newStatut)
     updateValidationResult(dossier.id, resultId, { statut: newStatut })
       .then(() => {
@@ -147,7 +145,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
         toast('error', e instanceof Error ? e.message : 'Erreur de correction')
         if (onRefreshResults) onRefreshResults()
       })
-      .finally(() => setSaving(null))
   }, [dossier.id, onOptimisticUpdate, onRefreshResults, toast])
 
   const { sysOk, sysKo, needsReviewCount, autoOk, autoKo } = useMemo(() => {
@@ -261,7 +258,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                               value={r.statut}
                               onChange={e => { e.stopPropagation(); handleCorrect(r.id!, e.target.value) }}
                               onClick={e => e.stopPropagation()}
-                              disabled={saving === r.id}
                               style={{ background: sd.bg, color: sd.color }}
                               aria-label={`Corriger le statut de ${item.code}`}
                             >
@@ -468,7 +464,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           value={r.statut}
                           onChange={e => { e.stopPropagation(); handleCorrect(r.id!, e.target.value) }}
                           onClick={e => e.stopPropagation()}
-                          disabled={saving === r.id}
                           style={{ background: sd.bg, color: sd.color }}
                           aria-label={`Corriger le statut du point ${item.num}`}
                         >

@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { NavLink, Outlet } from 'react-router-dom'
+import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
@@ -9,6 +9,7 @@ interface Props {
 }
 
 export default function Layout({ user, onLogout }: Props) {
+  const location = useLocation()
   const [searchOpen, setSearchOpen] = useState(false)
   const [dark, setDark] = useState(() => localStorage.getItem('recondoc_theme') === 'dark')
 
@@ -49,12 +50,18 @@ export default function Layout({ user, onLogout }: Props) {
             </NavLink>
           </li>
           <li>
-            <NavLink to="/dossiers">
+            <NavLink to="/dossiers" className={() => {
+              const loc = location
+              return loc.pathname === '/dossiers' && !loc.search.includes('statut=VALIDE') ? 'active' : ''
+            }}>
               <FolderOpen size={16} /> <span>Dossiers</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/dossiers?statut=VALIDE">
+            <NavLink to="/dossiers?statut=VALIDE" className={() => {
+              const loc = location
+              return loc.pathname === '/dossiers' && loc.search.includes('statut=VALIDE') ? 'active' : ''
+            }}>
               <CheckCircle size={16} /> <span>Finalises</span>
             </NavLink>
           </li>
