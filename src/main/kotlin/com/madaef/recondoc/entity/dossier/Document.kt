@@ -36,5 +36,11 @@ class Document(
 
     @Column(name = "erreur_extraction", columnDefinition = "TEXT") var erreurExtraction: String? = null,
 
-    @Column(name = "date_upload", nullable = false) var dateUpload: LocalDateTime = LocalDateTime.now()
+    @Column(name = "date_upload", nullable = false) var dateUpload: LocalDateTime = LocalDateTime.now(),
+
+    @Column(name = "ocr_engine") var ocrEngine: String? = null,
+    @Column(name = "ocr_confidence") var ocrConfidence: Double = -1.0,
+    @Column(name = "ocr_page_count") var ocrPageCount: Int = 1,
+    @Column(name = "extraction_confidence") var extractionConfidence: Double = -1.0,
+    @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null
 )

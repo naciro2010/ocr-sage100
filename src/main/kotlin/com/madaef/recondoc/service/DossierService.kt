@@ -87,8 +87,15 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
-        val row = dossierRepo.findSummaryById(id)
+        val result = dossierRepo.findSummaryById(id)
             ?: throw NoSuchElementException("Dossier not found: $id")
+        // JPQL multi-column SELECT returns Object[] — unwrap if needed
+        val row: Array<Any> = if (result.isNotEmpty() && result[0] is Array<*>) {
+            @Suppress("UNCHECKED_CAST")
+            result[0] as Array<Any>
+        } else {
+            result
+        }
         return DossierSummaryResponse(
             id = row[0] as UUID,
             reference = row[1] as String,
@@ -171,8 +178,15 @@ class DossierService(
         }
     }
 
+    // In-memory cache for dashboard stats (30s TTL)
+    @Volatile private var cachedStats: Pair<Long, DashboardStatsResponse>? = null
+    private val statsCacheTtl = 30_000L
+
     @Transactional(readOnly = true)
     fun getDashboardStats(): DashboardStatsResponse {
+        cachedStats?.let { (ts, data) ->
+            if (System.currentTimeMillis() - ts < statsCacheTtl) return data
+        }
         val rows = dossierRepo.getStatsByStatut()
         var total = 0L
         var totalMontant = BigDecimal.ZERO
@@ -187,7 +201,7 @@ class DossierService(
             totalMontant = totalMontant.add(montant)
         }
 
-        return DashboardStatsResponse(
+        val stats = DashboardStatsResponse(
             total = total,
             brouillons = byStatut["BROUILLON"] ?: 0,
             enVerification = byStatut["EN_VERIFICATION"] ?: 0,
@@ -195,6 +209,8 @@ class DossierService(
             rejetes = byStatut["REJETE"] ?: 0,
             montantTotal = totalMontant
         )
+        cachedStats = Pair(System.currentTimeMillis(), stats)
+        return stats
     }
 
     @Transactional
@@ -331,6 +347,11 @@ class DossierService(
             return
         }
 
+        // Persist OCR metadata
+        doc.ocrEngine = ocrResult.engine.name
+        doc.ocrConfidence = ocrResult.confidence
+        doc.ocrPageCount = ocrResult.pageCount
+
         processDocumentWithText(doc, ocrResult, skipClassification)
     }
 
@@ -390,9 +411,37 @@ class DossierService(
                         append(", ${rawText.length} caracteres]\n\n")
                         append(rawText)
                     }
-                    val jsonText = llmService.callClaude(prompt, ocrContext)
-                    val data = parseLlmResponse(jsonText)
+                    var jsonText = llmService.callClaude(prompt, ocrContext)
+                    var data = parseLlmResponse(jsonText)
+
+                    // Retry with reinforced prompt if confidence is low
                     if (data != null) {
+                        val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
+                        if (confidence in 0.0..0.69) {
+                            log.info("Low confidence ({}) for {}, retrying with reinforced prompt", confidence, doc.nomFichier)
+                            emitProgress(doc, "extract", "active", "Re-verification (confiance faible)...")
+                            val retryPrompt = prompt + "\n\nATTENTION: La premiere extraction avait une confiance de ${(confidence * 100).toInt()}%. " +
+                                "Re-verifie chaque champ attentivement. Voici les warnings precedents: " +
+                                ((data["_warnings"] as? List<*>)?.joinToString(", ") ?: "aucun") +
+                                ". Corrige si possible, sinon mets null et explique dans _warnings."
+                            val retryJson = llmService.callClaude(retryPrompt, ocrContext)
+                            val retryData = parseLlmResponse(retryJson)
+                            if (retryData != null) {
+                                val retryConfidence = (retryData["_confidence"] as? Number)?.toDouble() ?: -1.0
+                                if (retryConfidence > confidence) {
+                                    log.info("Retry improved confidence: {} -> {} for {}", confidence, retryConfidence, doc.nomFichier)
+                                    data = retryData
+                                }
+                            }
+                        }
+                    }
+
+                    if (data != null) {
+                        val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
+                        val warnings = (data["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                        doc.extractionConfidence = confidence
+                        doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
+
                         doc.donneesExtraites = data
                         saveExtractedEntity(doc.dossier, doc, detectedType, data)
                     } else {

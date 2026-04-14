@@ -111,7 +111,11 @@ data class DocumentResponse(
     val statutExtraction: StatutExtraction,
     val erreurExtraction: String?,
     val dateUpload: LocalDateTime,
-    val donneesExtraites: Map<String, Any?>?
+    val donneesExtraites: Map<String, Any?>?,
+    val ocrEngine: String? = null,
+    val ocrConfidence: Double = -1.0,
+    val extractionConfidence: Double = -1.0,
+    val extractionWarnings: List<String> = emptyList()
 )
 
 data class ValidationResultResponse(
@@ -156,7 +160,10 @@ fun DossierPaiement.toListResponse(): DossierListResponse {
 fun Document.toResponse(): DocumentResponse = DocumentResponse(
     id = id!!, typeDocument = typeDocument, nomFichier = nomFichier,
     statutExtraction = statutExtraction, erreurExtraction = erreurExtraction,
-    dateUpload = dateUpload, donneesExtraites = donneesExtraites
+    dateUpload = dateUpload, donneesExtraites = donneesExtraites,
+    ocrEngine = ocrEngine, ocrConfidence = ocrConfidence,
+    extractionConfidence = extractionConfidence,
+    extractionWarnings = extractionWarnings?.split("||")?.filter { it.isNotBlank() } ?: emptyList()
 )
 
 fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResultResponse(

@@ -1,0 +1,6 @@
+-- OCR metadata columns on document table
+ALTER TABLE document ADD COLUMN IF NOT EXISTS ocr_engine VARCHAR(20);
+ALTER TABLE document ADD COLUMN IF NOT EXISTS ocr_confidence DOUBLE PRECISION DEFAULT -1;
+ALTER TABLE document ADD COLUMN IF NOT EXISTS ocr_page_count INTEGER DEFAULT 1;
+ALTER TABLE document ADD COLUMN IF NOT EXISTS extraction_confidence DOUBLE PRECISION DEFAULT -1;
+ALTER TABLE document ADD COLUMN IF NOT EXISTS extraction_warnings TEXT;

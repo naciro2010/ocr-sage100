@@ -55,6 +55,10 @@ export interface DocumentInfo {
   erreurExtraction: string | null
   dateUpload: string
   donneesExtraites: Record<string, unknown> | null
+  ocrEngine: string | null
+  ocrConfidence: number
+  extractionConfidence: number
+  extractionWarnings: string[]
 }
 
 export interface ValidationResult {

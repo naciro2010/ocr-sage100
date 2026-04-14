@@ -206,6 +206,23 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
                 {extractionBadge(doc)}
                 {doc.statutExtraction === 'EN_COURS' && <Loader2 size={12} className="spin" style={{ color: 'var(--blue-600)' }} />}
               </div>
+              {doc.extractionConfidence >= 0 && doc.statutExtraction === 'EXTRAIT' && (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 4, marginTop: 4 }}>
+                  <span style={{
+                    fontSize: 9, fontWeight: 700, padding: '1px 5px', borderRadius: 4,
+                    background: doc.extractionConfidence >= 0.8 ? '#ecfdf5' : doc.extractionConfidence >= 0.5 ? '#fffbeb' : '#fef2f2',
+                    color: doc.extractionConfidence >= 0.8 ? '#059669' : doc.extractionConfidence >= 0.5 ? '#d97706' : '#dc2626',
+                  }}>
+                    {Math.round(doc.extractionConfidence * 100)}%
+                  </span>
+                  {doc.ocrEngine && <span style={{ fontSize: 9, color: 'var(--ink-40)' }}>{doc.ocrEngine}</span>}
+                  {doc.extractionWarnings.length > 0 && (
+                    <span title={doc.extractionWarnings.join('\n')} style={{ fontSize: 9, color: 'var(--warning)', cursor: 'help' }}>
+                      {doc.extractionWarnings.length} warning{doc.extractionWarnings.length > 1 ? 's' : ''}
+                    </span>
+                  )}
+                </div>
+              )}
               {doc.erreurExtraction && <div style={{ fontSize: 10, color: 'var(--danger)', marginTop: 4, lineHeight: 1.3 }}>{doc.erreurExtraction}</div>}
               <div style={{ display: 'flex', gap: 4, marginTop: 6 }}>
                 {doc.statutExtraction === 'ERREUR' && (
