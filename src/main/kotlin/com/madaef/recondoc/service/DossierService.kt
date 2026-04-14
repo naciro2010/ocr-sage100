@@ -116,33 +116,20 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
-        val result = dossierRepo.findSummaryById(id)
-            ?: throw NoSuchElementException("Dossier not found: $id")
-        // JPQL multi-column SELECT returns Object[] — unwrap if needed
-        val row: Array<Any> = if (result.isNotEmpty() && result[0] is Array<*>) {
-            @Suppress("UNCHECKED_CAST")
-            result[0] as Array<Any>
-        } else {
-            result
-        }
+        val dossier = dossierRepo.findById(id)
+            .orElseThrow { NoSuchElementException("Dossier not found: $id") }
+        val nbDocs = documentRepo.countByDossierId(id).toInt()
+        val nbConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt()
+        val nbTotal = resultatRepo.countByDossierId(id).toInt()
         return DossierSummaryResponse(
-            id = row[0] as UUID,
-            reference = row[1] as String,
-            type = row[2] as DossierType,
-            statut = row[3] as StatutDossier,
-            fournisseur = row[4] as String?,
-            description = row[5] as String?,
-            montantTtc = row[6] as BigDecimal?,
-            montantHt = row[7] as BigDecimal?,
-            montantTva = row[8] as BigDecimal?,
-            montantNetAPayer = row[9] as BigDecimal?,
-            dateCreation = row[10] as LocalDateTime,
-            dateValidation = row[11] as LocalDateTime?,
-            validePar = row[12] as String?,
-            motifRejet = row[13] as String?,
-            nbDocuments = (row[14] as Number).toInt(),
-            nbChecksConformes = (row[15] as Number).toInt(),
-            nbChecksTotal = (row[16] as Number).toInt()
+            id = dossier.id!!, reference = dossier.reference,
+            type = dossier.type, statut = dossier.statut,
+            fournisseur = dossier.fournisseur, description = dossier.description,
+            montantTtc = dossier.montantTtc, montantHt = dossier.montantHt,
+            montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
+            dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
+            validePar = dossier.validePar, motifRejet = dossier.motifRejet,
+            nbDocuments = nbDocs, nbChecksConformes = nbConformes, nbChecksTotal = nbTotal
         )
     }
 
