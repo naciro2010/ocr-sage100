@@ -1103,9 +1103,12 @@ body {
   white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
 }
 .vblock-select {
-  font-size: 9px; padding: 2px 4px; border: 1px solid var(--ink-10);
-  border-radius: 4px; font-weight: 700; cursor: pointer; width: auto;
+  font-size: 10px; padding: 4px 8px; border: 1px solid var(--ink-10);
+  border-radius: 6px; font-weight: 700; cursor: pointer; width: auto;
+  transition: border-color 0.15s, box-shadow 0.15s;
 }
+.vblock-select:hover { border-color: var(--accent); }
+.vblock-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-muted); }
 .vblock-corrected { font-size: 8px; color: var(--warning); font-family: var(--font-mono); }
 .vblock-info-row {
   display: flex; gap: 16px; padding: 8px 16px;
@@ -1222,6 +1225,37 @@ body {
 }
 
 [data-theme="dark"] .vblock-legend { background: #0c1018; border-color: #1c2333; }
+
+/* Filter toolbar */
+.vblock-toolbar {
+  border-bottom: 1px solid var(--ink-05);
+}
+.vblock-toolbar .vblock-legend { border-bottom: none; }
+.vblock-filters {
+  display: flex; align-items: center; gap: 4px; flex-wrap: wrap;
+  padding: 6px 16px 8px; background: var(--ink-02);
+  border-top: 1px solid var(--ink-05);
+}
+.vblock-filter-btn {
+  font-size: 10px; padding: 3px 10px; border-radius: 12px;
+  border: 1px solid var(--ink-10); background: #fff; color: var(--ink-50);
+  cursor: pointer; font-weight: 600; transition: all 0.15s;
+  display: flex; align-items: center; gap: 4px;
+  font-family: var(--font-mono);
+}
+.vblock-filter-btn:hover { border-color: var(--ink-30); color: var(--ink); }
+.vblock-filter-btn.active { background: var(--ink); color: #fff; border-color: var(--ink); }
+.vblock-filter-btn:disabled { opacity: 0.4; cursor: default; }
+.vblock-filter-problems.active { background: #dc2626; border-color: #dc2626; }
+.vblock-filter-ok.active { background: #059669; border-color: #059669; }
+.vblock-filter-expand {
+  margin-left: auto; background: none; border-color: var(--warning);
+  color: var(--warning);
+}
+.vblock-filter-expand:hover { background: #fffbeb; }
+[data-theme="dark"] .vblock-filter-btn { background: #131927; border-color: #2a3142; }
+[data-theme="dark"] .vblock-filter-btn.active { background: var(--ink-90); }
+[data-theme="dark"] .vblock-filters { background: #0c1018; border-color: #1c2333; }
 
 .vblock-doc-links {
   display: flex; gap: 4px; margin-top: 3px;
