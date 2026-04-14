@@ -56,8 +56,16 @@ export default memo(function DossierHeader({
           </button>
           {dossier.statut !== 'VALIDE' && (
             <button className="btn btn-success" onClick={onValider} disabled={actionLoading}
-              title={nbNonConformes > 0 ? `${nbNonConformes} controle(s) non conforme(s)` : ''}>
+              title={nbNonConformes > 0 ? `${nbNonConformes} controle(s) non conforme(s)` : ''}
+              style={nbNonConformes > 0 ? { position: 'relative' } : undefined}>
               {actionLoading ? <Loader2 size={15} className="spin" /> : <CheckCircle size={15} />} Valider
+              {nbNonConformes > 0 && (
+                <span style={{
+                  position: 'absolute', top: -6, right: -6, background: '#dc2626', color: '#fff',
+                  borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 800,
+                  display: 'flex', alignItems: 'center', justifyContent: 'center',
+                }}>{nbNonConformes}</span>
+              )}
             </button>
           )}
           {dossier.statut !== 'REJETE' && (

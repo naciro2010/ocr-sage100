@@ -4,8 +4,10 @@ import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
-import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText } from 'lucide-react'
+import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, Eye } from 'lucide-react'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
+
+type FilterMode = 'all' | 'problems' | 'conforme'
 
 interface Props {
   dossier: DossierDetail
@@ -19,7 +21,8 @@ interface Props {
 function needsHumanReview(r: ValidationResult): boolean {
   if (r.statut === 'NON_CONFORME') return true
   if (r.statut === 'AVERTISSEMENT') return true
-  if (r.source === 'llm' || r.source === 'ia') return true
+  // LLM-sourced items only need review if not CONFORME
+  if ((r.source === 'llm' || r.source === 'ia') && r.statut !== 'CONFORME') return true
   return false
 }
 
@@ -72,10 +75,23 @@ function Legend() {
 
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc }: Props) {
   const { toast } = useToast()
-  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(new Set(['system', 'autocontrole']))
-  const [expandedItems, setExpandedItems] = useState<Set<string>>(new Set())
-
   const hasResults = dossier.resultatsValidation.length > 0
+
+  // Blocks start expanded when there are results, collapsed when empty (pre-validation)
+  const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(() =>
+    hasResults ? new Set() : new Set(['system', 'autocontrole'])
+  )
+  // Auto-expand problem items (up to 5) when results exist on mount
+  const [expandedItems, setExpandedItems] = useState<Set<string>>(() => {
+    if (!hasResults) return new Set()
+    const problems = new Set<string>()
+    for (const r of dossier.resultatsValidation) {
+      if (r.statut === 'NON_CONFORME' || r.statut === 'AVERTISSEMENT') problems.add(r.regle)
+    }
+    return problems.size <= 5 ? problems : new Set()
+  })
+  const [filterMode, setFilterMode] = useState<FilterMode>('all')
+
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
   const systemResults = dossier.resultatsValidation
@@ -87,7 +103,8 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     const items = groupRuleCodes.map(code => {
       const ruleDef = systemRuleDefs.find(r => r.code === code)
       const fullDef = ALL_RULES.find(r => r.code === code)
-      const result = systemResults.find(r => r.regle === code || r.regle.startsWith(code))
+      // Fix: use exact match or code + '.' prefix to avoid R1 matching R10, R11, etc.
+      const result = systemResults.find(r => r.regle === code || r.regle.startsWith(code + '.'))
       return { code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result }
     })
     return { ...g, items }
@@ -147,11 +164,12 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
       })
   }, [dossier.id, onOptimisticUpdate, onRefreshResults, toast])
 
-  const { sysOk, sysKo, needsReviewCount, autoOk, autoKo } = useMemo(() => {
-    let ok = 0, ko = 0, review = 0
+  const { sysOk, sysKo, sysWarn, needsReviewCount, autoOk, autoKo } = useMemo(() => {
+    let ok = 0, ko = 0, warn = 0, review = 0
     for (const r of systemResults) {
       if (r.statut === 'CONFORME') ok++
       else if (r.statut === 'NON_CONFORME') ko++
+      else if (r.statut === 'AVERTISSEMENT') warn++
       if (needsHumanReview(r)) review++
     }
     let aOk = 0, aKo = 0
@@ -159,7 +177,27 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
       if (i.status === 'ok') aOk++
       else if (i.status === 'ko') aKo++
     }
-    return { sysOk: ok, sysKo: ko, needsReviewCount: review, autoOk: aOk, autoKo: aKo }
+    return { sysOk: ok, sysKo: ko, sysWarn: warn, needsReviewCount: review, autoOk: aOk, autoKo: aKo }
+  }, [systemResults, autocontroleItems])
+
+  // Filter items based on filter mode
+  const filterResult = useCallback((r: ValidationResult | undefined | null): boolean => {
+    if (filterMode === 'all') return true
+    if (!r) return filterMode !== 'conforme' // Show pending items in 'problems' view
+    if (filterMode === 'problems') return r.statut === 'NON_CONFORME' || r.statut === 'AVERTISSEMENT'
+    if (filterMode === 'conforme') return r.statut === 'CONFORME'
+    return true
+  }, [filterMode])
+
+  const expandAllProblems = useCallback(() => {
+    const problemCodes = new Set<string>()
+    for (const r of systemResults) {
+      if (r.statut === 'NON_CONFORME' || r.statut === 'AVERTISSEMENT') problemCodes.add(r.regle)
+    }
+    for (let i = 0; i < autocontroleItems.length; i++) {
+      if (autocontroleItems[i].status === 'ko' || autocontroleItems[i].status === 'warn') problemCodes.add(`auto-${i}`)
+    }
+    setExpandedItems(problemCodes)
   }, [systemResults, autocontroleItems])
 
   const systemCollapsed = collapsedBlocks.has('system')
@@ -184,7 +222,10 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
             <span className="vblock-title">Verifications automatiques</span>
             {hasResults && (
               <span className="vblock-stats">
-                {sysOk} OK &middot; {sysKo} KO &middot; {systemResults.length} total
+                <span style={{ color: '#10b981' }}>{sysOk} OK</span>
+                {sysKo > 0 && <> &middot; <span style={{ color: '#ef4444', fontWeight: 800 }}>{sysKo} KO</span></>}
+                {sysWarn > 0 && <> &middot; <span style={{ color: '#f59e0b' }}>{sysWarn} !</span></>}
+                &middot; {systemResults.length} total
               </span>
             )}
             {hasResults && needsReviewCount > 0 && (
@@ -210,13 +251,36 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
         </div>
 
         <div id="vblock-system-content" className={`collapsible ${systemCollapsed ? 'collapsed' : 'expanded'}`} style={{ maxHeight: systemCollapsed ? 0 : 5000 }}>
-          {hasResults && <Legend />}
+          {hasResults && (
+            <div className="vblock-toolbar">
+              <Legend />
+              <div className="vblock-filters">
+                <button className={`vblock-filter-btn ${filterMode === 'all' ? 'active' : ''}`} onClick={() => setFilterMode('all')}>
+                  Tout ({systemResults.length})
+                </button>
+                <button className={`vblock-filter-btn vblock-filter-problems ${filterMode === 'problems' ? 'active' : ''}`} onClick={() => setFilterMode('problems')} disabled={sysKo + sysWarn === 0}>
+                  <Filter size={9} /> Problemes ({sysKo + sysWarn})
+                </button>
+                <button className={`vblock-filter-btn vblock-filter-ok ${filterMode === 'conforme' ? 'active' : ''}`} onClick={() => setFilterMode('conforme')}>
+                  Conformes ({sysOk})
+                </button>
+                {(sysKo + sysWarn) > 0 && (
+                  <button className="vblock-filter-btn vblock-filter-expand" onClick={e => { e.stopPropagation(); expandAllProblems() }} title="Deployer tous les problemes">
+                    <Eye size={9} /> Voir problemes
+                  </button>
+                )}
+              </div>
+            </div>
+          )}
           <div className="vblock-inner">
             {hasResults ? (
-              groupedSystem.map(group => (
+              groupedSystem.map(group => {
+                const visibleItems = group.items.filter(item => filterResult(item.result))
+                if (visibleItems.length === 0) return null
+                return (
                 <div key={group.key}>
                   <div className="vblock-group-header">{group.label}</div>
-                  {group.items.map(item => {
+                  {visibleItems.map(item => {
                     const r = item.result
                     const status: ItemStatus = r ? statutToItemStatus(r.statut) : 'pending'
                     const sd = STATUS_DISPLAY[status]
@@ -228,6 +292,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                       <div key={item.code}>
                         <div className={`vblock-item ${review ? 'vblock-item-review' : ''}`}
                           onClick={() => toggleItem(item.code)}
+                          role="button"
+                          tabIndex={0}
+                          onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleItem(item.code) } }}
                           style={{ cursor: 'pointer' }}
                         >
                           <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
@@ -356,7 +423,8 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                     )
                   })}
                 </div>
-              ))
+                )
+              })
             ) : (
               groupedSystem.map(group => (
                 <div key={group.key}>
@@ -433,11 +501,17 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                 const r = item.result
                 const sd = STATUS_DISPLAY[item.status]
                 const isExpanded = expandedItems.has(`auto-${i}`)
-                const review = item.status === 'ko' || item.status === 'warn' || hasAutocontrole
+                // Only flag as needing review if actually problematic
+                const review = item.status === 'ko' || item.status === 'warn'
+                const conf = r ? confidenceLevel(r) : null
                 return (
                   <div key={i}>
-                    <div className={`vblock-item ${review && item.status === 'ko' ? 'vblock-item-review' : ''}`}
-                      onClick={() => toggleItem(`auto-${i}`)} style={{ cursor: 'pointer' }}>
+                    <div className={`vblock-item ${review ? 'vblock-item-review' : ''}`}
+                      onClick={() => toggleItem(`auto-${i}`)}
+                      role="button"
+                      tabIndex={0}
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') { e.preventDefault(); toggleItem(`auto-${i}`) } }}
+                      style={{ cursor: 'pointer' }}>
                       <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
                       <span className="vblock-code" style={{ width: 22 }}>{item.num}</span>
                       <div className="vblock-content">
@@ -482,6 +556,12 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                         <span className="vblock-corrected">corrige</span>
                       )}
 
+                      {review && (
+                        <span className="vblock-review-icon" title="A verifier manuellement">
+                          <AlertTriangle size={12} />
+                        </span>
+                      )}
+
                       {isExpanded ? <ChevronUp size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} /> : <ChevronDown size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} />}
                     </div>
 
@@ -518,11 +598,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           <span className="vblock-expand-meta-item">
                             Source : <strong>{r ? sourceLabel(r.source) : hasAutocontrole ? 'Autocontrole — extrait du document' : 'Verifie par le systeme'}</strong>
                           </span>
-                          {r && (
+                          {conf && (
                             <span className="vblock-expand-meta-item">
-                              Confiance : <strong style={{ color: confidenceLevel(r).color }}>{confidenceLevel(r).pct}%</strong>
+                              Confiance : <strong style={{ color: conf.color }}>{conf.pct}%</strong>
                               <span className="vblock-confidence-bar">
-                                <span className="vblock-confidence-fill" style={{ width: `${confidenceLevel(r).pct}%`, background: confidenceLevel(r).color }} />
+                                <span className="vblock-confidence-fill" style={{ width: `${conf.pct}%`, background: conf.color }} />
                               </span>
                             </span>
                           )}
