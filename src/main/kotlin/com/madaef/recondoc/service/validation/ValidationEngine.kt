@@ -477,17 +477,31 @@ class ValidationEngine(
             )
         }
 
-        if (isEnabled("R13") && tableau != null) {
-            val nonConformes = tableau.points.filter {
-                it.observation?.lowercase()?.contains("non conforme") == true
+        if (isEnabled("R13")) {
+            val tcDoc = dossier.documents.find { it.typeDocument == TypeDocument.TABLEAU_CONTROLE }
+            val tcPoints = tableau?.points?.toList() ?: run {
+                @Suppress("UNCHECKED_CAST")
+                val jsonPts = tcDoc?.donneesExtraites?.get("points") as? List<Map<String, Any?>> ?: emptyList()
+                jsonPts.map { p -> PointControleFinancier(
+                    tableauControle = tableau ?: TableauControle(dossier = dossier, document = tcDoc ?: Document(dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE, nomFichier = "", cheminFichier = "")),
+                    numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    description = p["description"] as? String,
+                    observation = p["observation"] as? String,
+                    commentaire = p["commentaire"] as? String
+                )}
             }
-            results += ResultatValidation(
-                dossier = dossier, regle = "R13",
-                libelle = "Tableau de controle financier complet",
-                statut = if (nonConformes.isEmpty()) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = if (nonConformes.isEmpty()) "Tous les points sont Conforme ou NA"
-                    else "${nonConformes.size} point(s) Non conforme"
-            )
+            if (tcPoints.isNotEmpty()) {
+                val nonConformes = tcPoints.filter {
+                    it.observation?.lowercase()?.contains("non conforme") == true
+                }
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R13",
+                    libelle = "Tableau de controle financier complet",
+                    statut = if (nonConformes.isEmpty()) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (nonConformes.isEmpty()) "Tous les points sont Conforme ou NA (${tcPoints.size} points)"
+                        else "${nonConformes.size} point(s) Non conforme sur ${tcPoints.size}"
+                )
+            }
         }
 
         run {
@@ -740,7 +754,30 @@ class ValidationEngine(
         val fTva = facture?.montantTva ?: docAmt(fDoc, "montantTVA")
         val bcTtc = bc?.montantTtc ?: docAmt(bcDoc, "montantTTC")
 
-        val points = checklist?.points?.sortedBy { it.numero } ?: emptyList()
+        val checklistDoc = dossier.documents.find { it.typeDocument == TypeDocument.CHECKLIST_AUTOCONTROLE }
+        val entityPoints = checklist?.points?.sortedBy { it.numero } ?: emptyList()
+
+        val points: List<PointControle> = if (entityPoints.isNotEmpty()) {
+            entityPoints
+        } else {
+            @Suppress("UNCHECKED_CAST")
+            val jsonPoints = checklistDoc?.donneesExtraites?.get("points") as? List<Map<String, Any?>> ?: emptyList()
+            jsonPoints.map { p ->
+                val estValideRaw = p["estValide"]
+                val estValide = when (estValideRaw) {
+                    is Boolean -> estValideRaw
+                    is String -> estValideRaw.lowercase().let { it == "true" || it == "oui" || it == "conforme" || it == "o" }
+                    else -> null
+                }
+                PointControle(
+                    checklist = checklist ?: ChecklistAutocontrole(dossier = dossier, document = checklistDoc ?: Document(dossier = dossier, typeDocument = TypeDocument.CHECKLIST_AUTOCONTROLE, nomFichier = "", cheminFichier = "")),
+                    numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    description = p["description"] as? String,
+                    estValide = estValide,
+                    observation = p["observation"] as? String
+                )
+            }
+        }
 
         run {
             val pt = points.find { it.numero == 1 }

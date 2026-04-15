@@ -7,6 +7,18 @@ export interface ParsedChecklistPoint {
   observation: string | null
 }
 
+function parseBooleanish(v: unknown): boolean | null {
+  if (v === true) return true
+  if (v === false) return false
+  if (typeof v === 'string') {
+    const s = v.toLowerCase().trim()
+    if (s === 'true' || s === 'oui' || s === 'conforme' || s === 'o' || s === 'yes') return true
+    if (s === 'false' || s === 'non' || s === 'non conforme' || s === 'n' || s === 'no') return false
+  }
+  if (typeof v === 'number') return v !== 0
+  return null
+}
+
 export function parseChecklistPoints(dossier: DossierDetail): ParsedChecklistPoint[] {
   const checklistData = dossier.checklistAutocontrole
   const extracted = (checklistData?.points as Array<Record<string, unknown>> | undefined) || []
@@ -14,7 +26,7 @@ export function parseChecklistPoints(dossier: DossierDetail): ParsedChecklistPoi
   return extracted.map((pt, i) => ({
     num: pt.numero != null ? Number(pt.numero) : i + 1,
     desc: String(pt.description || `Point ${pt.numero || i + 1}`),
-    estValide: pt.estValide === true ? true : pt.estValide === false ? false : null,
+    estValide: parseBooleanish(pt.estValide),
     observation: pt.observation != null && String(pt.observation) !== '\\u2014' ? String(pt.observation) : null,
   }))
 }

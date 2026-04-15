@@ -822,11 +822,18 @@ class DossierService(
         if (points != null) {
             cl.points.clear()
             for (p in points) {
+                val estValideRaw = p["estValide"]
+                val estValide = when (estValideRaw) {
+                    is Boolean -> estValideRaw
+                    is String -> estValideRaw.lowercase().let { it == "true" || it == "oui" || it == "conforme" || it == "o" || it == "yes" }
+                    is Number -> estValideRaw.toInt() != 0
+                    else -> null
+                }
                 cl.points.add(PointControle(
                     checklist = cl,
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,
                     description = p["description"] as? String,
-                    estValide = p["estValide"] as? Boolean,
+                    estValide = estValide,
                     observation = p["observation"] as? String
                 ))
             }
