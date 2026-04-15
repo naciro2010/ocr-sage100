@@ -18,6 +18,7 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
   const [progress, setProgress] = useState<Record<string, DocProgress>>({})
   const esRef = useRef<EventSource | null>(null)
   const onUpdateRef = useRef(onUpdate)
+  const hasProcessingRef = useRef(hasProcessing)
   const coalesceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
   const pollCountRef = useRef(0)
@@ -26,6 +27,10 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
   useEffect(() => {
     onUpdateRef.current = onUpdate
   }, [onUpdate])
+
+  useEffect(() => {
+    hasProcessingRef.current = hasProcessing
+  }, [hasProcessing])
 
   const scheduleUpdate = useCallback(() => {
     if (coalesceTimer.current) return
@@ -91,7 +96,7 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
 
     es.onerror = () => {
       sseConnected.current = false
-      if (hasProcessing) startPolling()
+      if (hasProcessingRef.current) startPolling()
     }
 
     es.onopen = () => {
