@@ -822,13 +822,7 @@ class DossierService(
         if (points != null) {
             cl.points.clear()
             for (p in points) {
-                val estValideRaw = p["estValide"]
-                val estValide = when (estValideRaw) {
-                    is Boolean -> estValideRaw
-                    is String -> estValideRaw.lowercase().let { it == "true" || it == "oui" || it == "conforme" || it == "o" || it == "yes" }
-                    is Number -> estValideRaw.toInt() != 0
-                    else -> null
-                }
+                val estValide = com.madaef.recondoc.service.validation.ValidationEngine.parseBooleanish(p["estValide"])
                 cl.points.add(PointControle(
                     checklist = cl,
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,

@@ -33,6 +33,45 @@ class ValidationEngine(
             "juillet", "aout", "septembre", "octobre", "novembre", "decembre"
         )
 
+        private val NUMERIC_CLEAN_RE = "[^\\d.,\\-]".toRegex()
+
+        fun docAmount(doc: Document?, vararg keys: String): BigDecimal? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value ?: continue
+                return when (v) {
+                    is Number -> BigDecimal(v.toString())
+                    is String -> v.replace(NUMERIC_CLEAN_RE, "").let { s ->
+                        if (s.isEmpty()) return@let null
+                        val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
+                        if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
+                        else s.replace(",", "").toBigDecimalOrNull()
+                    }
+                    else -> null
+                }
+            }
+            return null
+        }
+
+        fun docStr(doc: Document?, vararg keys: String): String? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
+                if (v != null && v.toString().isNotBlank()) return v.toString()
+            }
+            return null
+        }
+
+        private val TRUTHY = setOf("true", "oui", "conforme", "o", "yes")
+        private val FALSY = setOf("false", "non", "non conforme", "n", "no")
+
+        fun parseBooleanish(v: Any?): Boolean? = when (v) {
+            is Boolean -> v
+            is String -> v.lowercase().trim().let { s -> when { s in TRUTHY -> true; s in FALSY -> false; else -> null } }
+            is Number -> v.toInt() != 0
+            else -> null
+        }
+
         val RULE_DEPENDENCIES: Map<String, Set<String>> = mapOf(
             "R01" to setOf("R02", "R03", "R03b"),
             "R02" to setOf("R01", "R03", "R03b"),
@@ -57,6 +96,12 @@ class ValidationEngine(
             "R13" to emptySet(),
         )
     }
+
+    private data class CorrectionSnapshot(
+        val statut: StatutCheck, val statutOriginal: String?,
+        val commentaire: String?, val corrigePar: String?,
+        val dateCorrection: LocalDateTime?
+    )
 
     private data class ValidationContext(
         val dossier: DossierPaiement,
@@ -117,13 +162,7 @@ class ValidationEngine(
         val existingResults = resultatRepository.findByDossierId(dossier.id!!)
         val corrected = existingResults
             .filter { it.regle in rulesToRun && it.statutOriginal != null }
-            .associate { it.regle to mapOf(
-                "statut" to it.statut.name,
-                "statutOriginal" to it.statutOriginal,
-                "commentaire" to it.commentaire,
-                "corrigePar" to it.corrigePar,
-                "dateCorrection" to it.dateCorrection
-            ) }
+            .associate { it.regle to CorrectionSnapshot(it.statut, it.statutOriginal, it.commentaire, it.corrigePar, it.dateCorrection) }
 
         val toDelete = existingResults.filter { it.regle in rulesToRun }
         resultatRepository.deleteAll(toDelete)
@@ -136,10 +175,10 @@ class ValidationEngine(
             val prev = corrected[r.regle]
             if (prev != null) {
                 r.statutOriginal = r.statut.name
-                r.statut = StatutCheck.valueOf(prev["statut"] as String)
-                r.commentaire = prev["commentaire"] as? String
-                r.corrigePar = prev["corrigePar"] as? String
-                r.dateCorrection = prev["dateCorrection"] as? LocalDateTime
+                r.statut = prev.statut
+                r.commentaire = prev.commentaire
+                r.corrigePar = prev.corrigePar
+                r.dateCorrection = prev.dateCorrection
             }
         }
         resultatRepository.saveAll(allResults)
@@ -207,27 +246,6 @@ class ValidationEngine(
         val pv = ctx.pv
         val arf = ctx.arf
 
-        fun docAmount(doc: Document?, vararg keys: String): BigDecimal? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
-                if (v != null) {
-                    return when (v) {
-                        is Number -> BigDecimal(v.toString())
-                        is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->
-                            val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
-                            when {
-                                lc > ld -> s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
-                                else -> s.replace(",", "").toBigDecimalOrNull()
-                            }
-                        }
-                        else -> null
-                    }
-                }
-            }
-            return null
-        }
-
         val fDoc = facture?.document
         val bcDoc = bc?.document
 
@@ -267,16 +285,10 @@ class ValidationEngine(
             }
         }
 
-        fun docStr(doc: Document?, vararg keys: String): String? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
-                if (v != null && v.toString().isNotBlank()) return v.toString()
-            }
-            return null
-        }
-
         val opDoc = op?.document
+        val arfDoc = arf?.document
+        val tcDoc = dossier.documents.find { it.typeDocument == TypeDocument.TABLEAU_CONTROLE }
+        val ckDoc = dossier.documents.find { it.typeDocument == TypeDocument.CHECKLIST_AUTOCONTROLE }
         val opMontant = op?.montantOperation ?: docAmount(opDoc, "montantOperation", "montantBrut")
 
         if (isEnabled("R04") && facture != null && op != null && op.retenues.isEmpty()) {
@@ -306,8 +318,6 @@ class ValidationEngine(
                 }
             }
         }
-
-        val arfDoc = arf?.document
 
         if (isEnabled("R07") && facture != null && op != null) {
             val fNumero = facture.numeroFacture ?: docStr(fDoc, "numeroFacture")
@@ -425,8 +435,8 @@ class ValidationEngine(
                 dossier.fournisseur,
                 bc?.fournisseur ?: docStr(bcDoc, "fournisseur"),
                 op?.beneficiaire ?: docStr(opDoc, "beneficiaire"),
-                tableau?.fournisseur ?: docStr(tableau?.let { dossier.documents.find { d -> d.typeDocument == TypeDocument.TABLEAU_CONTROLE } }, "fournisseur"),
-                checklist?.prestataire ?: docStr(dossier.documents.find { d -> d.typeDocument == TypeDocument.CHECKLIST_AUTOCONTROLE }, "prestataire")
+                tableau?.fournisseur ?: docStr(tcDoc, "fournisseur"),
+                checklist?.prestataire ?: docStr(ckDoc, "prestataire")
             ) + allFactures.mapNotNull { it.fournisseur ?: docStr(it.document, "fournisseur") }).map { it.trim().lowercase() }.distinct()
             if (fournisseurs.size > 1) {
                 results += ResultatValidation(
@@ -478,12 +488,11 @@ class ValidationEngine(
         }
 
         if (isEnabled("R13")) {
-            val tcDoc = dossier.documents.find { it.typeDocument == TypeDocument.TABLEAU_CONTROLE }
             val tcPoints = tableau?.points?.toList() ?: run {
                 @Suppress("UNCHECKED_CAST")
                 val jsonPts = tcDoc?.donneesExtraites?.get("points") as? List<Map<String, Any?>> ?: emptyList()
                 jsonPts.map { p -> PointControleFinancier(
-                    tableauControle = tableau ?: TableauControle(dossier = dossier, document = tcDoc ?: Document(dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE, nomFichier = "", cheminFichier = "")),
+                    tableauControle = tableau ?: TableauControle(dossier = dossier, document = tcDoc ?: dossier.documents.first()),
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,
                     description = p["description"] as? String,
                     observation = p["observation"] as? String,
@@ -544,15 +553,10 @@ class ValidationEngine(
             )
         }
 
-        if (isEnabled("R16") && facture != null) {
-            val ht16 = fHt
-            val tva16 = fTva
-            val ttc16 = fTtc
-            if (ht16 != null && tva16 != null && ttc16 != null) {
-                val calcTtc = ht16.add(tva16)
-                results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
-                    ttc16, calcTtc, tol, dossier)
-            }
+        if (isEnabled("R16") && facture != null && fHt != null && fTva != null && fTtc != null) {
+            val calcTtc = fHt.add(fTva)
+            results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
+                fTtc, calcTtc, tol, dossier)
         }
 
         if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
@@ -719,40 +723,14 @@ class ValidationEngine(
         fun ckPoint(pt: PointControle?): Pair<Boolean?, String?> =
             if (pt != null) (pt.estValide to pt.observation) else (null to null)
 
-        fun docAmt(doc: Document?, vararg keys: String): BigDecimal? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value ?: continue
-                return when (v) {
-                    is Number -> BigDecimal(v.toString())
-                    is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->
-                        val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
-                        if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
-                        else s.replace(",", "").toBigDecimalOrNull()
-                    }
-                    else -> null
-                }
-            }
-            return null
-        }
-
-        fun docTxt(doc: Document?, vararg keys: String): String? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
-                if (v != null && v.toString().isNotBlank()) return v.toString()
-            }
-            return null
-        }
-
         val fDoc = facture?.document
         val bcDoc = bc?.document
         val opDoc = op?.document
 
-        val fTtc = facture?.montantTtc ?: docAmt(fDoc, "montantTTC")
-        val fHt = facture?.montantHt ?: docAmt(fDoc, "montantHT")
-        val fTva = facture?.montantTva ?: docAmt(fDoc, "montantTVA")
-        val bcTtc = bc?.montantTtc ?: docAmt(bcDoc, "montantTTC")
+        val fTtc = facture?.montantTtc ?: docAmount(fDoc, "montantTTC")
+        val fHt = facture?.montantHt ?: docAmount(fDoc, "montantHT")
+        val fTva = facture?.montantTva ?: docAmount(fDoc, "montantTVA")
+        val bcTtc = bc?.montantTtc ?: docAmount(bcDoc, "montantTTC")
 
         val checklistDoc = dossier.documents.find { it.typeDocument == TypeDocument.CHECKLIST_AUTOCONTROLE }
         val entityPoints = checklist?.points?.sortedBy { it.numero } ?: emptyList()
@@ -762,18 +740,13 @@ class ValidationEngine(
         } else {
             @Suppress("UNCHECKED_CAST")
             val jsonPoints = checklistDoc?.donneesExtraites?.get("points") as? List<Map<String, Any?>> ?: emptyList()
-            jsonPoints.map { p ->
-                val estValideRaw = p["estValide"]
-                val estValide = when (estValideRaw) {
-                    is Boolean -> estValideRaw
-                    is String -> estValideRaw.lowercase().let { it == "true" || it == "oui" || it == "conforme" || it == "o" }
-                    else -> null
-                }
+            jsonPoints.mapNotNull { p ->
+                val num = (p["numero"] as? Number)?.toInt() ?: return@mapNotNull null
                 PointControle(
-                    checklist = checklist ?: ChecklistAutocontrole(dossier = dossier, document = checklistDoc ?: Document(dossier = dossier, typeDocument = TypeDocument.CHECKLIST_AUTOCONTROLE, nomFichier = "", cheminFichier = "")),
-                    numero = (p["numero"] as? Number)?.toInt() ?: 0,
+                    checklist = checklist ?: ChecklistAutocontrole(dossier = dossier, document = checklistDoc ?: fDoc ?: dossier.documents.first()),
+                    numero = num,
                     description = p["description"] as? String,
-                    estValide = estValide,
+                    estValide = parseBooleanish(p["estValide"]),
                     observation = p["observation"] as? String
                 )
             }
@@ -949,13 +922,13 @@ class ValidationEngine(
         run {
             val pt = points.find { it.numero == 7 }
             val (ckValide, obs) = ckPoint(pt)
-            val fIce = facture?.ice ?: docTxt(fDoc, "ice")
-            val fIf = facture?.identifiantFiscal ?: docTxt(fDoc, "identifiantFiscal")
-            val fRc = facture?.rc ?: docTxt(fDoc, "rc")
+            val fIce = facture?.ice ?: docStr(fDoc, "ice")
+            val fIf = facture?.identifiantFiscal ?: docStr(fDoc, "identifiantFiscal")
+            val fRc = facture?.rc ?: docStr(fDoc, "rc")
             val iceOk = fIce?.isNotBlank() == true
             val ifOk = fIf?.isNotBlank() == true
             val rcOk = fRc?.isNotBlank() == true
-            val arfOk = arf?.estEnRegle == true || docTxt(arf?.document, "estEnRegle") == "true"
+            val arfOk = arf?.estEnRegle == true || docStr(arf?.document, "estEnRegle") == "true"
             val nbPresents = listOf(iceOk, ifOk, rcOk).count { it }
             val sysStatut = when {
                 facture == null -> StatutCheck.AVERTISSEMENT
@@ -985,8 +958,8 @@ class ValidationEngine(
         run {
             val pt = points.find { it.numero == 8 }
             val (ckValide, obs) = ckPoint(pt)
-            val factureRib = normalizeRib(facture?.rib ?: docTxt(fDoc, "rib"))
-            val opRib = normalizeRib(op?.rib ?: docTxt(opDoc, "rib"))
+            val factureRib = normalizeRib(facture?.rib ?: docStr(fDoc, "rib"))
+            val opRib = normalizeRib(op?.rib ?: docStr(opDoc, "rib"))
             val sysStatut = when {
                 factureRib == null || opRib == null -> StatutCheck.AVERTISSEMENT
                 factureRib == opRib -> StatutCheck.CONFORME

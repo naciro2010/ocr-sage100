@@ -135,6 +135,46 @@ function Legend() {
   )
 }
 
+function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, saving }: {
+  resultId: string
+  editValues: { valeurTrouvee: string; valeurAttendue: string; commentaire: string }
+  setEditValues: React.Dispatch<React.SetStateAction<{ valeurTrouvee: string; valeurAttendue: string; commentaire: string }>>
+  onSave: (id: string) => void
+  onCancel: () => void
+  saving: boolean
+}) {
+  return (
+    <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
+      <div className="vblock-edit-row">
+        <label>Valeur attendue</label>
+        <input className="form-input" value={editValues.valeurAttendue}
+          onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))}
+          placeholder="Valeur attendue" />
+      </div>
+      <div className="vblock-edit-row">
+        <label>Valeur trouvee</label>
+        <input className="form-input" value={editValues.valeurTrouvee}
+          onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))}
+          placeholder="Valeur trouvee" />
+      </div>
+      <div className="vblock-edit-row">
+        <label><MessageSquare size={10} /> Commentaire</label>
+        <input className="form-input" value={editValues.commentaire}
+          onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
+          placeholder="Raison de la correction..." />
+      </div>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+        <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => onSave(resultId)}>
+          {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
+        </button>
+        <button className="btn btn-secondary btn-sm" onClick={onCancel}>
+          <X size={11} /> Annuler
+        </button>
+      </div>
+    </div>
+  )
+}
+
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc, onRerunRule, onToggleRule, ruleConfig }: Props) {
   const { toast } = useToast()
   const [rerunning, setRerunning] = useState<string | null>(null)
@@ -155,7 +195,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
   const [editingResult, setEditingResult] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<{ valeurTrouvee: string; valeurAttendue: string; commentaire: string }>({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
-  const [saving, setSaving] = useState(false)
+  const [savingId, setSavingId] = useState<string | null>(null)
 
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
@@ -242,7 +282,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   }, [])
 
   const saveEditing = useCallback(async (resultId: string) => {
-    setSaving(true)
+    setSavingId(resultId)
     try {
       await updateValidationResult(dossier.id, resultId, {
         valeurTrouvee: editValues.valeurTrouvee || undefined,
@@ -255,7 +295,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally {
-      setSaving(false)
+      setSavingId(null)
     }
   }, [dossier.id, editValues, onRefreshResults, toast])
 
@@ -477,35 +517,8 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             <div className="vblock-expand-desc">{item.desc}</div>
 
                             {r?.id && editingResult === r.id ? (
-                              <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
-                                <div className="vblock-edit-row">
-                                  <label>Valeur attendue</label>
-                                  <input className="form-input" value={editValues.valeurAttendue}
-                                    onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))}
-                                    placeholder="Valeur attendue" />
-                                </div>
-                                <div className="vblock-edit-row">
-                                  <label>Valeur trouvee</label>
-                                  <input className="form-input" value={editValues.valeurTrouvee}
-                                    onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))}
-                                    placeholder="Valeur trouvee" />
-                                </div>
-                                <div className="vblock-edit-row">
-                                  <label><MessageSquare size={10} /> Commentaire</label>
-                                  <input className="form-input" value={editValues.commentaire}
-                                    onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
-                                    placeholder="Raison de la correction..." />
-                                </div>
-                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                                  <button className="btn btn-primary btn-sm" disabled={saving}
-                                    onClick={() => saveEditing(r.id!)}>
-                                    {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
-                                  </button>
-                                  <button className="btn btn-secondary btn-sm" onClick={cancelEditing}>
-                                    <X size={11} /> Annuler
-                                  </button>
-                                </div>
-                              </div>
+                              <EditPanel resultId={r.id!} editValues={editValues} setEditValues={setEditValues}
+                                onSave={saveEditing} onCancel={cancelEditing} saving={savingId === r.id} />
                             ) : (
                               <>
                                 {(r?.valeurAttendue || r?.valeurTrouvee) && (
@@ -666,9 +679,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                 const r = item.result
                 const sd = STATUS_DISPLAY[item.status]
                 const isExpanded = expandedItems.has(`auto-${i}`)
-                // Only flag as needing review if actually problematic
                 const review = item.status === 'ko' || item.status === 'warn'
                 const conf = r ? confidenceLevel(r) : null
+                const ckRuleCode = `R12.${String(item.num).padStart(2, '0')}`
                 return (
                   <div key={i}>
                     <div className={`vblock-item ${review ? 'vblock-item-review' : ''}`}
@@ -723,9 +736,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
                       {r && onRerunRule && (
                         <button className="vblock-rerun-inline" title="Relancer ce controle"
-                          onClick={e => { e.stopPropagation(); handleRerun(`R12.${String(item.num).padStart(2, '0')}`) }}
-                          disabled={rerunning === `R12.${String(item.num).padStart(2, '0')}`}>
-                          {rerunning === `R12.${String(item.num).padStart(2, '0')}` ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                          onClick={e => { e.stopPropagation(); handleRerun(ckRuleCode) }}
+                          disabled={rerunning === ckRuleCode}>
+                          {rerunning === ckRuleCode ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
                         </button>
                       )}
 
