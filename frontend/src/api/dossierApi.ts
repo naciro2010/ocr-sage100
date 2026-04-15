@@ -216,7 +216,7 @@ export async function openWithAuth(url: string) {
   window.open(blobUrl, '_blank')
 }
 
-export async function updateValidationResult(dossierId: string, resultId: string, updates: { statut?: string; commentaire?: string; corrigePar?: string }): Promise<ValidationResult> {
+export async function updateValidationResult(dossierId: string, resultId: string, updates: { statut?: string; commentaire?: string; corrigePar?: string; valeurTrouvee?: string; valeurAttendue?: string; detail?: string }): Promise<ValidationResult> {
   invalidateCache(dossierId)
   const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}`, {
     method: 'PATCH',

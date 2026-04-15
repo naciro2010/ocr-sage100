@@ -653,6 +653,9 @@ class DossierService(
         }
         updates["commentaire"]?.let { result.commentaire = it }
         updates["corrigePar"]?.let { result.corrigePar = it }
+        updates["valeurTrouvee"]?.let { result.valeurTrouvee = it }
+        updates["valeurAttendue"]?.let { result.valeurAttendue = it }
+        updates["detail"]?.let { result.detail = it }
         result.dateCorrection = java.time.LocalDateTime.now()
         return repo.save(result)
     }

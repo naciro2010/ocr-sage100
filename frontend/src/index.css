@@ -1110,6 +1110,23 @@ body {
 .vblock-select:hover { border-color: var(--accent); }
 .vblock-select:focus { outline: none; border-color: var(--accent); box-shadow: 0 0 0 2px var(--accent-muted); }
 .vblock-corrected { font-size: 8px; color: var(--warning); font-family: var(--font-mono); }
+.vblock-rerun-inline, .vblock-edit-inline {
+  flex-shrink: 0; border: none; background: none; cursor: pointer; padding: 3px;
+  border-radius: 4px; color: var(--ink-30); transition: all 0.15s;
+}
+.vblock-rerun-inline:hover { color: var(--teal-700); background: var(--teal-50); }
+.vblock-edit-inline:hover { color: var(--blue-600); background: #eff6ff; }
+.vblock-rerun-inline:disabled { opacity: 0.4; cursor: not-allowed; }
+.vblock-edit-panel {
+  margin: 8px 0; padding: 12px; background: var(--ink-02); border-radius: 8px;
+  border: 1px solid var(--ink-08); display: flex; flex-direction: column; gap: 8px;
+}
+.vblock-edit-row { display: flex; flex-direction: column; gap: 2px; }
+.vblock-edit-row label { font-size: 10px; font-weight: 700; color: var(--ink-50); display: flex; align-items: center; gap: 4px; }
+.vblock-edit-row .form-input {
+  font-size: 12px; padding: 5px 8px; border-radius: 4px;
+  border: 1px solid var(--ink-10); background: var(--bg);
+}
 .vblock-info-row {
   display: flex; gap: 16px; padding: 8px 16px;
   background: var(--ink-02); border-bottom: 1px solid var(--ink-05);

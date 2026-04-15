@@ -4,7 +4,7 @@ import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
-import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye } from 'lucide-react'
+import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye, Edit3, Save, X, MessageSquare } from 'lucide-react'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { DocumentInfo } from '../../api/dossierTypes'
 
@@ -153,6 +153,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     return problems.size <= 5 ? problems : new Set()
   })
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const [editingResult, setEditingResult] = useState<string | null>(null)
+  const [editValues, setEditValues] = useState<{ valeurTrouvee: string; valeurAttendue: string; commentaire: string }>({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
+  const [saving, setSaving] = useState(false)
 
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
@@ -217,14 +220,44 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const handleCorrect = useCallback((resultId: string, newStatut: string) => {
     if (onOptimisticUpdate) onOptimisticUpdate(resultId, newStatut)
     updateValidationResult(dossier.id, resultId, { statut: newStatut })
-      .then(() => {
-        toast('success', 'Corrige')
-      })
+      .then(() => toast('success', 'Corrige'))
       .catch(e => {
         toast('error', e instanceof Error ? e.message : 'Erreur de correction')
         if (onRefreshResults) onRefreshResults()
       })
   }, [dossier.id, onOptimisticUpdate, onRefreshResults, toast])
+
+  const startEditing = useCallback((r: ValidationResult) => {
+    setEditingResult(r.id)
+    setEditValues({
+      valeurTrouvee: r.valeurTrouvee || '',
+      valeurAttendue: r.valeurAttendue || '',
+      commentaire: r.commentaire || ''
+    })
+  }, [])
+
+  const cancelEditing = useCallback(() => {
+    setEditingResult(null)
+    setEditValues({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
+  }, [])
+
+  const saveEditing = useCallback(async (resultId: string) => {
+    setSaving(true)
+    try {
+      await updateValidationResult(dossier.id, resultId, {
+        valeurTrouvee: editValues.valeurTrouvee || undefined,
+        valeurAttendue: editValues.valeurAttendue || undefined,
+        commentaire: editValues.commentaire || undefined,
+      })
+      toast('success', 'Valeurs corrigees')
+      setEditingResult(null)
+      if (onRefreshResults) onRefreshResults()
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    } finally {
+      setSaving(false)
+    }
+  }, [dossier.id, editValues, onRefreshResults, toast])
 
   const handleRerun = useCallback(async (regle: string) => {
     if (!onRerunRule) return
@@ -415,6 +448,21 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             <span className="vblock-corrected">corrige</span>
                           )}
 
+                          {r && onRerunRule && (
+                            <button className="vblock-rerun-inline" title="Relancer ce controle"
+                              onClick={e => { e.stopPropagation(); handleRerun(item.code) }}
+                              disabled={rerunning === item.code}>
+                              {rerunning === item.code ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                            </button>
+                          )}
+
+                          {r?.id && editingResult !== r.id && (
+                            <button className="vblock-edit-inline" title="Corriger les valeurs"
+                              onClick={e => { e.stopPropagation(); startEditing(r) }}>
+                              <Edit3 size={11} />
+                            </button>
+                          )}
+
                           {review && (
                             <span className="vblock-review-icon" title="A verifier manuellement">
                               <AlertTriangle size={12} />
@@ -424,29 +472,69 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           {isExpanded ? <ChevronUp size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} /> : <ChevronDown size={12} style={{ color: 'var(--ink-30)', flexShrink: 0 }} />}
                         </div>
 
-                        {/* Expanded detail panel */}
                         {isExpanded && (
                           <div className="vblock-expand">
                             <div className="vblock-expand-desc">{item.desc}</div>
 
-                            {(r?.valeurAttendue || r?.valeurTrouvee) && (
-                              <div className="vblock-expand-compare">
-                                {r.valeurAttendue && (
-                                  <div className="vblock-expand-val">
-                                    <span className="vblock-expand-val-label">Attendu</span>
-                                    <span className="vblock-expand-val-data">{r.valeurAttendue}</span>
-                                  </div>
-                                )}
-                                {r.valeurTrouvee && (
-                                  <div className="vblock-expand-val">
-                                    <span className="vblock-expand-val-label">Trouve</span>
-                                    <span className={`vblock-expand-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</span>
-                                  </div>
-                                )}
+                            {r?.id && editingResult === r.id ? (
+                              <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
+                                <div className="vblock-edit-row">
+                                  <label>Valeur attendue</label>
+                                  <input className="form-input" value={editValues.valeurAttendue}
+                                    onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))}
+                                    placeholder="Valeur attendue" />
+                                </div>
+                                <div className="vblock-edit-row">
+                                  <label>Valeur trouvee</label>
+                                  <input className="form-input" value={editValues.valeurTrouvee}
+                                    onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))}
+                                    placeholder="Valeur trouvee" />
+                                </div>
+                                <div className="vblock-edit-row">
+                                  <label><MessageSquare size={10} /> Commentaire</label>
+                                  <input className="form-input" value={editValues.commentaire}
+                                    onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
+                                    placeholder="Raison de la correction..." />
+                                </div>
+                                <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                                  <button className="btn btn-primary btn-sm" disabled={saving}
+                                    onClick={() => saveEditing(r.id!)}>
+                                    {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
+                                  </button>
+                                  <button className="btn btn-secondary btn-sm" onClick={cancelEditing}>
+                                    <X size={11} /> Annuler
+                                  </button>
+                                </div>
                               </div>
+                            ) : (
+                              <>
+                                {(r?.valeurAttendue || r?.valeurTrouvee) && (
+                                  <div className="vblock-expand-compare">
+                                    {r.valeurAttendue && (
+                                      <div className="vblock-expand-val">
+                                        <span className="vblock-expand-val-label">Attendu</span>
+                                        <span className="vblock-expand-val-data">{r.valeurAttendue}</span>
+                                      </div>
+                                    )}
+                                    {r.valeurTrouvee && (
+                                      <div className="vblock-expand-val">
+                                        <span className="vblock-expand-val-label">Trouve</span>
+                                        <span className={`vblock-expand-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </>
                             )}
 
                             {r?.detail && <div className="vblock-expand-detail">{r.detail}</div>}
+
+                            {r?.commentaire && (
+                              <div className="vblock-expand-detail" style={{ color: 'var(--info)' }}>
+                                <MessageSquare size={10} style={{ display: 'inline', verticalAlign: 'middle' }} /> {r.commentaire}
+                                {r.corrigePar && <span style={{ color: 'var(--ink-40)' }}> — {r.corrigePar}</span>}
+                              </div>
+                            )}
 
                             <div className="vblock-expand-meta">
                               {r?.source && (
@@ -460,21 +548,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                   <span className="vblock-confidence-bar">
                                     <span className="vblock-confidence-fill" style={{ width: `${conf.pct}%`, background: conf.color }} />
                                   </span>
-                                </span>
-                              )}
-                              {review && (
-                                <span className="vblock-expand-meta-item vblock-expand-review">
-                                  <AlertTriangle size={11} /> A verifier manuellement
-                                </span>
-                              )}
-                              {r?.commentaire && (
-                                <span className="vblock-expand-meta-item">
-                                  Commentaire : {r.commentaire}
-                                </span>
-                              )}
-                              {r?.corrigePar && (
-                                <span className="vblock-expand-meta-item">
-                                  Corrige par : <strong>{r.corrigePar}</strong>
                                 </span>
                               )}
                             </div>
@@ -498,22 +571,15 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 />
                               </>
                             )}
-                            {r && onRerunRule && (
-                              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                                <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); handleRerun(item.code) }}
-                                  disabled={rerunning === item.code}>
-                                  {rerunning === item.code ? <><Loader2 size={11} className="spin" /> Relance...</> : <><RefreshCw size={11} /> Relancer ce controle</>}
+                            {onToggleRule && (
+                              <div style={{ marginTop: 8, borderTop: '1px solid var(--ink-05)', paddingTop: 8, display: 'flex', gap: 6 }}>
+                                <button className="btn btn-secondary btn-sm" onClick={e => {
+                                  e.stopPropagation()
+                                  onToggleRule(item.code, !isRuleActive(ruleConfig, item.code))
+                                }}
+                                  style={{ fontSize: 10, color: isRuleActive(ruleConfig, item.code) ? 'var(--ink-40)' : 'var(--danger)' }}>
+                                  {isRuleActive(ruleConfig, item.code) ? 'Desactiver cette regle' : 'Reactiver cette regle'}
                                 </button>
-                                {onToggleRule && (
-                                  <button className="btn btn-secondary btn-sm" onClick={e => {
-                                    e.stopPropagation()
-                                    const isEnabled = isRuleActive(ruleConfig, item.code)
-                                    onToggleRule(item.code, !isEnabled)
-                                  }}
-                                    style={{ color: (isRuleActive(ruleConfig, item.code)) ? 'var(--ink-50)' : 'var(--danger)' }}>
-                                    {(isRuleActive(ruleConfig, item.code)) ? 'Desactiver' : 'Reactiver'}
-                                  </button>
-                                )}
                               </div>
                             )}
                           </div>
@@ -655,6 +721,21 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                         <span className="vblock-corrected">corrige</span>
                       )}
 
+                      {r && onRerunRule && (
+                        <button className="vblock-rerun-inline" title="Relancer ce controle"
+                          onClick={e => { e.stopPropagation(); handleRerun(`R12.${String(item.num).padStart(2, '0')}`) }}
+                          disabled={rerunning === `R12.${String(item.num).padStart(2, '0')}`}>
+                          {rerunning === `R12.${String(item.num).padStart(2, '0')}` ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />}
+                        </button>
+                      )}
+
+                      {r?.id && editingResult !== r.id && (
+                        <button className="vblock-edit-inline" title="Corriger les valeurs"
+                          onClick={e => { e.stopPropagation(); startEditing(r) }}>
+                          <Edit3 size={11} />
+                        </button>
+                      )}
+
                       {review && (
                         <span className="vblock-review-icon" title="A verifier manuellement">
                           <AlertTriangle size={12} />
@@ -668,22 +749,53 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                       <div className="vblock-expand">
                         {item.ruleDesc && <div className="vblock-expand-desc">{item.ruleDesc}</div>}
 
-                        {/* Donnees comparees */}
-                        {(r?.valeurAttendue || r?.valeurTrouvee) && (
-                          <div className="vblock-expand-compare">
-                            {r.valeurAttendue && (
-                              <div className="vblock-expand-val">
-                                <span className="vblock-expand-val-label">Documents verifies</span>
-                                <span className="vblock-expand-val-data">{r.valeurAttendue}</span>
-                              </div>
-                            )}
-                            {r.valeurTrouvee && (
-                              <div className="vblock-expand-val">
-                                <span className="vblock-expand-val-label">Resultat</span>
-                                <span className={`vblock-expand-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</span>
-                              </div>
-                            )}
+                        {r?.id && editingResult === r.id ? (
+                          <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
+                            <div className="vblock-edit-row">
+                              <label>Valeur attendue</label>
+                              <input className="form-input" value={editValues.valeurAttendue}
+                                onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))} />
+                            </div>
+                            <div className="vblock-edit-row">
+                              <label>Valeur trouvee</label>
+                              <input className="form-input" value={editValues.valeurTrouvee}
+                                onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))} />
+                            </div>
+                            <div className="vblock-edit-row">
+                              <label><MessageSquare size={10} /> Commentaire</label>
+                              <input className="form-input" value={editValues.commentaire}
+                                onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
+                                placeholder="Raison de la correction..." />
+                            </div>
+                            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
+                              <button className="btn btn-primary btn-sm" disabled={saving}
+                                onClick={() => saveEditing(r.id!)}>
+                                {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
+                              </button>
+                              <button className="btn btn-secondary btn-sm" onClick={cancelEditing}>
+                                <X size={11} /> Annuler
+                              </button>
+                            </div>
                           </div>
+                        ) : (
+                          <>
+                            {(r?.valeurAttendue || r?.valeurTrouvee) && (
+                              <div className="vblock-expand-compare">
+                                {r.valeurAttendue && (
+                                  <div className="vblock-expand-val">
+                                    <span className="vblock-expand-val-label">Documents verifies</span>
+                                    <span className="vblock-expand-val-data">{r.valeurAttendue}</span>
+                                  </div>
+                                )}
+                                {r.valeurTrouvee && (
+                                  <div className="vblock-expand-val">
+                                    <span className="vblock-expand-val-label">Resultat</span>
+                                    <span className={`vblock-expand-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</span>
+                                  </div>
+                                )}
+                              </div>
+                            )}
+                          </>
                         )}
 
                         {r?.detail && (
@@ -691,6 +803,13 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                         )}
                         {item.observation && (
                           <div className="vblock-expand-detail"><strong>Observation autocontrole :</strong> {item.observation}</div>
+                        )}
+
+                        {r?.commentaire && (
+                          <div className="vblock-expand-detail" style={{ color: 'var(--info)' }}>
+                            <MessageSquare size={10} style={{ display: 'inline', verticalAlign: 'middle' }} /> {r.commentaire}
+                            {r.corrigePar && <span style={{ color: 'var(--ink-40)' }}> — {r.corrigePar}</span>}
+                          </div>
                         )}
 
                         <div className="vblock-expand-meta">
@@ -704,17 +823,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 <span className="vblock-confidence-fill" style={{ width: `${conf.pct}%`, background: conf.color }} />
                               </span>
                             </span>
-                          )}
-                          {review && (
-                            <span className="vblock-expand-meta-item vblock-expand-review">
-                              <AlertTriangle size={11} /> A verifier manuellement
-                            </span>
-                          )}
-                          {r?.commentaire && (
-                            <span className="vblock-expand-meta-item">Commentaire : {r.commentaire}</span>
-                          )}
-                          {r?.corrigePar && (
-                            <span className="vblock-expand-meta-item">Corrige par : <strong>{r.corrigePar}</strong></span>
                           )}
                         </div>
 
@@ -737,24 +845,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                               ruleCode={`R12.${String(item.num).padStart(2, '0')}`}
                             />
                           </>
-                        )}
-                        {r && onRerunRule && item.ruleCode && (
-                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
-                            <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); handleRerun(item.ruleCode!) }}
-                              disabled={rerunning === item.ruleCode}>
-                              {rerunning === item.ruleCode ? <><Loader2 size={11} className="spin" /> Relance...</> : <><RefreshCw size={11} /> Relancer ce controle</>}
-                            </button>
-                            {onToggleRule && item.ruleCode && (
-                              <button className="btn btn-secondary btn-sm" onClick={e => {
-                                e.stopPropagation()
-                                const isEnabled = isRuleActive(ruleConfig, item.ruleCode!)
-                                onToggleRule(item.ruleCode!, !isEnabled)
-                              }}
-                                style={{ color: (isRuleActive(ruleConfig, item.ruleCode!)) ? 'var(--ink-50)' : 'var(--danger)' }}>
-                                {(isRuleActive(ruleConfig, item.ruleCode!)) ? 'Desactiver' : 'Reactiver'}
-                              </button>
-                            )}
-                          </div>
                         )}
                       </div>
                     )}
