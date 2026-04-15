@@ -43,6 +43,8 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
       await uploadDocuments(id, fileArr)
       toast('success', `${fileArr.length} document(s) uploade(s)`)
       onReload()
+      setTimeout(() => onReload(), 2000)
+      setTimeout(() => onReload(), 5000)
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Upload failed')
     } finally { setUploading(false) }

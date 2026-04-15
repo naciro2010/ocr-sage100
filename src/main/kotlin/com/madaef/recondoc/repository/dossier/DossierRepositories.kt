@@ -122,3 +122,13 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
 interface AuditLogRepository : JpaRepository<AuditLog, UUID> {
     fun findByDossierIdOrderByDateActionDesc(dossierId: UUID): List<AuditLog>
 }
+
+interface RuleConfigRepository : JpaRepository<RuleConfig, UUID> {
+    fun findByRegle(regle: String): RuleConfig?
+}
+
+interface DossierRuleOverrideRepository : JpaRepository<DossierRuleOverride, UUID> {
+    fun findByDossierId(dossierId: UUID): List<DossierRuleOverride>
+    fun findByDossierIdAndRegle(dossierId: UUID, regle: String): DossierRuleOverride?
+    fun deleteByDossierIdAndRegle(dossierId: UUID, regle: String)
+}

@@ -73,7 +73,11 @@
       "Bash(find /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src -type f \\\\\\( -name \"*.tsx\" -o -name \"*.ts\" -o -name \"*.css\" \\\\\\) -exec wc -l {} +)",
       "Bash(awk '{print $9, \":\", $5}')",
       "mcp__Railway__list-services",
-      "Bash(brew list:*)"
+      "Bash(brew list:*)",
+      "Bash(grep -E \"\\\\.tsx$\")",
+      "Bash(grep -n \"lucide-react\" /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src/**/*.tsx)",
+      "Bash(grep -E \"\\\\.kt$\")",
+      "mcp__Railway__list-projects"
     ],
     "deny": []
   },

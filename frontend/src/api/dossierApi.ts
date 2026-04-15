@@ -242,3 +242,36 @@ export async function searchDossiers(params: {
   const res = await apiFetch(`${BASE}/search?${q}`, { signal: params.signal })
   return handleResponse(res)
 }
+
+export async function rerunValidationRule(dossierId: string, regle: string): Promise<ValidationResult[]> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/validation/rerun/${regle}`, { method: 'POST' })
+  return handleResponse(res)
+}
+
+export async function getRuleConfig(dossierId: string): Promise<{ global: Record<string, boolean>; overrides: Record<string, boolean> }> {
+  return cachedFetch(`${BASE}/${dossierId}/rule-config`, 5000)
+}
+
+export async function updateRuleConfig(dossierId: string, rules: Record<string, boolean>): Promise<{ global: Record<string, boolean>; overrides: Record<string, boolean> }> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/rule-config`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rules),
+  })
+  return handleResponse(res)
+}
+
+export async function getGlobalRuleConfig(): Promise<Array<{ regle: string; enabled: boolean }>> {
+  return cachedFetch(`${BASE}/global-rule-config`, 5000)
+}
+
+export async function updateGlobalRuleConfig(rules: Record<string, boolean>): Promise<Array<{ regle: string; enabled: boolean }>> {
+  const res = await apiFetch(`${BASE}/global-rule-config`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(rules),
+  })
+  return handleResponse(res)
+}

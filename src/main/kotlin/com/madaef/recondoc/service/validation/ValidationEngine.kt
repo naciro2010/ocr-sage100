@@ -1,7 +1,9 @@
 package com.madaef.recondoc.service.validation
 
 import com.madaef.recondoc.entity.dossier.*
+import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository
 import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
+import com.madaef.recondoc.repository.dossier.RuleConfigRepository
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
@@ -11,10 +13,13 @@ import java.math.RoundingMode
 import java.time.LocalDate
 import java.time.LocalDateTime
 import java.time.temporal.ChronoUnit
+import java.util.UUID
 
 @Service
 class ValidationEngine(
     private val resultatRepository: ResultatValidationRepository,
+    private val ruleConfigRepo: RuleConfigRepository,
+    private val overrideRepo: DossierRuleOverrideRepository,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -27,21 +32,87 @@ class ValidationEngine(
             "janvier", "fevrier", "mars", "avril", "mai", "juin",
             "juillet", "aout", "septembre", "octobre", "novembre", "decembre"
         )
+
+        val RULE_DEPENDENCIES: Map<String, Set<String>> = mapOf(
+            "R01" to setOf("R02", "R03", "R03b"),
+            "R02" to setOf("R01", "R03", "R03b"),
+            "R03" to setOf("R01", "R02", "R03b"),
+            "R03b" to setOf("R01", "R02", "R03"),
+            "R04" to setOf("R05", "R16"),
+            "R05" to setOf("R04", "R06", "R16"),
+            "R06" to setOf("R05"),
+            "R07" to setOf("R08"),
+            "R08" to setOf("R07"),
+            "R09" to setOf("R10"),
+            "R10" to setOf("R09"),
+            "R11" to setOf("R14"),
+            "R14" to setOf("R11"),
+            "R15" to setOf("R16", "R04"),
+            "R16" to setOf("R04", "R05", "R15"),
+            "R17a" to setOf("R17b"),
+            "R17b" to setOf("R17a"),
+            "R18" to emptySet(),
+            "R20" to emptySet(),
+            "R12" to emptySet(),
+            "R13" to emptySet(),
+        )
+    }
+
+    fun isRuleEnabled(dossierId: UUID, regle: String): Boolean {
+        val override = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
+        if (override != null) return override.enabled
+        val global = ruleConfigRepo.findByRegle(regle)
+        return global?.enabled ?: true
     }
 
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
-
         dossier.resultatsValidation.clear()
         resultatRepository.deleteByDossierId(dossier.id!!)
         resultatRepository.flush()
 
+        val results = runAllRules(dossier)
+        results.forEach { it.dateExecution = LocalDateTime.now() }
+        resultatRepository.saveAll(results)
+
+        val conformes = results.count { it.statut == StatutCheck.CONFORME }
+        val nonConformes = results.count { it.statut == StatutCheck.NON_CONFORME }
+        log.info("Validation complete for {}: {}/{} conforme, {} non-conforme",
+            dossier.reference, conformes, results.size, nonConformes)
+
+        return results
+    }
+
+    @Transactional
+    fun rerunRule(dossier: DossierPaiement, regle: String): List<ResultatValidation> {
+        val rulesToRun = mutableSetOf(regle)
+        RULE_DEPENDENCIES[regle]?.let { rulesToRun.addAll(it) }
+        if (regle == "R12" || regle.startsWith("R12.")) {
+            rulesToRun.add("R12")
+            for (i in 1..10) rulesToRun.add("R12.%02d".format(i))
+        }
+
+        val existingResults = resultatRepository.findByDossierId(dossier.id!!)
+        val toDelete = existingResults.filter { it.regle in rulesToRun }
+        resultatRepository.deleteAll(toDelete)
+        resultatRepository.flush()
+
+        val allResults = runAllRules(dossier)
+        val filtered = allResults.filter { it.regle in rulesToRun }
+
+        filtered.forEach { it.dateExecution = LocalDateTime.now() }
+        resultatRepository.saveAll(filtered)
+
+        return filtered
+    }
+
+    private fun runAllRules(dossier: DossierPaiement): List<ResultatValidation> {
         val results = mutableListOf<ResultatValidation>()
         val tol = BigDecimal(toleranceMontant)
+        val dossierId = dossier.id!!
 
-        // R20 — Completude dossier: verification des pieces obligatoires
-        run {
+        if (isRuleEnabled(dossierId, "R20")) {
             val docTypes = dossier.documents.map { it.typeDocument }.toSet()
             val required = when (dossier.type) {
                 DossierType.BC -> listOf(
@@ -84,26 +155,22 @@ class ValidationEngine(
         val pv = dossier.pvReception
         val arf = dossier.attestationFiscale
 
-        // R01 — Concordance montant TTC Facture ↔ BC
-        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isRuleEnabled(dossierId, "R01") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R01", "Concordance montant TTC : Facture = BC",
                 facture.montantTtc, bc.montantTtc, tol, dossier)
         }
 
-        // R02 — Concordance montant HT Facture ↔ BC
-        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isRuleEnabled(dossierId, "R02") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R02", "Concordance montant HT : Facture = BC",
                 facture.montantHt, bc.montantHt, tol, dossier)
         }
 
-        // R03 — Concordance TVA Facture ↔ BC
-        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isRuleEnabled(dossierId, "R03") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R03", "Concordance TVA : Facture = BC",
                 facture.montantTva, bc.montantTva, tol, dossier)
         }
 
-        // R03b — Avertissement si taux TVA different (multi-taux possible)
-        if (dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isRuleEnabled(dossierId, "R03b") && dossier.type == DossierType.BC && facture != null && bc != null) {
             val fTva = facture.tauxTva
             val bcTva = bc.tauxTva
             if (fTva != null && bcTva != null && fTva.compareTo(bcTva) != 0) {
@@ -117,22 +184,19 @@ class ValidationEngine(
             }
         }
 
-        // R04 — Montant OP = TTC facture (sans retenues)
-        if (facture != null && op != null && op.retenues.isEmpty()) {
+        if (isRuleEnabled(dossierId, "R04") && facture != null && op != null && op.retenues.isEmpty()) {
             results += checkMontant("R04", "Montant OP = TTC facture (sans retenues)",
                 op.montantOperation, facture.montantTtc, tol, dossier)
         }
 
-        // R05 — Montant OP = TTC - retenues
-        if (facture != null && op != null && op.retenues.isNotEmpty()) {
+        if (isRuleEnabled(dossierId, "R05") && facture != null && op != null && op.retenues.isNotEmpty()) {
             val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
             val attendu = facture.montantTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
                 op.montantOperation, attendu, tol, dossier)
         }
 
-        // R06 — Verification arithmetique des retenues
-        if (op != null) {
+        if (isRuleEnabled(dossierId, "R06") && op != null) {
             for (ret in op.retenues) {
                 if (ret.base != null && ret.taux != null && ret.montant != null) {
                     val calcule = ret.base!!.multiply(ret.taux).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
@@ -148,8 +212,7 @@ class ValidationEngine(
             }
         }
 
-        // R07 — Reference facture citee dans l'OP
-        if (facture != null && op != null) {
+        if (isRuleEnabled(dossierId, "R07") && facture != null && op != null) {
             val ok = matchReference(op.referenceFacture, facture.numeroFacture)
             results += ResultatValidation(
                 dossier = dossier, regle = "R07",
@@ -159,8 +222,7 @@ class ValidationEngine(
             )
         }
 
-        // R08 — Reference BC/Contrat citee dans l'OP
-        if (op != null) {
+        if (isRuleEnabled(dossierId, "R08") && op != null) {
             val refAttendue = bc?.reference ?: contrat?.referenceContrat
             if (refAttendue != null) {
                 val ok = matchReference(op.referenceBcOuContrat, refAttendue)
@@ -173,8 +235,7 @@ class ValidationEngine(
             }
         }
 
-        // R09 — Coherence ICE
-        run {
+        if (isRuleEnabled(dossierId, "R09")) {
             val iceFacture = facture?.ice?.trim()?.takeIf { it.isNotBlank() }
             val iceArf = arf?.ice?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
@@ -198,8 +259,7 @@ class ValidationEngine(
             )
         }
 
-        // R10 — Coherence IF
-        run {
+        if (isRuleEnabled(dossierId, "R10")) {
             val ifFacture = facture?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
             val ifArf = arf?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIfs = listOfNotNull(ifFacture, ifArf).mapNotNull { normalizeId(it) }.distinct()
@@ -223,8 +283,7 @@ class ValidationEngine(
             )
         }
 
-        // R11 — Coherence RIB : collecte tous les RIBs de toutes les factures + OP
-        if (allFactures.isNotEmpty() && op != null) {
+        if (isRuleEnabled(dossierId, "R11") && allFactures.isNotEmpty() && op != null) {
             val allFactureRibs = allFactures.mapNotNull { f -> normalizeRib(f.rib) }.distinct()
             val allFactureRibsFromJson = allFactures.mapNotNull { f ->
                 @Suppress("UNCHECKED_CAST")
@@ -258,8 +317,7 @@ class ValidationEngine(
             )
         }
 
-        // R14 — Coherence fournisseur entre documents
-        run {
+        if (isRuleEnabled(dossierId, "R14")) {
             val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
                 bc?.fournisseur,
@@ -284,8 +342,7 @@ class ValidationEngine(
             }
         }
 
-        // R12 — Checklist complete : eclate en un resultat PAR point CK
-        if (checklist != null) {
+        if (isRuleEnabled(dossierId, "R12")) {
             val ckDocMapping = mapOf(
                 1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
                 2 to listOf(TypeDocument.FACTURE),
@@ -299,47 +356,25 @@ class ValidationEngine(
                 10 to listOf(TypeDocument.PV_RECEPTION)
             )
 
-            for (pt in checklist.points) {
-                val num = pt.numero
-                val regleCode = "R12.%02d".format(num)
-                val sourceTypes = ckDocMapping[num] ?: emptyList()
-                val sourceDocIds = dossier.documents
-                    .filter { it.typeDocument in sourceTypes }
-                    .mapNotNull { it.id?.toString() }
-                val sourceLabels = sourceTypes.map { it.name }.joinToString(" + ")
+            val ckResults = executeChecklistPoints(dossier, facture, allFactures, bc, op, contrat, pv, arf, checklist, tol, ckDocMapping)
+            results += ckResults
 
-                results += ResultatValidation(
-                    dossier = dossier, regle = regleCode,
-                    libelle = pt.description ?: "Point de controle $num",
-                    statut = when (pt.estValide) {
-                        true -> StatutCheck.CONFORME
-                        false -> StatutCheck.NON_CONFORME
-                        null -> StatutCheck.AVERTISSEMENT
-                    },
-                    detail = pt.observation,
-                    source = "CHECKLIST",
-                    valeurAttendue = sourceLabels.ifBlank { null },
-                    documentIds = sourceDocIds.joinToString(",").ifBlank { null }
-                )
-            }
-
-            // Also keep the aggregate R12 result
-            val nonValides = checklist.points.filter { it.estValide == false }
+            val nbOk = ckResults.count { it.statut == StatutCheck.CONFORME }
+            val nbKo = ckResults.count { it.statut == StatutCheck.NON_CONFORME }
             results += ResultatValidation(
                 dossier = dossier, regle = "R12",
                 libelle = "Checklist autocontrole complete",
                 statut = when {
-                    nonValides.isEmpty() && checklist.points.none { it.estValide == null } -> StatutCheck.CONFORME
-                    nonValides.isNotEmpty() -> StatutCheck.AVERTISSEMENT
+                    nbKo == 0 && ckResults.none { it.statut == StatutCheck.AVERTISSEMENT } -> StatutCheck.CONFORME
+                    nbKo > 0 -> StatutCheck.NON_CONFORME
                     else -> StatutCheck.AVERTISSEMENT
                 },
-                detail = "${checklist.points.count { it.estValide == true }}/${checklist.points.size} points valides" +
-                    if (nonValides.isNotEmpty()) ", ${nonValides.size} non valides" else ""
+                detail = "${nbOk}/${ckResults.size} points conformes" +
+                    if (nbKo > 0) ", ${nbKo} non conforme(s)" else ""
             )
         }
 
-        // R13 — Tableau de controle complet
-        if (tableau != null) {
+        if (isRuleEnabled(dossierId, "R13") && tableau != null) {
             val nonConformes = tableau.points.filter {
                 it.observation?.lowercase()?.contains("non conforme") == true
             }
@@ -352,12 +387,11 @@ class ValidationEngine(
             )
         }
 
-        // R17 — Coherence temporelle
         run {
             val dateBcContrat = bc?.dateBc ?: contrat?.dateSignature
             val dateFacture = facture?.dateFacture
             val dateOp = op?.dateEmission
-            if (dateBcContrat != null && dateFacture != null) {
+            if (isRuleEnabled(dossierId, "R17a") && dateBcContrat != null && dateFacture != null) {
                 val ok = !dateFacture.isBefore(dateBcContrat)
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17a",
@@ -366,7 +400,7 @@ class ValidationEngine(
                     valeurAttendue = dateBcContrat.toString(), valeurTrouvee = dateFacture.toString()
                 )
             }
-            if (dateFacture != null && dateOp != null) {
+            if (isRuleEnabled(dossierId, "R17b") && dateFacture != null && dateOp != null) {
                 val ok = !dateOp.isBefore(dateFacture)
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17b",
@@ -377,8 +411,7 @@ class ValidationEngine(
             }
         }
 
-        // R18 — Validite attestation fiscale
-        if (arf != null && arf.dateEdition != null) {
+        if (isRuleEnabled(dossierId, "R18") && arf != null && arf.dateEdition != null) {
             val valide = arf.dateEdition!!.plusMonths(6).isAfter(LocalDate.now())
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
@@ -388,15 +421,13 @@ class ValidationEngine(
             )
         }
 
-        // R16 — Verification arithmetique HT + TVA = TTC
-        if (facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
+        if (isRuleEnabled(dossierId, "R16") && facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
             val calcTtc = facture.montantHt!!.add(facture.montantTva)
             results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
                 facture.montantTtc, calcTtc, tol, dossier)
         }
 
-        // R15 — Verification grille tarifaire x duree = HT facture (CONTRACTUEL)
-        if (dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
+        if (isRuleEnabled(dossierId, "R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
             val grilles = contrat.grillesTarifaires
             if (grilles.isNotEmpty()) {
                 val months = computeMonths(pv?.periodeDebut, pv?.periodeFin, facture.periode)
@@ -428,7 +459,6 @@ class ValidationEngine(
             }
         }
 
-        // Assign documentIds based on rule -> document type mapping
         val ruleDocTypes = mapOf(
             "R01" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
             "R02" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
@@ -459,15 +489,6 @@ class ValidationEngine(
                 }
             }
         }
-
-        // Save all results
-        results.forEach { it.dateExecution = LocalDateTime.now() }
-        resultatRepository.saveAll(results)
-
-        val conformes = results.count { it.statut == StatutCheck.CONFORME }
-        val nonConformes = results.count { it.statut == StatutCheck.NON_CONFORME }
-        log.info("Validation complete for {}: {}/{} conforme, {} non-conforme",
-            dossier.reference, conformes, results.size, nonConformes)
 
         return results
     }
@@ -536,6 +557,316 @@ class ValidationEngine(
             if (found > 0) return found.toLong().coerceAtLeast(1)
         }
         return null
+    }
+
+    private fun executeChecklistPoints(
+        dossier: DossierPaiement,
+        facture: Facture?, allFactures: List<Facture>,
+        bc: BonCommande?, op: OrdrePaiement?, contrat: ContratAvenant?,
+        pv: PvReception?, arf: AttestationFiscale?,
+        checklist: ChecklistAutocontrole?,
+        tol: BigDecimal,
+        ckDocMapping: Map<Int, List<TypeDocument>>
+    ): List<ResultatValidation> {
+        val ckResults = mutableListOf<ResultatValidation>()
+
+        fun docIds(num: Int): String? {
+            val types = ckDocMapping[num] ?: return null
+            return dossier.documents.filter { it.typeDocument in types }
+                .mapNotNull { it.id?.toString() }.joinToString(",").ifBlank { null }
+        }
+
+        fun ckPoint(pt: PointControle?): Pair<Boolean?, String?> =
+            if (pt != null) (pt.estValide to pt.observation) else (null to null)
+
+        val points = checklist?.points?.sortedBy { it.numero } ?: emptyList()
+
+        // CK01: Concordance facture / modalites contractuelles / livrables
+        run {
+            val pt = points.find { it.numero == 1 }
+            val (ckValide, obs) = ckPoint(pt)
+            val hasBcOrContrat = bc != null || contrat != null
+            val hasFacture = facture != null
+            val montantMatch = when {
+                facture == null -> false
+                bc != null -> facture.montantTtc != null && bc.montantTtc != null &&
+                    facture.montantTtc!!.subtract(bc.montantTtc).abs() <= tol
+                contrat != null && contrat.grillesTarifaires.isNotEmpty() -> true
+                else -> false
+            }
+            val sysStatut = when {
+                !hasFacture || !hasBcOrContrat -> StatutCheck.AVERTISSEMENT
+                montantMatch -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
+            val detail = buildString {
+                if (!hasFacture) append("Facture manquante. ")
+                if (!hasBcOrContrat) append("BC/Contrat manquant. ")
+                if (hasFacture && hasBcOrContrat) {
+                    if (montantMatch) append("Montants concordants. ")
+                    else append("Montants discordants (facture vs BC/contrat). ")
+                }
+                if (obs != null) append("Autocontrole: $obs")
+            }
+            val finalStatut = mergeStatut(sysStatut, ckValide)
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.01",
+                libelle = pt?.description ?: "Concordance facture / modalites contractuelles / livrables",
+                statut = finalStatut, detail = detail.trim(),
+                source = "CHECKLIST",
+                valeurAttendue = if (bc != null) "BC: ${bc.montantTtc?.toPlainString()}" else contrat?.referenceContrat,
+                valeurTrouvee = facture?.montantTtc?.toPlainString(),
+                documentIds = docIds(1)
+            )
+        }
+
+        // CK02: Verification arithmetique des montants
+        run {
+            val pt = points.find { it.numero == 2 }
+            val (ckValide, obs) = ckPoint(pt)
+            val htOk = facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null &&
+                facture.montantHt!!.add(facture.montantTva).subtract(facture.montantTtc).abs() <= tol
+            val sysStatut = when {
+                facture == null -> StatutCheck.AVERTISSEMENT
+                htOk -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
+            val detail = if (htOk) "HT + TVA = TTC verifie" else if (facture == null) "Facture manquante" else
+                "HT(${facture.montantHt}) + TVA(${facture.montantTva}) != TTC(${facture.montantTtc})"
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.02",
+                libelle = pt?.description ?: "Verification arithmetique des montants",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(detail, obs?.let { "Autocontrole: $it" }).joinToString(". "),
+                source = "CHECKLIST",
+                valeurAttendue = facture?.let { "${it.montantHt} + ${it.montantTva}" },
+                valeurTrouvee = facture?.montantTtc?.toPlainString(),
+                documentIds = docIds(2)
+            )
+        }
+
+        // CK03: Respect du delai d'execution
+        run {
+            val pt = points.find { it.numero == 3 }
+            val (ckValide, obs) = ckPoint(pt)
+            val dateBcContrat = bc?.dateBc ?: contrat?.dateSignature
+            val dateFactureVal = facture?.dateFacture
+            val sysStatut = when {
+                dateBcContrat == null || dateFactureVal == null -> StatutCheck.AVERTISSEMENT
+                !dateFactureVal.isBefore(dateBcContrat) -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.03",
+                libelle = pt?.description ?: "Respect du delai d'execution",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    if (dateBcContrat != null && dateFactureVal != null) "BC/Contrat: $dateBcContrat, Facture: $dateFactureVal" else "Dates manquantes",
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                valeurAttendue = dateBcContrat?.toString(),
+                valeurTrouvee = dateFactureVal?.toString(),
+                documentIds = docIds(3)
+            )
+        }
+
+        // CK04: Modifications / avenants
+        run {
+            val pt = points.find { it.numero == 4 }
+            val (ckValide, obs) = ckPoint(pt)
+            val hasAvenant = contrat?.numeroAvenant != null
+            val sysStatut = if (hasAvenant) StatutCheck.AVERTISSEMENT else StatutCheck.CONFORME
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.04",
+                libelle = pt?.description ?: "Modifications / avenants (plafonds et variations)",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    if (hasAvenant) "Avenant detecte: ${contrat?.numeroAvenant}" else "Aucun avenant detecte",
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                documentIds = docIds(4)
+            )
+        }
+
+        // CK05: Retenues de garantie et penalites
+        run {
+            val pt = points.find { it.numero == 5 }
+            val (ckValide, obs) = ckPoint(pt)
+            val hasRetenues = op != null && op.retenues.isNotEmpty()
+            val retenuesOk = if (hasRetenues) {
+                op!!.retenues.all { it.base != null && it.taux != null && it.montant != null &&
+                    it.base!!.multiply(it.taux).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
+                        .subtract(it.montant).abs() <= tol }
+            } else true
+            val sysStatut = when {
+                op == null -> StatutCheck.AVERTISSEMENT
+                !hasRetenues -> StatutCheck.CONFORME
+                retenuesOk -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.05",
+                libelle = pt?.description ?: "Retenues de garantie et penalites de retard",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    if (hasRetenues) "${op!!.retenues.size} retenue(s) detectee(s), calcul ${if (retenuesOk) "correct" else "incorrect"}"
+                    else "Aucune retenue",
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                documentIds = docIds(5)
+            )
+        }
+
+        // CK06: Signatures et visas
+        run {
+            val pt = points.find { it.numero == 6 }
+            val (ckValide, obs) = ckPoint(pt)
+            val pvSigne = pv != null && (pv.signataireMadaef != null || pv.signataireFournisseur != null)
+            val bcSigne = bc?.signataire != null
+            val sysStatut = when {
+                ckValide == true -> StatutCheck.CONFORME
+                ckValide == false -> StatutCheck.NON_CONFORME
+                pvSigne || bcSigne -> StatutCheck.AVERTISSEMENT
+                else -> StatutCheck.AVERTISSEMENT
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.06",
+                libelle = pt?.description ?: "Signatures et visas des personnes habilitees",
+                statut = sysStatut,
+                detail = listOfNotNull(
+                    if (pvSigne) "PV signe" else null,
+                    if (bcSigne) "BC signe par ${bc?.signataire}" else null,
+                    if (!pvSigne && !bcSigne) "Aucune signature detectee" else null,
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                documentIds = docIds(6)
+            )
+        }
+
+        // CK07: Conformite reglementaire (ICE, IF, RC, CNSS)
+        run {
+            val pt = points.find { it.numero == 7 }
+            val (ckValide, obs) = ckPoint(pt)
+            val iceOk = facture?.ice?.isNotBlank() == true
+            val ifOk = facture?.identifiantFiscal?.isNotBlank() == true
+            val rcOk = facture?.rc?.isNotBlank() == true
+            val arfOk = arf?.estEnRegle == true
+            val nbPresents = listOf(iceOk, ifOk, rcOk).count { it }
+            val sysStatut = when {
+                facture == null -> StatutCheck.AVERTISSEMENT
+                nbPresents == 3 && arfOk -> StatutCheck.CONFORME
+                nbPresents >= 2 -> StatutCheck.AVERTISSEMENT
+                else -> StatutCheck.NON_CONFORME
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.07",
+                libelle = pt?.description ?: "Conformite reglementaire de la facture",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    "ICE: ${if (iceOk) facture?.ice else "absent"}",
+                    "IF: ${if (ifOk) facture?.identifiantFiscal else "absent"}",
+                    "RC: ${if (rcOk) facture?.rc else "absent"}",
+                    if (arf != null) "Attestation: ${if (arfOk) "en regle" else "non conforme"}" else null,
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                valeurAttendue = "ICE + IF + RC presents",
+                valeurTrouvee = "$nbPresents/3 identifiants",
+                documentIds = docIds(7)
+            )
+        }
+
+        // CK08: Conformite RIB contractuel vs facture
+        run {
+            val pt = points.find { it.numero == 8 }
+            val (ckValide, obs) = ckPoint(pt)
+            val factureRib = normalizeRib(facture?.rib)
+            val opRib = normalizeRib(op?.rib)
+            val sysStatut = when {
+                factureRib == null || opRib == null -> StatutCheck.AVERTISSEMENT
+                factureRib == opRib -> StatutCheck.CONFORME
+                else -> StatutCheck.NON_CONFORME
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.08",
+                libelle = pt?.description ?: "Conformite du RIB contractuel vs facture",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    "RIB Facture: ${factureRib ?: "absent"}, RIB OP: ${opRib ?: "absent"}",
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                valeurAttendue = opRib,
+                valeurTrouvee = factureRib,
+                documentIds = docIds(8)
+            )
+        }
+
+        // CK09: Conformite BL / PV de reception
+        run {
+            val pt = points.find { it.numero == 9 }
+            val (ckValide, obs) = ckPoint(pt)
+            val hasPv = pv != null
+            val pvRefMatch = if (pv?.referenceContrat != null && contrat?.referenceContrat != null)
+                matchReference(pv.referenceContrat, contrat.referenceContrat) else null
+            val sysStatut = when {
+                !hasPv -> StatutCheck.AVERTISSEMENT
+                pvRefMatch == true -> StatutCheck.CONFORME
+                pvRefMatch == false -> StatutCheck.NON_CONFORME
+                else -> StatutCheck.AVERTISSEMENT
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.09",
+                libelle = pt?.description ?: "Conformite BL / PV de reception",
+                statut = mergeStatut(sysStatut, ckValide),
+                detail = listOfNotNull(
+                    if (hasPv) "PV present" else "PV manquant",
+                    if (pvRefMatch != null) "Reference ${if (pvRefMatch) "coherente" else "incoherente"}" else null,
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                documentIds = docIds(9)
+            )
+        }
+
+        // CK10: Habilitations des signataires des receptions
+        run {
+            val pt = points.find { it.numero == 10 }
+            val (ckValide, obs) = ckPoint(pt)
+            val hasPvSignataires = pv != null && (pv.signataireMadaef != null || pv.signataireFournisseur != null)
+            val sysStatut = when {
+                ckValide == true -> StatutCheck.CONFORME
+                ckValide == false -> StatutCheck.NON_CONFORME
+                hasPvSignataires -> StatutCheck.AVERTISSEMENT
+                else -> StatutCheck.AVERTISSEMENT
+            }
+            ckResults += ResultatValidation(
+                dossier = dossier, regle = "R12.10",
+                libelle = pt?.description ?: "Habilitations des signataires des receptions",
+                statut = sysStatut,
+                detail = listOfNotNull(
+                    if (hasPvSignataires) "Signataires: ${listOfNotNull(pv?.signataireMadaef, pv?.signataireFournisseur).joinToString(", ")}"
+                    else "Aucun signataire detecte dans le PV",
+                    obs?.let { "Autocontrole: $it" }
+                ).joinToString(". "),
+                source = "CHECKLIST",
+                documentIds = docIds(10)
+            )
+        }
+
+        return ckResults
+    }
+
+    private fun mergeStatut(systemStatut: StatutCheck, checklistValide: Boolean?): StatutCheck {
+        if (checklistValide == null) return systemStatut
+        val ckStatut = if (checklistValide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME
+        return if (systemStatut == StatutCheck.NON_CONFORME || ckStatut == StatutCheck.NON_CONFORME) StatutCheck.NON_CONFORME
+        else if (systemStatut == StatutCheck.AVERTISSEMENT || ckStatut == StatutCheck.AVERTISSEMENT) StatutCheck.AVERTISSEMENT
+        else StatutCheck.CONFORME
     }
 
     private fun matchReference(ref1: String?, ref2: String?): Boolean {

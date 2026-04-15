@@ -4,8 +4,9 @@ import { updateValidationResult } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
-import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, Eye } from 'lucide-react'
+import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye } from 'lucide-react'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
+import type { DocumentInfo } from '../../api/dossierTypes'
 
 type FilterMode = 'all' | 'problems' | 'conforme'
 
@@ -16,6 +17,9 @@ interface Props {
   onRefreshResults?: () => void
   onOptimisticUpdate?: (resultId: string, newStatut: string) => void
   onNavigateDoc?: (docId: string) => void
+  onRerunRule?: (regle: string) => Promise<void>
+  onToggleRule?: (regle: string, enabled: boolean) => void
+  ruleConfig?: { global: Record<string, boolean>; overrides: Record<string, boolean> }
 }
 
 function needsHumanReview(r: ValidationResult): boolean {
@@ -50,6 +54,59 @@ const LEGEND_ITEMS = [
   { icon: '\u2014', bg: '#f3f4f6', color: '#6b7280', label: 'Non applicable' },
 ] as const
 
+const RULE_FIELDS: Record<string, string[]> = {
+  R01: ['montantTTC'], R02: ['montantHT'], R03: ['montantTVA', 'tauxTVA'],
+  R04: ['montantOperation', 'montantTTC'], R05: ['montantOperation', 'montantTTC'],
+  R07: ['numeroFacture', 'referenceFacture'], R08: ['reference', 'referenceContrat', 'referenceBcOuContrat'],
+  R09: ['ice'], R10: ['identifiantFiscal'], R11: ['rib', 'ribs'],
+  R14: ['fournisseur', 'beneficiaire', 'prestataire'],
+  R16: ['montantHT', 'montantTVA', 'montantTTC'], R18: ['dateEdition', 'dateValidite', 'estEnRegle'],
+  'R12.01': ['montantTTC', 'montantHT', 'reference', 'objet'],
+  'R12.02': ['montantHT', 'montantTVA', 'montantTTC'],
+  'R12.03': ['dateBc', 'dateSignature', 'dateFacture'],
+  'R12.05': ['montantOperation', 'retenues'],
+  'R12.07': ['ice', 'identifiantFiscal', 'rc'],
+  'R12.08': ['rib', 'ribs'],
+  'R12.09': ['referenceContrat', 'prestations'],
+}
+
+function getDocExtract(doc: DocumentInfo, fields: string[]): Record<string, unknown> | null {
+  if (!doc.donneesExtraites) return null
+  const extract: Record<string, unknown> = {}
+  for (const f of fields) {
+    const key = Object.keys(doc.donneesExtraites).find(k => k.toLowerCase().includes(f.toLowerCase()))
+    if (key && doc.donneesExtraites[key] != null) extract[key] = doc.donneesExtraites[key]
+  }
+  return Object.keys(extract).length > 0 ? extract : null
+}
+
+function DocDataPreview({ docs, ruleCode }: { docs: DocumentInfo[]; ruleCode: string }) {
+  const fields = RULE_FIELDS[ruleCode]
+  if (!fields || docs.length === 0) return null
+  const previews = docs.map(doc => ({ doc, data: getDocExtract(doc, fields) })).filter(p => p.data)
+  if (previews.length === 0) return null
+  return (
+    <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--ink-02)', borderRadius: 6, fontSize: 11 }}>
+      <div style={{ fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--ink-60)' }}>
+        <Eye size={10} /> Donnees source
+      </div>
+      {previews.map(({ doc, data }) => (
+        <div key={doc.id} style={{ marginBottom: 4 }}>
+          <span style={{ fontWeight: 600, fontSize: 10, color: 'var(--teal-700)' }}>
+            {TYPE_DOCUMENT_LABELS[doc.typeDocument]?.split(' ')[0] || doc.typeDocument}:
+          </span>
+          {' '}
+          {Object.entries(data!).map(([k, v], i) => (
+            <span key={k} style={{ color: 'var(--ink-70)' }}>
+              {i > 0 && ' | '}<span style={{ color: 'var(--ink-40)' }}>{k}:</span> {String(v)}
+            </span>
+          ))}
+        </div>
+      ))}
+    </div>
+  )
+}
+
 function Legend() {
   return (
     <div className="vblock-legend">
@@ -73,15 +130,15 @@ function Legend() {
   )
 }
 
-export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc }: Props) {
+export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc, onRerunRule, onToggleRule, ruleConfig }: Props) {
   const { toast } = useToast()
+  const [rerunning, setRerunning] = useState<string | null>(null)
+
   const hasResults = dossier.resultatsValidation.length > 0
 
-  // Blocks start expanded when there are results, collapsed when empty (pre-validation)
   const [collapsedBlocks, setCollapsedBlocks] = useState<Set<string>>(() =>
     hasResults ? new Set() : new Set(['system', 'autocontrole'])
   )
-  // Auto-expand problem items (up to 5) when results exist on mount
   const [expandedItems, setExpandedItems] = useState<Set<string>>(() => {
     if (!hasResults) return new Set()
     const problems = new Set<string>()
@@ -163,6 +220,19 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
         if (onRefreshResults) onRefreshResults()
       })
   }, [dossier.id, onOptimisticUpdate, onRefreshResults, toast])
+
+  const handleRerun = useCallback(async (regle: string) => {
+    if (!onRerunRule) return
+    setRerunning(regle)
+    try {
+      await onRerunRule(regle)
+      toast('success', `Controle ${regle} relance`)
+    } catch (e) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    } finally {
+      setRerunning(null)
+    }
+  }, [onRerunRule, toast])
 
   const { sysOk, sysKo, sysWarn, needsReviewCount, autoOk, autoKo } = useMemo(() => {
     let ok = 0, ko = 0, warn = 0, review = 0
@@ -403,18 +473,42 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 </span>
                               )}
                             </div>
-                            {r?.documentIds && onNavigateDoc && (
-                              <div className="vblock-expand-docs">
-                                {r.documentIds.map(docId => {
-                                  const doc = dossier.documents.find(d => d.id === docId)
-                                  if (!doc) return null
-                                  return (
-                                    <button key={docId} className="btn btn-secondary btn-sm"
-                                      onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
-                                      <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
-                                    </button>
-                                  )
-                                })}
+                            {r?.documentIds && (
+                              <>
+                                <div className="vblock-expand-docs">
+                                  {r.documentIds.map(docId => {
+                                    const doc = dossier.documents.find(d => d.id === docId)
+                                    if (!doc) return null
+                                    return (
+                                      <button key={docId} className="btn btn-secondary btn-sm"
+                                        onClick={e => { e.stopPropagation(); onNavigateDoc?.(docId) }}>
+                                        <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
+                                      </button>
+                                    )
+                                  })}
+                                </div>
+                                <DocDataPreview
+                                  docs={r.documentIds.map(id => dossier.documents.find(d => d.id === id)).filter((d): d is DocumentInfo => !!d)}
+                                  ruleCode={item.code}
+                                />
+                              </>
+                            )}
+                            {r && onRerunRule && (
+                              <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                                <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); handleRerun(item.code) }}
+                                  disabled={rerunning === item.code}>
+                                  {rerunning === item.code ? <><Loader2 size={11} className="spin" /> Relance...</> : <><RefreshCw size={11} /> Relancer ce controle</>}
+                                </button>
+                                {onToggleRule && (
+                                  <button className="btn btn-secondary btn-sm" onClick={e => {
+                                    e.stopPropagation()
+                                    const isEnabled = ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true
+                                    onToggleRule(item.code, !isEnabled)
+                                  }}
+                                    style={{ color: (ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true) ? 'var(--ink-50)' : 'var(--danger)' }}>
+                                    {(ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true) ? 'Desactiver' : 'Reactiver'}
+                                  </button>
+                                )}
                               </div>
                             )}
                           </div>
@@ -619,19 +713,42 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           )}
                         </div>
 
-                        {/* Navigation vers documents sources */}
-                        {r?.documentIds && onNavigateDoc && (
-                          <div className="vblock-expand-docs">
-                            {r.documentIds.map(docId => {
-                              const doc = dossier.documents.find(d => d.id === docId)
-                              if (!doc) return null
-                              return (
-                                <button key={docId} className="btn btn-secondary btn-sm"
-                                  onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
-                                  <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
-                                </button>
-                              )
-                            })}
+                        {r?.documentIds && (
+                          <>
+                            <div className="vblock-expand-docs">
+                              {r.documentIds.map(docId => {
+                                const doc = dossier.documents.find(d => d.id === docId)
+                                if (!doc) return null
+                                return (
+                                  <button key={docId} className="btn btn-secondary btn-sm"
+                                    onClick={e => { e.stopPropagation(); onNavigateDoc?.(docId) }}>
+                                    <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
+                                  </button>
+                                )
+                              })}
+                            </div>
+                            <DocDataPreview
+                              docs={r.documentIds.map(id => dossier.documents.find(d => d.id === id)).filter((d): d is DocumentInfo => !!d)}
+                              ruleCode={`R12.${String(item.num).padStart(2, '0')}`}
+                            />
+                          </>
+                        )}
+                        {r && onRerunRule && item.ruleCode && (
+                          <div style={{ display: 'flex', gap: 6, marginTop: 8 }}>
+                            <button className="btn btn-secondary btn-sm" onClick={e => { e.stopPropagation(); handleRerun(item.ruleCode!) }}
+                              disabled={rerunning === item.ruleCode}>
+                              {rerunning === item.ruleCode ? <><Loader2 size={11} className="spin" /> Relance...</> : <><RefreshCw size={11} /> Relancer ce controle</>}
+                            </button>
+                            {onToggleRule && item.ruleCode && (
+                              <button className="btn btn-secondary btn-sm" onClick={e => {
+                                e.stopPropagation()
+                                const isEnabled = ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true
+                                onToggleRule(item.ruleCode!, !isEnabled)
+                              }}
+                                style={{ color: (ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true) ? 'var(--ink-50)' : 'var(--danger)' }}>
+                                {(ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true) ? 'Desactiver' : 'Reactiver'}
+                              </button>
+                            )}
                           </div>
                         )}
                       </div>

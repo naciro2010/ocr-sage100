@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 
 const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
-import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog } from '../api/dossierApi'
+import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig } from '../api/dossierApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
 import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
@@ -139,6 +139,8 @@ export default function DossierDetail() {
   const [docsError, setDocsError] = useState('')
   const [validationError, setValidationError] = useState('')
 
+  const [ruleConfig, setRuleConfig] = useState<{ global: Record<string, boolean>; overrides: Record<string, boolean> } | null>(null)
+
   // UI states
   const [validating, setValidating] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -147,7 +149,7 @@ export default function DossierDetail() {
   const [editing, setEditing] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
 
-  const liveProgress = useDocumentEvents(id, () => { loadDocs(); loadSummary() })
+  const { progress: liveProgress, setHasProcessing } = useDocumentEvents(id, () => { loadDocs(); loadSummary() })
 
   // --- Independent loaders with error handling ---
   const loadSummary = useCallback(() => {
@@ -183,13 +185,19 @@ export default function DossierDetail() {
     }).catch(e => setDocsError(e instanceof Error ? e.message : 'Erreur de chargement des documents'))
   }, [id])
 
+  const loadRuleConfig = useCallback(() => {
+    if (!id) return
+    getRuleConfig(id).then(setRuleConfig).catch(() => {})
+  }, [id])
+
   // Load all blocks in parallel on mount
   useEffect(() => {
     loadSummary()
     loadDocs()
     loadValidation()
     loadAudit()
-  }, [id, loadSummary, loadDocs, loadValidation, loadAudit])
+    loadRuleConfig()
+  }, [id, loadSummary, loadDocs, loadValidation, loadAudit, loadRuleConfig])
 
   const reloadAll = useCallback(() => {
     loadSummary(); loadDocs(); loadValidation(); loadAudit()
@@ -237,6 +245,29 @@ export default function DossierDetail() {
     } finally { setActionLoading(false) }
   }, [id, summary, motifRejet, loadAudit, toast])
 
+  const handleRerunRule = useCallback(async (regle: string) => {
+    if (!id) return
+    const results = await rerunValidationRule(id, regle)
+    setValidationResults(prev => {
+      const updated = [...prev]
+      for (const newR of results) {
+        const idx = updated.findIndex(r => r.regle === newR.regle)
+        if (idx >= 0) updated[idx] = newR
+        else updated.push(newR)
+      }
+      return updated
+    })
+    loadSummary()
+    loadAudit()
+  }, [id, loadSummary, loadAudit])
+
+  const handleToggleRule = useCallback((regle: string, enabled: boolean) => {
+    if (!id) return
+    updateRuleConfig(id, { [regle]: enabled })
+      .then(setRuleConfig)
+      .catch(e => toast('error', e instanceof Error ? e.message : 'Erreur'))
+  }, [id, toast])
+
   const copyRef = useCallback(() => {
     if (!summary) return
     navigator.clipboard.writeText(summary.reference)
@@ -253,6 +284,10 @@ export default function DossierDetail() {
 
   const hasProcessing = useMemo(() =>
     docsData?.documents?.some(d => d.statutExtraction === 'EN_COURS') ?? false, [docsData])
+
+  useEffect(() => {
+    setHasProcessing(hasProcessing)
+  }, [hasProcessing, setHasProcessing])
 
   // Build compat object for child components
   const dossierCompat = useMemo(() => {
@@ -359,6 +394,9 @@ export default function DossierDetail() {
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
           <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
             <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate} onRefreshResults={loadValidation}
+              onRerunRule={handleRerunRule}
+              onToggleRule={handleToggleRule}
+              ruleConfig={ruleConfig || undefined}
               onOptimisticUpdate={(resultId, newStatut) => {
                 setValidationResults(prev => prev.map(r => r.id === resultId ? { ...r, statut: newStatut as ValidationResult['statut'] } : r))
               }}

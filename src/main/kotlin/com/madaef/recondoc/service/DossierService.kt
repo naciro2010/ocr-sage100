@@ -48,6 +48,8 @@ class DossierService(
     private val resultatRepo: ResultatValidationRepository,
     private val objectMapper: ObjectMapper,
     private val auditLogRepo: AuditLogRepository,
+    private val ruleConfigRepo: RuleConfigRepository,
+    private val overrideRepo: DossierRuleOverrideRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -487,6 +489,52 @@ class DossierService(
         val results = validationEngine.validate(dossier)
         audit(dossierId, "VALIDATION", "${results.size} regles executees")
         return results
+    }
+
+    @Transactional
+    fun rerunRule(dossierId: UUID, regle: String): List<ResultatValidation> {
+        val dossier = getDossierFull(dossierId)
+        val results = validationEngine.rerunRule(dossier, regle)
+        audit(dossierId, "RERUN_RULE", "Regle $regle relancee (+ ${results.size - 1} dependances)")
+        return results
+    }
+
+    @Transactional(readOnly = true)
+    fun getRuleConfig(dossierId: UUID): Map<String, Any> {
+        val globals = ruleConfigRepo.findAll().associate { it.regle to it.enabled }
+        val overrides = overrideRepo.findByDossierId(dossierId).associate { it.regle to it.enabled }
+        return mapOf("global" to globals, "overrides" to overrides)
+    }
+
+    @Transactional
+    fun updateDossierRuleConfig(dossierId: UUID, rules: Map<String, Boolean>) {
+        for ((regle, enabled) in rules) {
+            val existing = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
+            if (existing != null) {
+                existing.enabled = enabled
+            } else {
+                overrideRepo.save(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
+            }
+        }
+        audit(dossierId, "RULE_CONFIG", "Config regles modifiee: $rules")
+    }
+
+    @Transactional(readOnly = true)
+    fun getGlobalRuleConfig(): List<Map<String, Any>> {
+        return ruleConfigRepo.findAll().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
+    }
+
+    @Transactional
+    fun updateGlobalRuleConfig(rules: Map<String, Boolean>) {
+        for ((regle, enabled) in rules) {
+            val existing = ruleConfigRepo.findByRegle(regle)
+            if (existing != null) {
+                existing.enabled = enabled
+                existing.updatedAt = java.time.LocalDateTime.now()
+            } else {
+                ruleConfigRepo.save(RuleConfig(regle = regle, enabled = enabled))
+            }
+        }
     }
 
     @Transactional

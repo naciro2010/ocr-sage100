@@ -202,4 +202,31 @@ class DossierController(
             .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
             .body(pdf)
     }
+
+    @PostMapping("/{id}/validation/rerun/{regle}")
+    fun rerunRule(@PathVariable id: UUID, @PathVariable regle: String): List<ValidationResultResponse> {
+        return dossierService.rerunRule(id, regle).map { it.toResponse() }
+    }
+
+    @GetMapping("/{id}/rule-config")
+    fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {
+        return dossierService.getRuleConfig(id)
+    }
+
+    @PatchMapping("/{id}/rule-config")
+    fun updateRuleConfig(@PathVariable id: UUID, @RequestBody body: Map<String, Boolean>): Map<String, Any> {
+        dossierService.updateDossierRuleConfig(id, body)
+        return dossierService.getRuleConfig(id)
+    }
+
+    @GetMapping("/global-rule-config")
+    fun getGlobalRuleConfig(): List<Map<String, Any>> {
+        return dossierService.getGlobalRuleConfig()
+    }
+
+    @PatchMapping("/global-rule-config")
+    fun updateGlobalRuleConfig(@RequestBody body: Map<String, Boolean>): List<Map<String, Any>> {
+        dossierService.updateGlobalRuleConfig(body)
+        return dossierService.getGlobalRuleConfig()
+    }
 }
