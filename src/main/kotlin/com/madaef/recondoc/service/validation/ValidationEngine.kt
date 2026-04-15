@@ -187,45 +187,88 @@ class ValidationEngine(
         val pv = ctx.pv
         val arf = ctx.arf
 
+        fun docAmount(doc: Document?, vararg keys: String): BigDecimal? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
+                if (v != null) {
+                    return when (v) {
+                        is Number -> BigDecimal(v.toString())
+                        is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->
+                            val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
+                            when {
+                                lc > ld -> s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
+                                else -> s.replace(",", "").toBigDecimalOrNull()
+                            }
+                        }
+                        else -> null
+                    }
+                }
+            }
+            return null
+        }
+
+        val fDoc = facture?.document
+        val bcDoc = bc?.document
+
+        val fTtc = facture?.montantTtc ?: docAmount(fDoc, "montantTTC")
+        val fHt = facture?.montantHt ?: docAmount(fDoc, "montantHT")
+        val fTva = facture?.montantTva ?: docAmount(fDoc, "montantTVA")
+        val bcTtc = bc?.montantTtc ?: docAmount(bcDoc, "montantTTC")
+        val bcHt = bc?.montantHt ?: docAmount(bcDoc, "montantHT")
+        val bcTva = bc?.montantTva ?: docAmount(bcDoc, "montantTVA")
+
         if (isEnabled("R01") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R01", "Concordance montant TTC : Facture = BC",
-                facture.montantTtc, bc.montantTtc, tol, dossier)
+                fTtc, bcTtc, tol, dossier)
         }
 
         if (isEnabled("R02") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R02", "Concordance montant HT : Facture = BC",
-                facture.montantHt, bc.montantHt, tol, dossier)
+                fHt, bcHt, tol, dossier)
         }
 
         if (isEnabled("R03") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R03", "Concordance TVA : Facture = BC",
-                facture.montantTva, bc.montantTva, tol, dossier)
+                fTva, bcTva, tol, dossier)
         }
 
         if (isEnabled("R03b") && dossier.type == DossierType.BC && facture != null && bc != null) {
-            val fTva = facture.tauxTva
-            val bcTva = bc.tauxTva
-            if (fTva != null && bcTva != null && fTva.compareTo(bcTva) != 0) {
+            val fTauxTva = facture.tauxTva ?: docAmount(fDoc, "tauxTVA")
+            val bcTauxTva = bc.tauxTva ?: docAmount(bcDoc, "tauxTVA")
+            if (fTauxTva != null && bcTauxTva != null && fTauxTva.compareTo(bcTauxTva) != 0) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R03b",
                     libelle = "Taux TVA different entre Facture et BC (multi-taux possible)",
                     statut = StatutCheck.AVERTISSEMENT,
-                    detail = "Facture: ${fTva}%, BC: ${bcTva}%",
-                    valeurAttendue = bcTva.toPlainString(), valeurTrouvee = fTva.toPlainString()
+                    detail = "Facture: ${fTauxTva}%, BC: ${bcTauxTva}%",
+                    valeurAttendue = bcTauxTva.toPlainString(), valeurTrouvee = fTauxTva.toPlainString()
                 )
             }
         }
 
+        fun docStr(doc: Document?, vararg keys: String): String? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
+                if (v != null && v.toString().isNotBlank()) return v.toString()
+            }
+            return null
+        }
+
+        val opDoc = op?.document
+        val opMontant = op?.montantOperation ?: docAmount(opDoc, "montantOperation", "montantBrut")
+
         if (isEnabled("R04") && facture != null && op != null && op.retenues.isEmpty()) {
             results += checkMontant("R04", "Montant OP = TTC facture (sans retenues)",
-                op.montantOperation, facture.montantTtc, tol, dossier)
+                opMontant, fTtc, tol, dossier)
         }
 
         if (isEnabled("R05") && facture != null && op != null && op.retenues.isNotEmpty()) {
             val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
-            val attendu = facture.montantTtc?.subtract(totalRetenues)
+            val attendu = fTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
-                op.montantOperation, attendu, tol, dossier)
+                opMontant, attendu, tol, dossier)
         }
 
         if (isEnabled("R06") && op != null) {
@@ -244,32 +287,37 @@ class ValidationEngine(
             }
         }
 
+        val arfDoc = arf?.document
+
         if (isEnabled("R07") && facture != null && op != null) {
-            val ok = matchReference(op.referenceFacture, facture.numeroFacture)
+            val fNumero = facture.numeroFacture ?: docStr(fDoc, "numeroFacture")
+            val opRefFacture = op.referenceFacture ?: docStr(opDoc, "referenceFacture")
+            val ok = matchReference(opRefFacture, fNumero)
             results += ResultatValidation(
                 dossier = dossier, regle = "R07",
                 libelle = "Reference facture citee dans l'OP",
-                statut = if (ok) StatutCheck.CONFORME else if (op.referenceFacture == null) StatutCheck.AVERTISSEMENT else StatutCheck.NON_CONFORME,
-                valeurAttendue = facture.numeroFacture, valeurTrouvee = op.referenceFacture
+                statut = if (ok) StatutCheck.CONFORME else if (opRefFacture == null) StatutCheck.AVERTISSEMENT else StatutCheck.NON_CONFORME,
+                valeurAttendue = fNumero, valeurTrouvee = opRefFacture
             )
         }
 
         if (isEnabled("R08") && op != null) {
-            val refAttendue = bc?.reference ?: contrat?.referenceContrat
+            val refAttendue = bc?.reference ?: docStr(bcDoc, "reference") ?: contrat?.referenceContrat ?: docStr(contrat?.document, "referenceContrat")
+            val opRefBc = op.referenceBcOuContrat ?: docStr(opDoc, "referenceBcOuContrat")
             if (refAttendue != null) {
-                val ok = matchReference(op.referenceBcOuContrat, refAttendue)
+                val ok = matchReference(opRefBc, refAttendue)
                 results += ResultatValidation(
                     dossier = dossier, regle = "R08",
                     libelle = "Reference BC/Contrat citee dans l'OP",
                     statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                    valeurAttendue = refAttendue, valeurTrouvee = op.referenceBcOuContrat
+                    valeurAttendue = refAttendue, valeurTrouvee = opRefBc
                 )
             }
         }
 
         if (isEnabled("R09")) {
-            val iceFacture = facture?.ice?.trim()?.takeIf { it.isNotBlank() }
-            val iceArf = arf?.ice?.trim()?.takeIf { it.isNotBlank() }
+            val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
             val statut = when {
                 iceFacture == null && iceArf == null -> StatutCheck.AVERTISSEMENT
@@ -292,8 +340,8 @@ class ValidationEngine(
         }
 
         if (isEnabled("R10")) {
-            val ifFacture = facture?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
-            val ifArf = arf?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
+            val ifFacture = (facture?.identifiantFiscal ?: docStr(fDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
+            val ifArf = (arf?.identifiantFiscal ?: docStr(arfDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIfs = listOfNotNull(ifFacture, ifArf).mapNotNull { normalizeId(it) }.distinct()
             val statut = when {
                 ifFacture == null && ifArf == null -> StatutCheck.AVERTISSEMENT
@@ -453,10 +501,15 @@ class ValidationEngine(
             )
         }
 
-        if (isEnabled("R16") && facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
-            val calcTtc = facture.montantHt!!.add(facture.montantTva)
-            results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
-                facture.montantTtc, calcTtc, tol, dossier)
+        if (isEnabled("R16") && facture != null) {
+            val ht16 = fHt
+            val tva16 = fTva
+            val ttc16 = fTtc
+            if (ht16 != null && tva16 != null && ttc16 != null) {
+                val calcTtc = ht16.add(tva16)
+                results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
+                    ttc16, calcTtc, tol, dossier)
+            }
         }
 
         if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
@@ -479,7 +532,7 @@ class ValidationEngine(
                     }
                     results += checkMontant("R15",
                         "Grille tarifaire x ${months} mois = HT facture",
-                        facture.montantHt, expectedHt, tol, dossier)
+                        fHt, expectedHt, tol, dossier)
                 } else {
                     results += ResultatValidation(
                         dossier = dossier, regle = "R15",
