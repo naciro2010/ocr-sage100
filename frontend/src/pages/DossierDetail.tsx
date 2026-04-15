@@ -149,7 +149,10 @@ export default function DossierDetail() {
   const [editing, setEditing] = useState(false)
   const [showCompare, setShowCompare] = useState(false)
 
-  const { progress: liveProgress, setHasProcessing } = useDocumentEvents(id, () => { loadDocs(); loadSummary() })
+  const hasProcessing = useMemo(() =>
+    docsData?.documents?.some(d => d.statutExtraction === 'EN_COURS' || d.statutExtraction === 'EN_ATTENTE') ?? false, [docsData])
+
+  const liveProgress = useDocumentEvents(id, () => { loadDocs(); loadSummary() }, hasProcessing)
 
   // --- Independent loaders with error handling ---
   const loadSummary = useCallback(() => {
@@ -281,13 +284,6 @@ export default function DossierDetail() {
     validationResults.filter(r => r.statut === 'CONFORME').length, [validationResults])
   const nbNonConformes = useMemo(() =>
     validationResults.filter(r => r.statut === 'NON_CONFORME').length, [validationResults])
-
-  const hasProcessing = useMemo(() =>
-    docsData?.documents?.some(d => d.statutExtraction === 'EN_COURS') ?? false, [docsData])
-
-  useEffect(() => {
-    setHasProcessing(hasProcessing)
-  }, [hasProcessing, setHasProcessing])
 
   // Build compat object for child components
   const dossierCompat = useMemo(() => {

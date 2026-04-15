@@ -14,13 +14,12 @@ const COALESCE_MS = 250
 const POLL_INTERVAL = 3000
 const MAX_POLL_COUNT = 60
 
-export function useDocumentEvents(dossierId: string | undefined, onUpdate: () => void) {
+export function useDocumentEvents(dossierId: string | undefined, onUpdate: () => void, hasProcessing = false) {
   const [progress, setProgress] = useState<Record<string, DocProgress>>({})
   const esRef = useRef<EventSource | null>(null)
   const onUpdateRef = useRef(onUpdate)
   const coalesceTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   const pollTimer = useRef<ReturnType<typeof setInterval> | null>(null)
-  const hasProcessingRef = useRef(false)
   const pollCountRef = useRef(0)
   const sseConnected = useRef(false)
 
@@ -40,7 +39,10 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
     try {
       const data: DocProgress = JSON.parse(e.data)
       sseConnected.current = true
-      setProgress(prev => ({ ...prev, [data.documentId]: data }))
+      setProgress(prev => {
+        if (prev[data.documentId]?.statut === data.statut && prev[data.documentId]?.step === data.step) return prev
+        return { ...prev, [data.documentId]: data }
+      })
       if (data.statut === 'done' || data.statut === 'error') {
         scheduleUpdate()
       }
@@ -54,7 +56,7 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
     pollCountRef.current = 0
     pollTimer.current = setInterval(() => {
       pollCountRef.current++
-      if (pollCountRef.current > MAX_POLL_COUNT) {
+      if (pollCountRef.current > MAX_POLL_COUNT || sseConnected.current) {
         if (pollTimer.current) { clearInterval(pollTimer.current); pollTimer.current = null }
         return
       }
@@ -69,17 +71,13 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
     }
   }, [])
 
-  const setHasProcessing = useCallback((processing: boolean) => {
-    if (processing && !hasProcessingRef.current) {
-      hasProcessingRef.current = true
-      setTimeout(() => {
-        if (!sseConnected.current) startPolling()
-      }, 2000)
-    } else if (!processing && hasProcessingRef.current) {
-      hasProcessingRef.current = false
-      stopPolling()
+  useEffect(() => {
+    if (hasProcessing && !sseConnected.current) {
+      const t = setTimeout(() => { if (!sseConnected.current) startPolling() }, 2000)
+      return () => clearTimeout(t)
     }
-  }, [startPolling, stopPolling])
+    if (!hasProcessing) stopPolling()
+  }, [hasProcessing, startPolling, stopPolling])
 
   useEffect(() => {
     if (!dossierId) return
@@ -93,7 +91,7 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
 
     es.onerror = () => {
       sseConnected.current = false
-      if (hasProcessingRef.current) startPolling()
+      if (hasProcessing) startPolling()
     }
 
     es.onopen = () => {
@@ -109,7 +107,7 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
         coalesceTimer.current = null
       }
     }
-  }, [dossierId, handleProgress, startPolling, stopPolling])
+  }, [dossierId, handleProgress, startPolling, stopPolling, hasProcessing])
 
-  return { progress, setHasProcessing }
+  return progress
 }

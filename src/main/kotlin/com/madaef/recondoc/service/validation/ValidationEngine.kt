@@ -58,6 +58,26 @@ class ValidationEngine(
         )
     }
 
+    private data class ValidationContext(
+        val dossier: DossierPaiement,
+        val facture: Facture?,
+        val allFactures: List<Facture>,
+        val bc: BonCommande?,
+        val op: OrdrePaiement?,
+        val contrat: ContratAvenant?,
+        val pv: PvReception?,
+        val arf: AttestationFiscale?,
+        val checklist: ChecklistAutocontrole?,
+        val tableau: TableauControle?,
+        val tol: BigDecimal
+    )
+
+    private fun loadEnabledRules(dossierId: UUID): (String) -> Boolean {
+        val overrides = overrideRepo.findByDossierId(dossierId).associate { it.regle to it.enabled }
+        val globals = ruleConfigRepo.findAll().associate { it.regle to it.enabled }
+        return { regle -> overrides[regle] ?: globals[regle] ?: true }
+    }
+
     fun isRuleEnabled(dossierId: UUID, regle: String): Boolean {
         val override = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
         if (override != null) return override.enabled
@@ -72,7 +92,8 @@ class ValidationEngine(
         resultatRepository.deleteByDossierId(dossier.id!!)
         resultatRepository.flush()
 
-        val results = runAllRules(dossier)
+        val isEnabled = loadEnabledRules(dossier.id!!)
+        val results = runAllRules(dossier, isEnabled)
         results.forEach { it.dateExecution = LocalDateTime.now() }
         resultatRepository.saveAll(results)
 
@@ -98,21 +119,32 @@ class ValidationEngine(
         resultatRepository.deleteAll(toDelete)
         resultatRepository.flush()
 
-        val allResults = runAllRules(dossier)
-        val filtered = allResults.filter { it.regle in rulesToRun }
+        val isEnabled: (String) -> Boolean = { it in rulesToRun }
+        val allResults = runAllRules(dossier, isEnabled)
+        allResults.forEach { it.dateExecution = LocalDateTime.now() }
+        resultatRepository.saveAll(allResults)
 
-        filtered.forEach { it.dateExecution = LocalDateTime.now() }
-        resultatRepository.saveAll(filtered)
-
-        return filtered
+        return allResults
     }
 
-    private fun runAllRules(dossier: DossierPaiement): List<ResultatValidation> {
+    private fun runAllRules(dossier: DossierPaiement, isEnabled: (String) -> Boolean): List<ResultatValidation> {
         val results = mutableListOf<ResultatValidation>()
         val tol = BigDecimal(toleranceMontant)
-        val dossierId = dossier.id!!
+        val ctx = ValidationContext(
+            dossier = dossier,
+            facture = dossier.factures.firstOrNull(),
+            allFactures = dossier.factures.toList(),
+            bc = dossier.bonCommande,
+            op = dossier.ordrePaiement,
+            contrat = dossier.contratAvenant,
+            pv = dossier.pvReception,
+            arf = dossier.attestationFiscale,
+            checklist = dossier.checklistAutocontrole,
+            tableau = dossier.tableauControle,
+            tol = tol
+        )
 
-        if (isRuleEnabled(dossierId, "R20")) {
+        if (isEnabled("R20")) {
             val docTypes = dossier.documents.map { it.typeDocument }.toSet()
             val required = when (dossier.type) {
                 DossierType.BC -> listOf(
@@ -145,32 +177,32 @@ class ValidationEngine(
             )
         }
 
-        val facture = dossier.factures.firstOrNull()
-        val allFactures = dossier.factures
-        val bc = dossier.bonCommande
-        val op = dossier.ordrePaiement
-        val contrat = dossier.contratAvenant
-        val checklist = dossier.checklistAutocontrole
-        val tableau = dossier.tableauControle
-        val pv = dossier.pvReception
-        val arf = dossier.attestationFiscale
+        val facture = ctx.facture
+        val allFactures = ctx.allFactures
+        val bc = ctx.bc
+        val op = ctx.op
+        val contrat = ctx.contrat
+        val checklist = ctx.checklist
+        val tableau = ctx.tableau
+        val pv = ctx.pv
+        val arf = ctx.arf
 
-        if (isRuleEnabled(dossierId, "R01") && dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isEnabled("R01") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R01", "Concordance montant TTC : Facture = BC",
                 facture.montantTtc, bc.montantTtc, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R02") && dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isEnabled("R02") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R02", "Concordance montant HT : Facture = BC",
                 facture.montantHt, bc.montantHt, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R03") && dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isEnabled("R03") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R03", "Concordance TVA : Facture = BC",
                 facture.montantTva, bc.montantTva, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R03b") && dossier.type == DossierType.BC && facture != null && bc != null) {
+        if (isEnabled("R03b") && dossier.type == DossierType.BC && facture != null && bc != null) {
             val fTva = facture.tauxTva
             val bcTva = bc.tauxTva
             if (fTva != null && bcTva != null && fTva.compareTo(bcTva) != 0) {
@@ -184,19 +216,19 @@ class ValidationEngine(
             }
         }
 
-        if (isRuleEnabled(dossierId, "R04") && facture != null && op != null && op.retenues.isEmpty()) {
+        if (isEnabled("R04") && facture != null && op != null && op.retenues.isEmpty()) {
             results += checkMontant("R04", "Montant OP = TTC facture (sans retenues)",
                 op.montantOperation, facture.montantTtc, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R05") && facture != null && op != null && op.retenues.isNotEmpty()) {
+        if (isEnabled("R05") && facture != null && op != null && op.retenues.isNotEmpty()) {
             val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
             val attendu = facture.montantTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
                 op.montantOperation, attendu, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R06") && op != null) {
+        if (isEnabled("R06") && op != null) {
             for (ret in op.retenues) {
                 if (ret.base != null && ret.taux != null && ret.montant != null) {
                     val calcule = ret.base!!.multiply(ret.taux).divide(BigDecimal(100), 2, RoundingMode.HALF_UP)
@@ -212,7 +244,7 @@ class ValidationEngine(
             }
         }
 
-        if (isRuleEnabled(dossierId, "R07") && facture != null && op != null) {
+        if (isEnabled("R07") && facture != null && op != null) {
             val ok = matchReference(op.referenceFacture, facture.numeroFacture)
             results += ResultatValidation(
                 dossier = dossier, regle = "R07",
@@ -222,7 +254,7 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R08") && op != null) {
+        if (isEnabled("R08") && op != null) {
             val refAttendue = bc?.reference ?: contrat?.referenceContrat
             if (refAttendue != null) {
                 val ok = matchReference(op.referenceBcOuContrat, refAttendue)
@@ -235,7 +267,7 @@ class ValidationEngine(
             }
         }
 
-        if (isRuleEnabled(dossierId, "R09")) {
+        if (isEnabled("R09")) {
             val iceFacture = facture?.ice?.trim()?.takeIf { it.isNotBlank() }
             val iceArf = arf?.ice?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
@@ -259,7 +291,7 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R10")) {
+        if (isEnabled("R10")) {
             val ifFacture = facture?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
             val ifArf = arf?.identifiantFiscal?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIfs = listOfNotNull(ifFacture, ifArf).mapNotNull { normalizeId(it) }.distinct()
@@ -283,7 +315,7 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R11") && allFactures.isNotEmpty() && op != null) {
+        if (isEnabled("R11") && allFactures.isNotEmpty() && op != null) {
             val allFactureRibs = allFactures.mapNotNull { f -> normalizeRib(f.rib) }.distinct()
             val allFactureRibsFromJson = allFactures.mapNotNull { f ->
                 @Suppress("UNCHECKED_CAST")
@@ -317,7 +349,7 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R14")) {
+        if (isEnabled("R14")) {
             val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
                 bc?.fournisseur,
@@ -342,7 +374,7 @@ class ValidationEngine(
             }
         }
 
-        if (isRuleEnabled(dossierId, "R12")) {
+        if (isEnabled("R12")) {
             val ckDocMapping = mapOf(
                 1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
                 2 to listOf(TypeDocument.FACTURE),
@@ -356,7 +388,7 @@ class ValidationEngine(
                 10 to listOf(TypeDocument.PV_RECEPTION)
             )
 
-            val ckResults = executeChecklistPoints(dossier, facture, allFactures, bc, op, contrat, pv, arf, checklist, tol, ckDocMapping)
+            val ckResults = executeChecklistPoints(ctx, ckDocMapping)
             results += ckResults
 
             val nbOk = ckResults.count { it.statut == StatutCheck.CONFORME }
@@ -374,7 +406,7 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R13") && tableau != null) {
+        if (isEnabled("R13") && tableau != null) {
             val nonConformes = tableau.points.filter {
                 it.observation?.lowercase()?.contains("non conforme") == true
             }
@@ -391,7 +423,7 @@ class ValidationEngine(
             val dateBcContrat = bc?.dateBc ?: contrat?.dateSignature
             val dateFacture = facture?.dateFacture
             val dateOp = op?.dateEmission
-            if (isRuleEnabled(dossierId, "R17a") && dateBcContrat != null && dateFacture != null) {
+            if (isEnabled("R17a") && dateBcContrat != null && dateFacture != null) {
                 val ok = !dateFacture.isBefore(dateBcContrat)
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17a",
@@ -400,7 +432,7 @@ class ValidationEngine(
                     valeurAttendue = dateBcContrat.toString(), valeurTrouvee = dateFacture.toString()
                 )
             }
-            if (isRuleEnabled(dossierId, "R17b") && dateFacture != null && dateOp != null) {
+            if (isEnabled("R17b") && dateFacture != null && dateOp != null) {
                 val ok = !dateOp.isBefore(dateFacture)
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17b",
@@ -411,7 +443,7 @@ class ValidationEngine(
             }
         }
 
-        if (isRuleEnabled(dossierId, "R18") && arf != null && arf.dateEdition != null) {
+        if (isEnabled("R18") && arf != null && arf.dateEdition != null) {
             val valide = arf.dateEdition!!.plusMonths(6).isAfter(LocalDate.now())
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
@@ -421,13 +453,13 @@ class ValidationEngine(
             )
         }
 
-        if (isRuleEnabled(dossierId, "R16") && facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
+        if (isEnabled("R16") && facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null) {
             val calcTtc = facture.montantHt!!.add(facture.montantTva)
             results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
                 facture.montantTtc, calcTtc, tol, dossier)
         }
 
-        if (isRuleEnabled(dossierId, "R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
+        if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
             val grilles = contrat.grillesTarifaires
             if (grilles.isNotEmpty()) {
                 val months = computeMonths(pv?.periodeDebut, pv?.periodeFin, facture.periode)
@@ -560,14 +592,10 @@ class ValidationEngine(
     }
 
     private fun executeChecklistPoints(
-        dossier: DossierPaiement,
-        facture: Facture?, allFactures: List<Facture>,
-        bc: BonCommande?, op: OrdrePaiement?, contrat: ContratAvenant?,
-        pv: PvReception?, arf: AttestationFiscale?,
-        checklist: ChecklistAutocontrole?,
-        tol: BigDecimal,
+        ctx: ValidationContext,
         ckDocMapping: Map<Int, List<TypeDocument>>
     ): List<ResultatValidation> {
+        val (dossier, facture, _, bc, op, contrat, pv, arf, checklist, _, tol) = ctx
         val ckResults = mutableListOf<ResultatValidation>()
 
         fun docIds(num: Int): String? {

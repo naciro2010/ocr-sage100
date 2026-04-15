@@ -9,6 +9,11 @@ import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { DocumentInfo } from '../../api/dossierTypes'
 
 type FilterMode = 'all' | 'problems' | 'conforme'
+type RuleConfigShape = { global: Record<string, boolean>; overrides: Record<string, boolean> }
+
+function isRuleActive(config: RuleConfigShape | undefined, code: string): boolean {
+  return config?.overrides?.[code] ?? config?.global?.[code] ?? true
+}
 
 interface Props {
   dossier: DossierDetail
@@ -19,7 +24,7 @@ interface Props {
   onNavigateDoc?: (docId: string) => void
   onRerunRule?: (regle: string) => Promise<void>
   onToggleRule?: (regle: string, enabled: boolean) => void
-  ruleConfig?: { global: Record<string, boolean>; overrides: Record<string, boolean> }
+  ruleConfig?: RuleConfigShape
 }
 
 function needsHumanReview(r: ValidationResult): boolean {
@@ -502,11 +507,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 {onToggleRule && (
                                   <button className="btn btn-secondary btn-sm" onClick={e => {
                                     e.stopPropagation()
-                                    const isEnabled = ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true
+                                    const isEnabled = isRuleActive(ruleConfig, item.code)
                                     onToggleRule(item.code, !isEnabled)
                                   }}
-                                    style={{ color: (ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true) ? 'var(--ink-50)' : 'var(--danger)' }}>
-                                    {(ruleConfig?.overrides?.[item.code] ?? ruleConfig?.global?.[item.code] ?? true) ? 'Desactiver' : 'Reactiver'}
+                                    style={{ color: (isRuleActive(ruleConfig, item.code)) ? 'var(--ink-50)' : 'var(--danger)' }}>
+                                    {(isRuleActive(ruleConfig, item.code)) ? 'Desactiver' : 'Reactiver'}
                                   </button>
                                 )}
                               </div>
@@ -742,11 +747,11 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             {onToggleRule && item.ruleCode && (
                               <button className="btn btn-secondary btn-sm" onClick={e => {
                                 e.stopPropagation()
-                                const isEnabled = ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true
+                                const isEnabled = isRuleActive(ruleConfig, item.ruleCode!)
                                 onToggleRule(item.ruleCode!, !isEnabled)
                               }}
-                                style={{ color: (ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true) ? 'var(--ink-50)' : 'var(--danger)' }}>
-                                {(ruleConfig?.overrides?.[item.ruleCode!] ?? ruleConfig?.global?.[item.ruleCode!] ?? true) ? 'Desactiver' : 'Reactiver'}
+                                style={{ color: (isRuleActive(ruleConfig, item.ruleCode!)) ? 'var(--ink-50)' : 'var(--danger)' }}>
+                                {(isRuleActive(ruleConfig, item.ruleCode!)) ? 'Desactiver' : 'Reactiver'}
                               </button>
                             )}
                           </div>

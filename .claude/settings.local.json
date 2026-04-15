@@ -77,7 +77,9 @@
       "Bash(grep -E \"\\\\.tsx$\")",
       "Bash(grep -n \"lucide-react\" /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src/**/*.tsx)",
       "Bash(grep -E \"\\\\.kt$\")",
-      "mcp__Railway__list-projects"
+      "mcp__Railway__list-projects",
+      "Bash(git diff *)",
+      "Read(//tmp/**)"
     ],
     "deny": []
   },
