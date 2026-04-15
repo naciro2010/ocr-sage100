@@ -115,13 +115,33 @@ class ValidationEngine(
         }
 
         val existingResults = resultatRepository.findByDossierId(dossier.id!!)
+        val corrected = existingResults
+            .filter { it.regle in rulesToRun && it.statutOriginal != null }
+            .associate { it.regle to mapOf(
+                "statut" to it.statut.name,
+                "statutOriginal" to it.statutOriginal,
+                "commentaire" to it.commentaire,
+                "corrigePar" to it.corrigePar,
+                "dateCorrection" to it.dateCorrection
+            ) }
+
         val toDelete = existingResults.filter { it.regle in rulesToRun }
         resultatRepository.deleteAll(toDelete)
         resultatRepository.flush()
 
         val isEnabled: (String) -> Boolean = { it in rulesToRun }
         val allResults = runAllRules(dossier, isEnabled)
-        allResults.forEach { it.dateExecution = LocalDateTime.now() }
+        allResults.forEach { r ->
+            r.dateExecution = LocalDateTime.now()
+            val prev = corrected[r.regle]
+            if (prev != null) {
+                r.statutOriginal = r.statut.name
+                r.statut = StatutCheck.valueOf(prev["statut"] as String)
+                r.commentaire = prev["commentaire"] as? String
+                r.corrigePar = prev["corrigePar"] as? String
+                r.dateCorrection = prev["dateCorrection"] as? LocalDateTime
+            }
+        }
         resultatRepository.saveAll(allResults)
 
         return allResults
@@ -364,14 +384,17 @@ class ValidationEngine(
         }
 
         if (isEnabled("R11") && allFactures.isNotEmpty() && op != null) {
-            val allFactureRibs = allFactures.mapNotNull { f -> normalizeRib(f.rib) }.distinct()
+            val allFactureRibs = allFactures.mapNotNull { f ->
+                normalizeRib(f.rib ?: docStr(f.document, "rib"))
+            }.distinct()
             val allFactureRibsFromJson = allFactures.mapNotNull { f ->
                 @Suppress("UNCHECKED_CAST")
                 (f.document.donneesExtraites?.get("ribs") as? List<String>)
             }.flatten().mapNotNull { normalizeRib(it) }.distinct()
             val combinedFactureRibs = (allFactureRibs + allFactureRibsFromJson).distinct()
 
-            val opRibs = listOfNotNull(normalizeRib(op.rib)) +
+            val opRibEntity = normalizeRib(op.rib ?: docStr(opDoc, "rib"))
+            val opRibs = listOfNotNull(opRibEntity) +
                 ((@Suppress("UNCHECKED_CAST") (op.document.donneesExtraites?.get("ribs") as? List<String>))
                     ?.mapNotNull { normalizeRib(it) } ?: emptyList())
             val allOpRibs = opRibs.distinct()
@@ -400,11 +423,11 @@ class ValidationEngine(
         if (isEnabled("R14")) {
             val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
-                bc?.fournisseur,
-                op?.beneficiaire,
-                tableau?.fournisseur,
-                checklist?.prestataire
-            ) + allFactures.mapNotNull { it.fournisseur }).map { it.trim().lowercase() }.distinct()
+                bc?.fournisseur ?: docStr(bcDoc, "fournisseur"),
+                op?.beneficiaire ?: docStr(opDoc, "beneficiaire"),
+                tableau?.fournisseur ?: docStr(tableau?.let { dossier.documents.find { d -> d.typeDocument == TypeDocument.TABLEAU_CONTROLE } }, "fournisseur"),
+                checklist?.prestataire ?: docStr(dossier.documents.find { d -> d.typeDocument == TypeDocument.CHECKLIST_AUTOCONTROLE }, "prestataire")
+            ) + allFactures.mapNotNull { it.fournisseur ?: docStr(it.document, "fournisseur") }).map { it.trim().lowercase() }.distinct()
             if (fournisseurs.size > 1) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
@@ -469,8 +492,12 @@ class ValidationEngine(
 
         run {
             val dateBcContrat = bc?.dateBc ?: contrat?.dateSignature
+                ?: docStr(bcDoc, "dateBc")?.let { parseLocalDate(it) }
+                ?: docStr(contrat?.document, "dateSignature")?.let { parseLocalDate(it) }
             val dateFacture = facture?.dateFacture
+                ?: docStr(fDoc, "dateFacture")?.let { parseLocalDate(it) }
             val dateOp = op?.dateEmission
+                ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
             if (isEnabled("R17a") && dateBcContrat != null && dateFacture != null) {
                 val ok = !dateFacture.isBefore(dateBcContrat)
                 results += ResultatValidation(
@@ -491,13 +518,15 @@ class ValidationEngine(
             }
         }
 
-        if (isEnabled("R18") && arf != null && arf.dateEdition != null) {
-            val valide = arf.dateEdition!!.plusMonths(6).isAfter(LocalDate.now())
+        val arfDateEdition = arf?.dateEdition
+            ?: docStr(arfDoc, "dateEdition")?.let { parseLocalDate(it) }
+        if (isEnabled("R18") && arfDateEdition != null) {
+            val valide = arfDateEdition.plusMonths(6).isAfter(LocalDate.now())
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
                 libelle = "Validite attestation fiscale (6 mois)",
                 statut = if (valide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "Editee le ${arf.dateEdition}, valide jusqu'au ${arf.dateEdition!!.plusMonths(6)}"
+                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${arfDateEdition.plusMonths(6)}"
             )
         }
 
@@ -625,6 +654,22 @@ class ValidationEngine(
         return result
     }
 
+    private fun parseLocalDate(s: String): LocalDate? {
+        return try {
+            LocalDate.parse(s)
+        } catch (_: Exception) {
+            try {
+                val parts = s.split("/", "-", ".")
+                if (parts.size == 3) {
+                    val d = parts[0].trim().toInt()
+                    val m = parts[1].trim().toInt()
+                    val y = parts[2].trim().toInt().let { if (it < 100) it + 2000 else it }
+                    LocalDate.of(y, m, d)
+                } else null
+            } catch (_: Exception) { null }
+        }
+    }
+
     private fun normalizeId(value: String?): String? {
         if (value.isNullOrBlank()) return null
         return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
@@ -660,9 +705,43 @@ class ValidationEngine(
         fun ckPoint(pt: PointControle?): Pair<Boolean?, String?> =
             if (pt != null) (pt.estValide to pt.observation) else (null to null)
 
+        fun docAmt(doc: Document?, vararg keys: String): BigDecimal? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value ?: continue
+                return when (v) {
+                    is Number -> BigDecimal(v.toString())
+                    is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->
+                        val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
+                        if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
+                        else s.replace(",", "").toBigDecimalOrNull()
+                    }
+                    else -> null
+                }
+            }
+            return null
+        }
+
+        fun docTxt(doc: Document?, vararg keys: String): String? {
+            val data = doc?.donneesExtraites ?: return null
+            for (k in keys) {
+                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
+                if (v != null && v.toString().isNotBlank()) return v.toString()
+            }
+            return null
+        }
+
+        val fDoc = facture?.document
+        val bcDoc = bc?.document
+        val opDoc = op?.document
+
+        val fTtc = facture?.montantTtc ?: docAmt(fDoc, "montantTTC")
+        val fHt = facture?.montantHt ?: docAmt(fDoc, "montantHT")
+        val fTva = facture?.montantTva ?: docAmt(fDoc, "montantTVA")
+        val bcTtc = bc?.montantTtc ?: docAmt(bcDoc, "montantTTC")
+
         val points = checklist?.points?.sortedBy { it.numero } ?: emptyList()
 
-        // CK01: Concordance facture / modalites contractuelles / livrables
         run {
             val pt = points.find { it.numero == 1 }
             val (ckValide, obs) = ckPoint(pt)
@@ -670,8 +749,8 @@ class ValidationEngine(
             val hasFacture = facture != null
             val montantMatch = when {
                 facture == null -> false
-                bc != null -> facture.montantTtc != null && bc.montantTtc != null &&
-                    facture.montantTtc!!.subtract(bc.montantTtc).abs() <= tol
+                bc != null -> fTtc != null && bcTtc != null &&
+                    fTtc.subtract(bcTtc).abs() <= tol
                 contrat != null && contrat.grillesTarifaires.isNotEmpty() -> true
                 else -> false
             }
@@ -695,8 +774,8 @@ class ValidationEngine(
                 libelle = pt?.description ?: "Concordance facture / modalites contractuelles / livrables",
                 statut = finalStatut, detail = detail.trim(),
                 source = "CHECKLIST",
-                valeurAttendue = if (bc != null) "BC: ${bc.montantTtc?.toPlainString()}" else contrat?.referenceContrat,
-                valeurTrouvee = facture?.montantTtc?.toPlainString(),
+                valeurAttendue = if (bc != null) "BC: ${bcTtc?.toPlainString()}" else contrat?.referenceContrat,
+                valeurTrouvee = fTtc?.toPlainString(),
                 documentIds = docIds(1)
             )
         }
@@ -705,23 +784,24 @@ class ValidationEngine(
         run {
             val pt = points.find { it.numero == 2 }
             val (ckValide, obs) = ckPoint(pt)
-            val htOk = facture != null && facture.montantHt != null && facture.montantTva != null && facture.montantTtc != null &&
-                facture.montantHt!!.add(facture.montantTva).subtract(facture.montantTtc).abs() <= tol
+            val htOk = fHt != null && fTva != null && fTtc != null &&
+                fHt.add(fTva).subtract(fTtc).abs() <= tol
             val sysStatut = when {
                 facture == null -> StatutCheck.AVERTISSEMENT
                 htOk -> StatutCheck.CONFORME
+                fHt == null || fTva == null || fTtc == null -> StatutCheck.AVERTISSEMENT
                 else -> StatutCheck.NON_CONFORME
             }
             val detail = if (htOk) "HT + TVA = TTC verifie" else if (facture == null) "Facture manquante" else
-                "HT(${facture.montantHt}) + TVA(${facture.montantTva}) != TTC(${facture.montantTtc})"
+                "HT(${fHt}) + TVA(${fTva}) != TTC(${fTtc})"
             ckResults += ResultatValidation(
                 dossier = dossier, regle = "R12.02",
                 libelle = pt?.description ?: "Verification arithmetique des montants",
                 statut = mergeStatut(sysStatut, ckValide),
                 detail = listOfNotNull(detail, obs?.let { "Autocontrole: $it" }).joinToString(". "),
                 source = "CHECKLIST",
-                valeurAttendue = facture?.let { "${it.montantHt} + ${it.montantTva}" },
-                valeurTrouvee = facture?.montantTtc?.toPlainString(),
+                valeurAttendue = if (fHt != null && fTva != null) "${fHt} + ${fTva}" else null,
+                valeurTrouvee = fTtc?.toPlainString(),
                 documentIds = docIds(2)
             )
         }
@@ -832,10 +912,13 @@ class ValidationEngine(
         run {
             val pt = points.find { it.numero == 7 }
             val (ckValide, obs) = ckPoint(pt)
-            val iceOk = facture?.ice?.isNotBlank() == true
-            val ifOk = facture?.identifiantFiscal?.isNotBlank() == true
-            val rcOk = facture?.rc?.isNotBlank() == true
-            val arfOk = arf?.estEnRegle == true
+            val fIce = facture?.ice ?: docTxt(fDoc, "ice")
+            val fIf = facture?.identifiantFiscal ?: docTxt(fDoc, "identifiantFiscal")
+            val fRc = facture?.rc ?: docTxt(fDoc, "rc")
+            val iceOk = fIce?.isNotBlank() == true
+            val ifOk = fIf?.isNotBlank() == true
+            val rcOk = fRc?.isNotBlank() == true
+            val arfOk = arf?.estEnRegle == true || docTxt(arf?.document, "estEnRegle") == "true"
             val nbPresents = listOf(iceOk, ifOk, rcOk).count { it }
             val sysStatut = when {
                 facture == null -> StatutCheck.AVERTISSEMENT
@@ -848,9 +931,9 @@ class ValidationEngine(
                 libelle = pt?.description ?: "Conformite reglementaire de la facture",
                 statut = mergeStatut(sysStatut, ckValide),
                 detail = listOfNotNull(
-                    "ICE: ${if (iceOk) facture?.ice else "absent"}",
-                    "IF: ${if (ifOk) facture?.identifiantFiscal else "absent"}",
-                    "RC: ${if (rcOk) facture?.rc else "absent"}",
+                    "ICE: ${if (iceOk) fIce else "absent"}",
+                    "IF: ${if (ifOk) fIf else "absent"}",
+                    "RC: ${if (rcOk) fRc else "absent"}",
                     if (arf != null) "Attestation: ${if (arfOk) "en regle" else "non conforme"}" else null,
                     obs?.let { "Autocontrole: $it" }
                 ).joinToString(". "),
@@ -865,8 +948,8 @@ class ValidationEngine(
         run {
             val pt = points.find { it.numero == 8 }
             val (ckValide, obs) = ckPoint(pt)
-            val factureRib = normalizeRib(facture?.rib)
-            val opRib = normalizeRib(op?.rib)
+            val factureRib = normalizeRib(facture?.rib ?: docTxt(fDoc, "rib"))
+            val opRib = normalizeRib(op?.rib ?: docTxt(opDoc, "rib"))
             val sysStatut = when {
                 factureRib == null || opRib == null -> StatutCheck.AVERTISSEMENT
                 factureRib == opRib -> StatutCheck.CONFORME
