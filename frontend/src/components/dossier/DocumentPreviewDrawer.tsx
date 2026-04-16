@@ -6,11 +6,10 @@ import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 
 interface Props {
   dossierId: string
-  documents: DocumentInfo[]    // docs relevant to the current focus (from evidence/documentIds)
+  documents: DocumentInfo[]
   activeDocId: string | null
   onClose: () => void
   onChangeActive: (docId: string) => void
-  // Optional hint about which field to highlight ("montantTTC"). Forwarded to OCR viewer in the future.
   highlightField?: string | null
 }
 
@@ -29,7 +28,6 @@ function useBlobUrl(apiUrl: string | null) {
         if (!r.ok) throw new Error(`HTTP ${r.status}`)
         return r.blob()
       })
-    // Defer the initial state updates into a microtask so they're async w.r.t. the effect body
     Promise.resolve().then(() => {
       if (cancelled) return
       setLoading(true)
@@ -66,7 +64,6 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
   const canPrev = currentIdx > 0
   const canNext = currentIdx >= 0 && currentIdx < documents.length - 1
 
-  // ESC closes
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key === 'Escape' && activeDocId) onClose()
@@ -84,44 +81,23 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
 
   return (
     <>
-      <div
-        onClick={onClose}
-        style={{
-          position: 'fixed', inset: 0, background: 'rgba(15,23,42,0.35)',
-          zIndex: 900, animation: 'fadeIn 120ms ease-out'
-        }}
-        aria-hidden="true"
-      />
-      <aside
-        role="dialog"
-        aria-label={`Apercu du document ${activeDoc.nomFichier}`}
-        style={{
-          position: 'fixed', top: 0, right: 0, bottom: 0,
-          width: 'min(720px, 55vw)',
-          background: 'white', boxShadow: '-8px 0 24px rgba(15,23,42,0.18)',
-          zIndex: 901, display: 'flex', flexDirection: 'column',
-          animation: 'slideLeft 180ms ease-out'
-        }}
-      >
-        {/* Header */}
-        <div style={{
-          padding: '10px 14px', borderBottom: '1px solid var(--ink-05)',
-          display: 'flex', alignItems: 'center', gap: 8
-        }}>
-          <FileText size={14} style={{ color: 'var(--teal-700)' }} />
-          <div style={{ flex: 1, minWidth: 0 }}>
-            <div style={{ fontSize: 13, fontWeight: 700, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+      <div className="preview-overlay" onClick={onClose} aria-hidden="true" />
+      <aside role="dialog" aria-label={`Apercu du document ${activeDoc.nomFichier}`} className="preview-drawer">
+        <div className="preview-header">
+          <FileText size={14} className="preview-header-icon" />
+          <div className="preview-header-info">
+            <div className="preview-header-title">
               {TYPE_DOCUMENT_LABELS[activeDoc.typeDocument] || activeDoc.typeDocument}
             </div>
-            <div style={{ fontSize: 10, color: 'var(--ink-40)', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>
+            <div className="preview-header-sub">
               {activeDoc.nomFichier}
               {highlightField && (
-                <> &middot; <strong style={{ color: 'var(--info)' }}>champ : {highlightField}</strong></>
+                <> &middot; <strong>champ : {highlightField}</strong></>
               )}
             </div>
           </div>
           {documents.length > 1 && (
-            <div style={{ display: 'flex', alignItems: 'center', gap: 4, fontSize: 11, color: 'var(--ink-40)' }}>
+            <div className="preview-nav">
               <button className="btn btn-secondary btn-sm" disabled={!canPrev}
                 onClick={() => canPrev && onChangeActive(documents[currentIdx - 1].id)}
                 aria-label="Document precedent">
@@ -149,18 +125,9 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
           </button>
         </div>
 
-        {/* Body */}
-        <div style={{ flex: 1, position: 'relative', background: 'var(--ink-02)', overflow: 'auto' }}>
-          {loading && (
-            <div style={{ position: 'absolute', inset: 0, display: 'grid', placeItems: 'center', color: 'var(--ink-40)', fontSize: 12 }}>
-              Chargement...
-            </div>
-          )}
-          {error && (
-            <div style={{ padding: 20, color: 'var(--danger)', fontSize: 12 }}>
-              Impossible de charger le document : {error}
-            </div>
-          )}
+        <div className="preview-body">
+          {loading && <div className="preview-loading">Chargement...</div>}
+          {error && <div className="preview-error">Impossible de charger le document : {error}</div>}
           {blobUrl && !error && (
             isPdf ? (
               <iframe
@@ -169,25 +136,18 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
                 style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
               />
             ) : isImage ? (
-              <div style={{ padding: 16, display: 'grid', placeItems: 'center', minHeight: '100%' }}>
-                <img src={blobUrl} alt={activeDoc.nomFichier} style={{ maxWidth: '100%', maxHeight: '80vh', boxShadow: '0 4px 12px rgba(15,23,42,0.1)' }} />
+              <div className="preview-image-wrap">
+                <img src={blobUrl} alt={activeDoc.nomFichier} />
               </div>
             ) : (
-              <div style={{ padding: 20, fontSize: 12, color: 'var(--ink-60)' }}>
+              <div className="preview-unsupported">
                 Format non previsualisable.
-                <a href={blobUrl} download={activeDoc.nomFichier} style={{ marginLeft: 8 }}>Telecharger</a>
+                <a href={blobUrl} download={activeDoc.nomFichier}>Telecharger</a>
               </div>
             )
           )}
         </div>
       </aside>
-      <style>{`
-        @keyframes fadeIn { from { opacity: 0 } to { opacity: 1 } }
-        @keyframes slideLeft {
-          from { transform: translateX(100%); opacity: 0.6 }
-          to { transform: translateX(0); opacity: 1 }
-        }
-      `}</style>
     </>
   )
 }

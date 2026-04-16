@@ -5,7 +5,7 @@ const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
 import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
-import type { ValidationResult, AuditEntry, DocumentInfo } from '../api/dossierTypes'
+import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
@@ -16,9 +16,8 @@ const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm
 const MetricsBar = lazy(() => import('../components/dossier/MetricsBar'))
 const CompareView = lazy(() => import('../components/dossier/CompareView'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
-const VerificationBlocks = lazy(() => import('../components/dossier/VerificationBlocks'))
+const ControlSplitView = lazy(() => import('../components/dossier/ControlSplitView'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
-const DocumentPreviewDrawer = lazy(() => import('../components/dossier/DocumentPreviewDrawer'))
 
 function HeaderSkeleton() {
   return (
@@ -142,9 +141,6 @@ export default function DossierDetail() {
 
   const [ruleConfig, setRuleConfig] = useState<{ global: Record<string, boolean>; overrides: Record<string, boolean> } | null>(null)
   const [cascadeScope, setCascadeScope] = useState<Record<string, string[]>>({})
-  const [previewDocId, setPreviewDocId] = useState<string | null>(null)
-  const [previewHighlightField, setPreviewHighlightField] = useState<string | null>(null)
-
   // UI states
   const [validating, setValidating] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
@@ -282,10 +278,6 @@ export default function DossierDetail() {
     loadAudit()
   }, [loadSummary, loadAudit])
 
-  const handleOpenPreview = useCallback((docId: string, field?: string) => {
-    setPreviewDocId(docId)
-    setPreviewHighlightField(field || null)
-  }, [])
 
   // Prefetch cascade scope for every rule code that has a result (bounded, cached 60s)
   useEffect(() => {
@@ -422,25 +414,25 @@ export default function DossierDetail() {
           </div>
         ) : null}
 
-        {/* Block 5: Verification — independent load */}
+        {/* Block 5: Verification — split-view 3 colonnes */}
         {validationError ? (
           <BlockError message={validationError} onRetry={loadValidation} />
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
           <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
-            <VerificationBlocks dossier={dossierCompat} validating={validating} onValidate={handleValidate} onRefreshResults={loadValidation}
+            <ControlSplitView
+              dossier={dossierCompat}
+              dossierId={id!}
+              validating={validating}
+              onValidate={handleValidate}
+              onRefreshResults={loadValidation}
               onRerunRule={handleRerunRule}
-              onToggleRule={handleToggleRule}
-              ruleConfig={ruleConfig || undefined}
+              onReplaceResults={handleReplaceResults}
               onOptimisticUpdate={(resultId, newStatut) => {
                 setValidationResults(prev => prev.map(r => r.id === resultId ? { ...r, statut: newStatut as ValidationResult['statut'] } : r))
               }}
-              onNavigateDoc={(docId) => {
-                const el = document.querySelector(`[data-doc-id="${docId}"]`)
-                if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
-              }}
-              onOpenPreview={handleOpenPreview}
+              onToggleRule={handleToggleRule}
+              ruleConfig={ruleConfig || undefined}
               cascadeScope={cascadeScope}
-              onReplaceResults={handleReplaceResults}
             />
           </div>
         ) : (docsData === null && !docsError) ? <VerifSkeleton /> : null}
@@ -450,20 +442,6 @@ export default function DossierDetail() {
           <div className="block-loaded" style={{ animationDelay: '0.2s' }}>
             <AuditLog audit={audit} />
           </div>
-        )}
-
-        {/* Overlay: document preview drawer */}
-        {previewDocId && id && docsData?.documents && docsData.documents.length > 0 && (
-          <Suspense fallback={null}>
-            <DocumentPreviewDrawer
-              dossierId={id}
-              documents={docsData.documents as DocumentInfo[]}
-              activeDocId={previewDocId}
-              highlightField={previewHighlightField}
-              onChangeActive={setPreviewDocId}
-              onClose={() => { setPreviewDocId(null); setPreviewHighlightField(null) }}
-            />
-          </Suspense>
         )}
       </div>
     </Suspense>
