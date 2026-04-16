@@ -65,6 +65,7 @@ function useBlobUrl(apiUrl: string | null) {
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState<string | null>(null)
   useEffect(() => {
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     if (!apiUrl) { setBlobUrl(null); return }
     let cancelled = false
     let created: string | null = null
@@ -210,7 +211,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 
   const handleRerun = useCallback(async () => {
     if (!item || !onRerunRule) return
-    try { await onRerunRule(item.code) } catch {}
+    try { await onRerunRule(item.code) } catch { /* ignore */ }
   }, [item, onRerunRule])
 
   const handleCorrect = useCallback((newStatut: string) => {
