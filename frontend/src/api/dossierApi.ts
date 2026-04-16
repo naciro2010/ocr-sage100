@@ -1,4 +1,4 @@
-import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType, DashboardStats, AuditEntry } from './dossierTypes'
+import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, PageResponse, DossierType, DashboardStats, AuditEntry, RuleCatalogEntry } from './dossierTypes'
 
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
@@ -247,6 +247,27 @@ export async function rerunValidationRule(dossierId: string, regle: string): Pro
   invalidateCache(dossierId)
   const res = await apiFetch(`${BASE}/${dossierId}/validation/rerun/${regle}`, { method: 'POST' })
   return handleResponse(res)
+}
+
+export async function correctAndRerun(
+  dossierId: string, resultId: string,
+  updates: { statut?: string; commentaire?: string; corrigePar?: string; valeurTrouvee?: string; valeurAttendue?: string; detail?: string }
+): Promise<ValidationResult[]> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}/correct-and-rerun`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify(updates),
+  })
+  return handleResponse(res)
+}
+
+export async function getCascadeScope(regle: string): Promise<{ regle: string; cascade: string[]; count: number }> {
+  return cachedFetch(`${BASE}/validation/cascade/${regle}`, 60000)
+}
+
+export async function getRuleCatalog(): Promise<RuleCatalogEntry[]> {
+  return cachedFetch(`${BASE}/rule-catalog`, 300000)
 }
 
 export async function getRuleConfig(dossierId: string): Promise<{ global: Record<string, boolean>; overrides: Record<string, boolean> }> {

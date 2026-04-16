@@ -660,6 +660,21 @@ class DossierService(
         return repo.save(result)
     }
 
+    /**
+     * Atomic: correct a result (valeurs/commentaire/statut), then re-run its rule
+     * and dependencies so impacted controls are re-evaluated in one round-trip.
+     */
+    @Transactional
+    fun correctAndRerun(dossierId: UUID, resultId: UUID, updates: Map<String, String>): List<ResultatValidation> {
+        val result = resultatRepo.findById(resultId).orElseThrow { NoSuchElementException("Result not found") }
+        val regle = result.regle
+        updateValidationResult(resultId, updates)
+        val dossier = getDossierFull(dossierId)
+        val rerun = validationEngine.rerunRule(dossier, regle)
+        audit(dossierId, "CORRECT_RERUN", "Regle $regle corrigee et relancee (${rerun.size} resultats)")
+        return rerun
+    }
+
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {
         // Try direct parse first
         try {

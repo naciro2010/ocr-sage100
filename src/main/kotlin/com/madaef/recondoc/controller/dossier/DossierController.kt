@@ -7,6 +7,7 @@ import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.service.DossierService
 import com.madaef.recondoc.service.FinalizeRequest
 import com.madaef.recondoc.service.DocumentProgressService
+import com.madaef.recondoc.service.validation.RuleCatalog
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
 import org.springframework.data.domain.Page
@@ -207,6 +208,23 @@ class DossierController(
     fun rerunRule(@PathVariable id: UUID, @PathVariable regle: String): List<ValidationResultResponse> {
         return dossierService.rerunRule(id, regle).map { it.toResponse() }
     }
+
+    @PostMapping("/{id}/validation/{resultId}/correct-and-rerun")
+    fun correctAndRerun(
+        @PathVariable id: UUID, @PathVariable resultId: UUID,
+        @RequestBody body: Map<String, String>
+    ): List<ValidationResultResponse> {
+        return dossierService.correctAndRerun(id, resultId, body).map { it.toResponse() }
+    }
+
+    @GetMapping("/validation/cascade/{regle}")
+    fun getCascadeScope(@PathVariable regle: String): Map<String, Any> {
+        val cascade = RuleCatalog.cascade(regle)
+        return mapOf("regle" to regle, "cascade" to cascade, "count" to cascade.size)
+    }
+
+    @GetMapping("/rule-catalog")
+    fun getRuleCatalog(): List<RuleCatalogEntry> = RuleCatalog.all()
 
     @GetMapping("/{id}/rule-config")
     fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {

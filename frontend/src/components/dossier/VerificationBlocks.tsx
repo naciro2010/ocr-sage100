@@ -1,12 +1,13 @@
 import { memo, useState, useMemo, useCallback } from 'react'
 import type { DossierDetail, ValidationResult } from '../../api/dossierTypes'
-import { updateValidationResult } from '../../api/dossierApi'
+import { updateValidationResult, correctAndRerun } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { useToast } from '../Toast'
-import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye, Edit3, Save, X, MessageSquare } from 'lucide-react'
+import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye, Edit3, Save, X, MessageSquare, Zap as ZapIcon } from 'lucide-react'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { DocumentInfo } from '../../api/dossierTypes'
+import EvidenceList from './EvidenceList'
 
 type FilterMode = 'all' | 'problems' | 'conforme'
 type RuleConfigShape = { global: Record<string, boolean>; overrides: Record<string, boolean> }
@@ -25,6 +26,9 @@ interface Props {
   onRerunRule?: (regle: string) => Promise<void>
   onToggleRule?: (regle: string, enabled: boolean) => void
   ruleConfig?: RuleConfigShape
+  onOpenPreview?: (docId: string, field?: string) => void
+  cascadeScope?: Record<string, string[]>
+  onReplaceResults?: (results: ValidationResult[]) => void
 }
 
 function needsHumanReview(r: ValidationResult): boolean {
@@ -135,13 +139,14 @@ function Legend() {
   )
 }
 
-function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, saving }: {
+function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, saving, cascadeSize }: {
   resultId: string
   editValues: { valeurTrouvee: string; valeurAttendue: string; commentaire: string }
   setEditValues: React.Dispatch<React.SetStateAction<{ valeurTrouvee: string; valeurAttendue: string; commentaire: string }>>
-  onSave: (id: string) => void
+  onSave: (id: string, alsoRerun?: boolean) => void
   onCancel: () => void
   saving: boolean
+  cascadeSize?: number
 }) {
   return (
     <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
@@ -163,11 +168,20 @@ function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, savi
           onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
           placeholder="Raison de la correction..." />
       </div>
-      <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-        <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => onSave(resultId)}>
+      <div style={{ display: 'flex', gap: 6, marginTop: 6, flexWrap: 'wrap' }}>
+        <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => onSave(resultId, true)}
+          title={cascadeSize && cascadeSize > 1 ? `Relance ce controle et ${cascadeSize - 1} dependant(s)` : 'Sauvegarde et relance ce controle'}>
+          {saving ? <Loader2 size={11} className="spin" /> : <ZapIcon size={11} />} Sauvegarder + Relancer
+          {cascadeSize && cascadeSize > 1 ? (
+            <span style={{ marginLeft: 4, background: 'rgba(255,255,255,0.25)', padding: '1px 5px', borderRadius: 8, fontSize: 9, fontWeight: 700 }}>
+              +{cascadeSize - 1}
+            </span>
+          ) : null}
+        </button>
+        <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => onSave(resultId, false)}>
           {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
         </button>
-        <button className="btn btn-secondary btn-sm" onClick={onCancel}>
+        <button className="btn btn-secondary btn-sm" onClick={onCancel} disabled={saving}>
           <X size={11} /> Annuler
         </button>
       </div>
@@ -175,7 +189,7 @@ function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, savi
   )
 }
 
-export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc, onRerunRule, onToggleRule, ruleConfig }: Props) {
+export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc, onRerunRule, onToggleRule, ruleConfig, onOpenPreview, cascadeScope, onReplaceResults }: Props) {
   const { toast } = useToast()
   const [rerunning, setRerunning] = useState<string | null>(null)
 
@@ -281,23 +295,30 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     setEditValues({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
   }, [])
 
-  const saveEditing = useCallback(async (resultId: string) => {
+  const saveEditing = useCallback(async (resultId: string, alsoRerun = false) => {
     setSavingId(resultId)
     try {
-      await updateValidationResult(dossier.id, resultId, {
+      const updates = {
         valeurTrouvee: editValues.valeurTrouvee || undefined,
         valeurAttendue: editValues.valeurAttendue || undefined,
         commentaire: editValues.commentaire || undefined,
-      })
-      toast('success', 'Valeurs corrigees')
+      }
+      if (alsoRerun) {
+        const results = await correctAndRerun(dossier.id, resultId, updates)
+        if (onReplaceResults) onReplaceResults(results)
+        toast('success', `Corrige et ${results.length} controle(s) relance(s)`)
+      } else {
+        await updateValidationResult(dossier.id, resultId, updates)
+        toast('success', 'Valeurs corrigees')
+        if (onRefreshResults) onRefreshResults()
+      }
       setEditingResult(null)
-      if (onRefreshResults) onRefreshResults()
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally {
       setSavingId(null)
     }
-  }, [dossier.id, editValues, onRefreshResults, toast])
+  }, [dossier.id, editValues, onRefreshResults, onReplaceResults, toast])
 
   const handleRerun = useCallback(async (regle: string) => {
     if (!onRerunRule) return
@@ -451,13 +472,13 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                             <div className="vblock-label">{item.label}</div>
                             {r?.detail && !isExpanded && <div className="vblock-detail">{r.detail}</div>}
                             {/* Document sources inline */}
-                            {r?.documentIds && !isExpanded && onNavigateDoc && (
+                            {r?.documentIds && !isExpanded && (onOpenPreview || onNavigateDoc) && (
                               <div className="vblock-doc-links">
                                 {r.documentIds.slice(0, 3).map(docId => {
                                   const doc = dossier.documents.find(d => d.id === docId)
                                   return doc ? (
                                     <button key={docId} className="vblock-doc-link"
-                                      onClick={e => { e.stopPropagation(); onNavigateDoc(docId) }}>
+                                      onClick={e => { e.stopPropagation(); (onOpenPreview || onNavigateDoc)?.(docId) }}>
                                       <FileText size={10} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument]?.split(' ')[0] || doc.typeDocument}
                                     </button>
                                   ) : null
@@ -518,10 +539,13 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
                             {r?.id && editingResult === r.id ? (
                               <EditPanel resultId={r.id!} editValues={editValues} setEditValues={setEditValues}
-                                onSave={saveEditing} onCancel={cancelEditing} saving={savingId === r.id} />
+                                onSave={saveEditing} onCancel={cancelEditing} saving={savingId === r.id}
+                                cascadeSize={cascadeScope?.[item.code]?.length} />
                             ) : (
                               <>
-                                {(r?.valeurAttendue || r?.valeurTrouvee) && (
+                                {r?.evidences && r.evidences.length > 0 ? (
+                                  <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenPreview} />
+                                ) : (r?.valeurAttendue || r?.valeurTrouvee) && (
                                   <div className="vblock-expand-compare">
                                     {r.valeurAttendue && (
                                       <div className="vblock-expand-val">
@@ -564,7 +588,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 </span>
                               )}
                             </div>
-                            {r?.documentIds && (
+                            {r?.documentIds && (!r.evidences || r.evidences.length === 0) && (
                               <>
                                 <div className="vblock-expand-docs">
                                   {r.documentIds.map(docId => {
@@ -572,7 +596,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                     if (!doc) return null
                                     return (
                                       <button key={docId} className="btn btn-secondary btn-sm"
-                                        onClick={e => { e.stopPropagation(); onNavigateDoc?.(docId) }}>
+                                        onClick={e => { e.stopPropagation(); (onOpenPreview || onNavigateDoc)?.(docId) }}>
                                         <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
                                       </button>
                                     )
@@ -763,36 +787,14 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                         {item.ruleDesc && <div className="vblock-expand-desc">{item.ruleDesc}</div>}
 
                         {r?.id && editingResult === r.id ? (
-                          <div className="vblock-edit-panel" onClick={e => e.stopPropagation()}>
-                            <div className="vblock-edit-row">
-                              <label>Valeur attendue</label>
-                              <input className="form-input" value={editValues.valeurAttendue}
-                                onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))} />
-                            </div>
-                            <div className="vblock-edit-row">
-                              <label>Valeur trouvee</label>
-                              <input className="form-input" value={editValues.valeurTrouvee}
-                                onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))} />
-                            </div>
-                            <div className="vblock-edit-row">
-                              <label><MessageSquare size={10} /> Commentaire</label>
-                              <input className="form-input" value={editValues.commentaire}
-                                onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
-                                placeholder="Raison de la correction..." />
-                            </div>
-                            <div style={{ display: 'flex', gap: 6, marginTop: 6 }}>
-                              <button className="btn btn-primary btn-sm" disabled={saving}
-                                onClick={() => saveEditing(r.id!)}>
-                                {saving ? <Loader2 size={11} className="spin" /> : <Save size={11} />} Sauvegarder
-                              </button>
-                              <button className="btn btn-secondary btn-sm" onClick={cancelEditing}>
-                                <X size={11} /> Annuler
-                              </button>
-                            </div>
-                          </div>
+                          <EditPanel resultId={r.id!} editValues={editValues} setEditValues={setEditValues}
+                            onSave={saveEditing} onCancel={cancelEditing} saving={savingId === r.id}
+                            cascadeSize={cascadeScope?.[ckRuleCode]?.length} />
                         ) : (
                           <>
-                            {(r?.valeurAttendue || r?.valeurTrouvee) && (
+                            {r?.evidences && r.evidences.length > 0 ? (
+                              <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenPreview} />
+                            ) : (r?.valeurAttendue || r?.valeurTrouvee) && (
                               <div className="vblock-expand-compare">
                                 {r.valeurAttendue && (
                                   <div className="vblock-expand-val">
@@ -839,7 +841,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           )}
                         </div>
 
-                        {r?.documentIds && (
+                        {r?.documentIds && (!r.evidences || r.evidences.length === 0) && (
                           <>
                             <div className="vblock-expand-docs">
                               {r.documentIds.map(docId => {
@@ -847,7 +849,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 if (!doc) return null
                                 return (
                                   <button key={docId} className="btn btn-secondary btn-sm"
-                                    onClick={e => { e.stopPropagation(); onNavigateDoc?.(docId) }}>
+                                    onClick={e => { e.stopPropagation(); (onOpenPreview || onNavigateDoc)?.(docId) }}>
                                     <FileText size={11} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument] || doc.typeDocument}
                                   </button>
                                 )
