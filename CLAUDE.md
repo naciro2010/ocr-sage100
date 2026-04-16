@@ -58,8 +58,7 @@ PDF/Image upload → Apache Tika (text extraction) → Claude API (structured JS
 - Vite build, served via Nginx in production
 
 ### Database
-- PostgreSQL 16 with Flyway migrations in `src/main/resources/db/migration/`
-- **Two conflicting V5 migrations exist** (V5__app_settings.sql and V5__dossier_paiement_madaef.sql) - Flyway will fail on fresh DB
+- PostgreSQL 16 with Flyway migrations in `src/main/resources/db/migration/` (V1 → V13, linear history)
 - Tests use H2 in PostgreSQL compatibility mode (profile: `test`) or real PostgreSQL (profile: `ci`)
 - JPA with `ddl-auto: validate` in production (schema managed by Flyway)
 

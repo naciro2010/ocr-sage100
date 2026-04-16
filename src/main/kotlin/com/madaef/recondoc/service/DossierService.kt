@@ -7,6 +7,7 @@ import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.storage.ExtractStorage
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -50,6 +51,7 @@ class DossierService(
     private val auditLogRepo: AuditLogRepository,
     private val ruleConfigRepo: RuleConfigRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
+    private val extractStorage: ExtractStorage,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -82,7 +84,7 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
-    fun getDossierResponse(id: UUID): DossierResponse {
+    fun getDossierResponse(id: UUID, light: Boolean = false): DossierResponse {
         val dossier = getDossier(id)
         // Load only what we need: documents, factures, validation results
         val documents = documentRepo.findByDossierId(id)
@@ -92,7 +94,9 @@ class DossierService(
         // Build donneesExtraites map by type from documents (avoids loading 7 entity tables)
         val byType = documents.groupBy { it.typeDocument }
         fun extractedFor(type: TypeDocument): Map<String, Any?>? =
-            byType[type]?.firstOrNull()?.donneesExtraites
+            if (light) null else byType[type]?.firstOrNull()?.donneesExtraites
+
+        val factureMaps = if (light) emptyList() else factures.map { factureToMap(it) }
 
         return DossierResponse(
             id = dossier.id!!, reference = dossier.reference,
@@ -102,9 +106,9 @@ class DossierService(
             montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
             dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
             validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            documents = documents.map { it.toResponse() },
-            facture = factures.firstOrNull()?.let { factureToMap(it) },
-            factures = factures.map { factureToMap(it) },
+            documents = documents.map { it.toResponse(includeExtractedData = !light) },
+            facture = factureMaps.firstOrNull(),
+            factures = factureMaps,
             bonCommande = extractedFor(TypeDocument.BON_COMMANDE),
             contratAvenant = extractedFor(TypeDocument.CONTRAT_AVENANT),
             ordrePaiement = extractedFor(TypeDocument.ORDRE_PAIEMENT),
@@ -114,6 +118,20 @@ class DossierService(
             attestationFiscale = extractedFor(TypeDocument.ATTESTATION_FISCALE),
             resultatsValidation = resultats.map { it.toResponse() }
         )
+    }
+
+    @Transactional(readOnly = true)
+    fun getDocumentExtractedData(dossierId: UUID, documentId: UUID): Map<String, Any?>? {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
+        return doc.donneesExtraites
+    }
+
+    @Transactional(readOnly = true)
+    fun getDocumentOcrText(dossierId: UUID, documentId: UUID): String? {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
+        return loadStoredText(doc)
     }
 
     @Transactional(readOnly = true)
@@ -329,6 +347,7 @@ class DossierService(
         log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
         // Delete file on disk if exists
         try { val path = Path.of(doc.cheminFichier); if (Files.exists(path)) Files.delete(path) } catch (_: Exception) {}
+        doc.texteExtraitKey?.let { extractStorage.delete(it) }
         documentRepo.delete(doc)
         audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
     }
@@ -355,14 +374,17 @@ class DossierService(
             val result = ocrService.extractWithDetails(Files.newInputStream(path), doc.nomFichier, path)
             log.info("Re-extracted {} chars from {} via {}", result.text.length, doc.nomFichier, result.engine)
             result
-        } else if (!doc.texteExtrait.isNullOrBlank()) {
-            log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
-            OcrService.OcrResult(text = doc.texteExtrait!!, engine = OcrService.OcrEngine.TIKA)
         } else {
-            log.error("No file and no stored text for {}", doc.nomFichier)
-            doc.statutExtraction = StatutExtraction.ERREUR
-            doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
-            return
+            val fallback = loadStoredText(doc)
+            if (!fallback.isNullOrBlank()) {
+                log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, fallback.length)
+                OcrService.OcrResult(text = fallback, engine = OcrService.OcrEngine.TIKA)
+            } else {
+                log.error("No file and no stored text for {}", doc.nomFichier)
+                doc.statutExtraction = StatutExtraction.ERREUR
+                doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
+                return
+            }
         }
 
         // Persist OCR metadata
@@ -371,6 +393,32 @@ class DossierService(
         doc.ocrPageCount = ocrResult.pageCount
 
         processDocumentWithText(doc, ocrResult, skipClassification)
+    }
+
+    private fun persistExtract(doc: Document, rawText: String) {
+        val dossierId = doc.dossier.id!!
+        val documentId = doc.id ?: run {
+            // Should never happen: processDocument loads a saved Document. Keep the
+            // inline fallback to avoid losing data if it does.
+            doc.texteExtrait = rawText
+            return
+        }
+        try {
+            doc.texteExtraitKey = extractStorage.write(dossierId, documentId, rawText)
+            doc.texteExtrait = null
+        } catch (e: Exception) {
+            log.warn("Failed to offload extract for {}, keeping inline: {}", doc.nomFichier, e.message)
+            doc.texteExtrait = rawText
+        }
+    }
+
+    private fun loadStoredText(doc: Document): String? {
+        doc.texteExtraitKey?.let { key ->
+            val text = extractStorage.read(key)
+            if (!text.isNullOrBlank()) return text
+            log.warn("texte_extrait_key {} set on {} but extract missing on storage", key, doc.nomFichier)
+        }
+        return doc.texteExtrait
     }
 
     private fun emitProgress(doc: Document, step: String, statut: String, detail: String? = null) {
@@ -396,7 +444,7 @@ class DossierService(
                 return
             }
 
-            doc.texteExtrait = rawText
+            persistExtract(doc, rawText)
             emitProgress(doc, "ocr", "done", "${rawText.length} caracteres")
 
             emitProgress(doc, "classify", "active", "Classification...")

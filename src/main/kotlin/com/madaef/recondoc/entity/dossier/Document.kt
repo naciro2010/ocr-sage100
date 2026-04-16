@@ -24,7 +24,14 @@ class Document(
     @Column(name = "nom_fichier", nullable = false) var nomFichier: String,
     @Column(name = "chemin_fichier", nullable = false) var cheminFichier: String,
 
+    // Legacy inline OCR text. Kept nullable for backward compatibility with rows
+    // written before V14. New documents store the text in external storage and
+    // reference it via texteExtraitKey; this column is left null.
     @Column(name = "texte_extrait", columnDefinition = "TEXT") var texteExtrait: String? = null,
+
+    // Pointer into ExtractStorage (filesystem key or S3 object key). Resolved on
+    // demand, never serialized back to clients.
+    @Column(name = "texte_extrait_key", length = 500) var texteExtraitKey: String? = null,
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "donnees_extraites", columnDefinition = "jsonb")

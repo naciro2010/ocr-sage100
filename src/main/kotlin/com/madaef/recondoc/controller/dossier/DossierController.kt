@@ -53,8 +53,35 @@ class DossierController(
     }
 
     @GetMapping("/{id}")
-    fun get(@PathVariable id: UUID): DossierResponse {
-        return dossierService.getDossierResponse(id)
+    fun get(
+        @PathVariable id: UUID,
+        @RequestParam(required = false, defaultValue = "false") light: Boolean
+    ): DossierResponse {
+        return dossierService.getDossierResponse(id, light)
+    }
+
+    @GetMapping("/{id}/documents/{docId}/extract-data")
+    fun getDocumentExtractedData(
+        @PathVariable id: UUID,
+        @PathVariable docId: UUID
+    ): ResponseEntity<Map<String, Any?>> {
+        val data = dossierService.getDocumentExtractedData(id, docId)
+            ?: return ResponseEntity.noContent().build()
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=60")
+            .body(data)
+    }
+
+    @GetMapping("/{id}/documents/{docId}/ocr-text", produces = [MediaType.TEXT_PLAIN_VALUE])
+    fun getDocumentOcrText(
+        @PathVariable id: UUID,
+        @PathVariable docId: UUID
+    ): ResponseEntity<String> {
+        val text = dossierService.getDocumentOcrText(id, docId)
+            ?: return ResponseEntity.noContent().build()
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+            .body(text)
     }
 
     @GetMapping("/{id}/summary")

@@ -181,10 +181,11 @@ fun DossierPaiement.toListResponse(): DossierListResponse {
     )
 }
 
-fun Document.toResponse(): DocumentResponse = DocumentResponse(
+fun Document.toResponse(includeExtractedData: Boolean = true): DocumentResponse = DocumentResponse(
     id = id!!, typeDocument = typeDocument, nomFichier = nomFichier,
     statutExtraction = statutExtraction, erreurExtraction = erreurExtraction,
-    dateUpload = dateUpload, donneesExtraites = donneesExtraites,
+    dateUpload = dateUpload,
+    donneesExtraites = if (includeExtractedData) donneesExtraites else null,
     ocrEngine = ocrEngine, ocrConfidence = ocrConfidence,
     extractionConfidence = extractionConfidence,
     extractionWarnings = extractionWarnings?.split("||")?.filter { it.isNotBlank() } ?: emptyList()

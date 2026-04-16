@@ -51,6 +51,11 @@ dependencies {
     // HTTP client for Claude API & Sage 1000
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
+    // Resilience (circuit breaker / rate limiter / bulkhead) around Claude API
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")
