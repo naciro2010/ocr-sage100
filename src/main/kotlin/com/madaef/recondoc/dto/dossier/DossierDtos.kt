@@ -142,7 +142,8 @@ data class ValidationResultResponse(
     val statutOriginal: String?,
     val documentIds: List<String>? = null,
     val evidences: List<ValidationEvidenceResponse>? = null,
-    val dependances: List<String>? = null
+    val dependances: List<String>? = null,
+    val dateExecution: java.time.LocalDateTime? = null
 )
 
 data class RuleCatalogEntry(
@@ -199,5 +200,6 @@ fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResult
         role = it.role, champ = it.champ, libelle = it.libelle,
         documentId = it.documentId, documentType = it.documentType,
         valeur = it.valeur, page = it.page
-    ) }
+    ) },
+    dateExecution = dateExecution
 )

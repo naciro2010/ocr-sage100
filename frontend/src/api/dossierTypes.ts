@@ -85,6 +85,7 @@ export interface ValidationResult {
   statutOriginal: string | null
   documentIds: string[] | null
   evidences: ValidationEvidence[] | null
+  dateExecution: string | null
 }
 
 export interface RuleCatalogEntry {

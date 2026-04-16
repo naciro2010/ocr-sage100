@@ -1,4 +1,4 @@
-import { memo, useState, useMemo, useCallback } from 'react'
+import { memo, useState, useMemo, useCallback, useEffect, useRef } from 'react'
 import type { DossierDetail, ValidationResult } from '../../api/dossierTypes'
 import { updateValidationResult, correctAndRerun } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
@@ -6,7 +6,6 @@ import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatu
 import { useToast } from '../Toast'
 import { Zap, ClipboardCheck, ShieldCheck, Loader2, ChevronDown, ChevronUp, AlertTriangle, User, FileText, Filter, RefreshCw, Eye, Edit3, Save, X, MessageSquare, Zap as ZapIcon } from 'lucide-react'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
-import type { DocumentInfo } from '../../api/dossierTypes'
 import EvidenceList from './EvidenceList'
 
 type FilterMode = 'all' | 'problems' | 'conforme'
@@ -56,65 +55,21 @@ function confidenceLevel(r: ValidationResult): { label: string; color: string; p
   return { label: 'Fiable', color: 'var(--ink-40)', pct: 90 }
 }
 
+function isStale(r: ValidationResult | undefined | null, documents: DossierDetail['documents']): boolean {
+  if (!r?.dateExecution || !r?.documentIds?.length) return false
+  const execTime = new Date(r.dateExecution).getTime()
+  return r.documentIds.some(docId => {
+    const doc = documents.find(d => d.id === docId)
+    return doc && new Date(doc.dateUpload).getTime() > execTime
+  })
+}
+
 const LEGEND_ITEMS = [
   { icon: '\u2713', bg: '#ecfdf5', color: '#059669', label: 'Conforme' },
   { icon: '\u2717', bg: '#fef2f2', color: '#dc2626', label: 'Non conforme' },
   { icon: '!', bg: '#fffbeb', color: '#d97706', label: 'A verifier' },
   { icon: '\u2014', bg: '#f3f4f6', color: '#6b7280', label: 'Non applicable' },
 ] as const
-
-const RULE_FIELDS: Record<string, string[]> = {
-  R01: ['montantTTC'], R02: ['montantHT'], R03: ['montantTVA', 'tauxTVA'],
-  R04: ['montantOperation', 'montantTTC'], R05: ['montantOperation', 'montantTTC'],
-  R07: ['numeroFacture', 'referenceFacture'], R08: ['reference', 'referenceContrat', 'referenceBcOuContrat'],
-  R09: ['ice'], R10: ['identifiantFiscal'], R11: ['rib', 'ribs'],
-  R14: ['fournisseur', 'beneficiaire', 'prestataire'],
-  R16: ['montantHT', 'montantTVA', 'montantTTC'], R18: ['dateEdition', 'dateValidite', 'estEnRegle'],
-  'R12.01': ['montantTTC', 'montantHT', 'reference', 'objet'],
-  'R12.02': ['montantHT', 'montantTVA', 'montantTTC'],
-  'R12.03': ['dateBc', 'dateSignature', 'dateFacture'],
-  'R12.05': ['montantOperation', 'retenues'],
-  'R12.07': ['ice', 'identifiantFiscal', 'rc'],
-  'R12.08': ['rib', 'ribs'],
-  'R12.09': ['referenceContrat', 'prestations'],
-}
-
-function getDocExtract(doc: DocumentInfo, fields: string[]): Record<string, unknown> | null {
-  if (!doc.donneesExtraites) return null
-  const extract: Record<string, unknown> = {}
-  for (const f of fields) {
-    const key = Object.keys(doc.donneesExtraites).find(k => k.toLowerCase().includes(f.toLowerCase()))
-    if (key && doc.donneesExtraites[key] != null) extract[key] = doc.donneesExtraites[key]
-  }
-  return Object.keys(extract).length > 0 ? extract : null
-}
-
-function DocDataPreview({ docs, ruleCode }: { docs: DocumentInfo[]; ruleCode: string }) {
-  const fields = RULE_FIELDS[ruleCode]
-  if (!fields || docs.length === 0) return null
-  const previews = docs.map(doc => ({ doc, data: getDocExtract(doc, fields) })).filter(p => p.data)
-  if (previews.length === 0) return null
-  return (
-    <div style={{ marginTop: 8, padding: '8px 10px', background: 'var(--ink-02)', borderRadius: 6, fontSize: 11 }}>
-      <div style={{ fontWeight: 700, marginBottom: 4, display: 'flex', alignItems: 'center', gap: 4, color: 'var(--ink-60)' }}>
-        <Eye size={10} /> Donnees source
-      </div>
-      {previews.map(({ doc, data }) => (
-        <div key={doc.id} style={{ marginBottom: 4 }}>
-          <span style={{ fontWeight: 600, fontSize: 10, color: 'var(--teal-700)' }}>
-            {TYPE_DOCUMENT_LABELS[doc.typeDocument]?.split(' ')[0] || doc.typeDocument}:
-          </span>
-          {' '}
-          {Object.entries(data!).map(([k, v], i) => (
-            <span key={k} style={{ color: 'var(--ink-70)' }}>
-              {i > 0 && ' | '}<span style={{ color: 'var(--ink-40)' }}>{k}:</span> {String(v)}
-            </span>
-          ))}
-        </div>
-      ))}
-    </div>
-  )
-}
 
 function Legend() {
   return (
@@ -135,6 +90,31 @@ function Legend() {
         <span className="vblock-source-tag llm" style={{ fontSize: 8 }}>Extrait par IA</span>
         Donnee lue du PDF
       </span>
+    </div>
+  )
+}
+
+function ProgressBar({ results }: { results: ValidationResult[] }) {
+  if (results.length === 0) return null
+  const counts = { ok: 0, ko: 0, warn: 0, na: 0 }
+  for (const r of results) {
+    if (r.statut === 'CONFORME') counts.ok++
+    else if (r.statut === 'NON_CONFORME') counts.ko++
+    else if (r.statut === 'AVERTISSEMENT') counts.warn++
+    else counts.na++
+  }
+  const total = results.length
+  return (
+    <div className="vblock-progress">
+      <span className="vblock-progress-label">{counts.ok}/{total}</span>
+      <div className="vblock-progress-bar">
+        <div className="vblock-progress-segment" style={{ width: `${(counts.ok / total) * 100}%`, background: 'var(--success)' }} />
+        <div className="vblock-progress-segment" style={{ width: `${(counts.ko / total) * 100}%`, background: 'var(--danger)' }} />
+        <div className="vblock-progress-segment" style={{ width: `${(counts.warn / total) * 100}%`, background: 'var(--warning)' }} />
+        <div className="vblock-progress-segment" style={{ width: `${(counts.na / total) * 100}%`, background: 'var(--ink-20)' }} />
+      </div>
+      {counts.ko > 0 && <span className="vblock-progress-label" style={{ color: 'var(--danger)' }}>{counts.ko} KO</span>}
+      {counts.warn > 0 && <span className="vblock-progress-label" style={{ color: 'var(--warning)' }}>{counts.warn} !</span>}
     </div>
   )
 }
@@ -192,6 +172,7 @@ function EditPanel({ resultId, editValues, setEditValues, onSave, onCancel, savi
 export default memo(function VerificationBlocks({ dossier, validating, onValidate, onRefreshResults, onOptimisticUpdate, onNavigateDoc, onRerunRule, onToggleRule, ruleConfig, onOpenPreview, cascadeScope, onReplaceResults }: Props) {
   const { toast } = useToast()
   const [rerunning, setRerunning] = useState<string | null>(null)
+  const [recentlyRerun, setRecentlyRerun] = useState<Set<string>>(new Set())
 
   const hasResults = dossier.resultatsValidation.length > 0
 
@@ -210,6 +191,8 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const [editingResult, setEditingResult] = useState<string | null>(null)
   const [editValues, setEditValues] = useState<{ valeurTrouvee: string; valeurAttendue: string; commentaire: string }>({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
   const [savingId, setSavingId] = useState<string | null>(null)
+  const [focusedIdx, setFocusedIdx] = useState(-1)
+  const containerRef = useRef<HTMLDivElement>(null)
 
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
@@ -306,6 +289,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
       if (alsoRerun) {
         const results = await correctAndRerun(dossier.id, resultId, updates)
         if (onReplaceResults) onReplaceResults(results)
+        const affectedCodes = new Set(results.map(r => r.regle))
+        setRecentlyRerun(affectedCodes)
+        setTimeout(() => setRecentlyRerun(new Set()), 2000)
         toast('success', `Corrige et ${results.length} controle(s) relance(s)`)
       } else {
         await updateValidationResult(dossier.id, resultId, updates)
@@ -325,6 +311,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     setRerunning(regle)
     try {
       await onRerunRule(regle)
+      const scope = cascadeScope?.[regle.split('.')[0]] || [regle]
+      setRecentlyRerun(new Set(scope))
+      setTimeout(() => setRecentlyRerun(new Set()), 2000)
       toast('success', `Controle ${regle} relance`)
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
@@ -372,8 +361,61 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
   const systemCollapsed = collapsedBlocks.has('system')
   const autoCollapsed = collapsedBlocks.has('autocontrole')
 
+  const flatItems = useMemo(() => {
+    const items: { key: string; code: string; result?: ValidationResult }[] = []
+    for (const group of groupedSystem) {
+      for (const item of group.items) {
+        if (filterResult(item.result)) items.push({ key: item.code, code: item.code, result: item.result || undefined })
+      }
+    }
+    autocontroleItems.forEach((item, i) => {
+      items.push({ key: `auto-${i}`, code: `R12.${String(item.num).padStart(2, '0')}`, result: item.result || undefined })
+    })
+    return items
+  }, [groupedSystem, autocontroleItems, filterResult])
+
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      const tag = (e.target as HTMLElement).tagName
+      if (tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return
+      if (e.key === 'j' || e.key === 'J') {
+        e.preventDefault()
+        setFocusedIdx(prev => {
+          const next = Math.min(prev + 1, flatItems.length - 1)
+          setExpandedItems(s => { const n = new Set(s); n.add(flatItems[next].key); return n })
+          return next
+        })
+      }
+      if (e.key === 'k' || e.key === 'K') {
+        e.preventDefault()
+        setFocusedIdx(prev => {
+          const next = Math.max(prev - 1, 0)
+          setExpandedItems(s => { const n = new Set(s); n.add(flatItems[next].key); return n })
+          return next
+        })
+      }
+      if ((e.key === 'e' || e.key === 'E') && focusedIdx >= 0 && focusedIdx < flatItems.length) {
+        const item = flatItems[focusedIdx]
+        if (item.result) startEditing(item.result)
+      }
+      if ((e.key === 'r' || e.key === 'R') && focusedIdx >= 0 && focusedIdx < flatItems.length) {
+        handleRerun(flatItems[focusedIdx].code)
+      }
+    }
+    window.addEventListener('keydown', handler)
+    return () => window.removeEventListener('keydown', handler)
+  }, [flatItems, focusedIdx, startEditing, handleRerun])
+
+  useEffect(() => {
+    if (focusedIdx < 0 || !containerRef.current) return
+    const key = flatItems[focusedIdx]?.key
+    if (!key) return
+    const el = containerRef.current.querySelector(`[data-vblock-key="${key}"]`)
+    if (el) el.scrollIntoView({ behavior: 'smooth', block: 'nearest' })
+  }, [focusedIdx, flatItems])
+
   return (
-    <div style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
+    <div ref={containerRef} style={{ display: 'flex', flexDirection: 'column', gap: 12 }}>
 
       {/* ===== BLOCK 1: Verifications automatiques ===== */}
       <div className="card" style={{ padding: 0, overflow: 'hidden' }}>
@@ -441,6 +483,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
               </div>
             </div>
           )}
+          {hasResults && <ProgressBar results={systemResults} />}
           <div className="vblock-inner">
             {hasResults ? (
               groupedSystem.map(group => {
@@ -459,7 +502,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
 
                     return (
                       <div key={item.code}>
-                        <div className={`vblock-item ${review ? 'vblock-item-review' : ''}`}
+                        <div
+                          data-vblock-key={item.code}
+                          className={`vblock-item ${review ? 'vblock-item-review' : ''} ${recentlyRerun.has(item.code) ? 'vblock-item-rerunning' : ''} ${focusedIdx >= 0 && flatItems[focusedIdx]?.key === item.code ? 'vblock-item-focused' : ''}`}
                           onClick={() => toggleItem(item.code)}
                           role="button"
                           tabIndex={0}
@@ -469,7 +514,14 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                           <span className="vblock-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
                           <span className="vblock-code">{item.code}</span>
                           <div className="vblock-content">
-                            <div className="vblock-label">{item.label}</div>
+                            <div className="vblock-label">
+                              {item.label}
+                              {isStale(r, dossier.documents) && (
+                                <span className="vblock-stale-badge" style={{ marginLeft: 6 }}>
+                                  <AlertTriangle size={8} /> Obsolete
+                                </span>
+                              )}
+                            </div>
                             {r?.detail && !isExpanded && <div className="vblock-detail">{r.detail}</div>}
                             {/* Document sources inline */}
                             {r?.documentIds && !isExpanded && (onOpenPreview || onNavigateDoc) && (
@@ -602,10 +654,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                     )
                                   })}
                                 </div>
-                                <DocDataPreview
-                                  docs={r.documentIds.map(id => dossier.documents.find(d => d.id === id)).filter((d): d is DocumentInfo => !!d)}
-                                  ruleCode={item.code}
-                                />
                               </>
                             )}
                             {onToggleRule && (
@@ -708,7 +756,9 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                 const ckRuleCode = `R12.${String(item.num).padStart(2, '0')}`
                 return (
                   <div key={i}>
-                    <div className={`vblock-item ${review ? 'vblock-item-review' : ''}`}
+                    <div
+                      data-vblock-key={`auto-${i}`}
+                      className={`vblock-item ${review ? 'vblock-item-review' : ''} ${recentlyRerun.has(ckRuleCode) ? 'vblock-item-rerunning' : ''} ${focusedIdx >= 0 && flatItems[focusedIdx]?.key === `auto-${i}` ? 'vblock-item-focused' : ''}`}
                       onClick={() => toggleItem(`auto-${i}`)}
                       role="button"
                       tabIndex={0}
@@ -855,10 +905,6 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
                                 )
                               })}
                             </div>
-                            <DocDataPreview
-                              docs={r.documentIds.map(id => dossier.documents.find(d => d.id === id)).filter((d): d is DocumentInfo => !!d)}
-                              ruleCode={`R12.${String(item.num).padStart(2, '0')}`}
-                            />
                           </>
                         )}
                       </div>
