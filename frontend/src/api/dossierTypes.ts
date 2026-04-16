@@ -61,6 +61,16 @@ export interface DocumentInfo {
   extractionWarnings: string[]
 }
 
+export interface ValidationEvidence {
+  role: string
+  champ: string
+  libelle: string | null
+  documentId: string | null
+  documentType: string | null
+  valeur: string | null
+  page: number | null
+}
+
 export interface ValidationResult {
   id: string | null
   regle: string
@@ -74,6 +84,18 @@ export interface ValidationResult {
   corrigePar: string | null
   statutOriginal: string | null
   documentIds: string[] | null
+  evidences: ValidationEvidence[] | null
+}
+
+export interface RuleCatalogEntry {
+  code: string
+  libelle: string
+  description: string
+  groupe: string
+  categorie: string
+  appliesToBC: boolean
+  appliesToContractuel: boolean
+  dependances: string[]
 }
 
 export interface PageResponse<T> {

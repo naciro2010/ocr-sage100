@@ -118,6 +118,16 @@ data class DocumentResponse(
     val extractionWarnings: List<String> = emptyList()
 )
 
+data class ValidationEvidenceResponse(
+    val role: String,
+    val champ: String,
+    val libelle: String?,
+    val documentId: String?,
+    val documentType: String?,
+    val valeur: String?,
+    val page: Int? = null
+)
+
 data class ValidationResultResponse(
     val id: String?,
     val regle: String,
@@ -130,7 +140,20 @@ data class ValidationResultResponse(
     val commentaire: String?,
     val corrigePar: String?,
     val statutOriginal: String?,
-    val documentIds: List<String>? = null
+    val documentIds: List<String>? = null,
+    val evidences: List<ValidationEvidenceResponse>? = null,
+    val dependances: List<String>? = null
+)
+
+data class RuleCatalogEntry(
+    val code: String,
+    val libelle: String,
+    val description: String,
+    val groupe: String,
+    val categorie: String,
+    val appliesToBC: Boolean,
+    val appliesToContractuel: Boolean,
+    val dependances: List<String>
 )
 
 data class AuditLogResponse(
@@ -171,5 +194,10 @@ fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResult
     detail = detail, valeurAttendue = valeurAttendue, valeurTrouvee = valeurTrouvee,
     source = source, commentaire = commentaire, corrigePar = corrigePar,
     statutOriginal = statutOriginal,
-    documentIds = documentIds?.split(",")?.filter { it.isNotBlank() }
+    documentIds = documentIds?.split(",")?.filter { it.isNotBlank() },
+    evidences = evidences?.map { ValidationEvidenceResponse(
+        role = it.role, champ = it.champ, libelle = it.libelle,
+        documentId = it.documentId, documentType = it.documentType,
+        valeur = it.valeur, page = it.page
+    ) }
 )

@@ -3,9 +3,9 @@ import { useParams } from 'react-router-dom'
 
 const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
-import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig } from '../api/dossierApi'
+import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
-import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
+import type { ValidationResult, AuditEntry, DocumentInfo } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
@@ -18,6 +18,7 @@ const CompareView = lazy(() => import('../components/dossier/CompareView'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
 const VerificationBlocks = lazy(() => import('../components/dossier/VerificationBlocks'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
+const DocumentPreviewDrawer = lazy(() => import('../components/dossier/DocumentPreviewDrawer'))
 
 function HeaderSkeleton() {
   return (
@@ -140,6 +141,9 @@ export default function DossierDetail() {
   const [validationError, setValidationError] = useState('')
 
   const [ruleConfig, setRuleConfig] = useState<{ global: Record<string, boolean>; overrides: Record<string, boolean> } | null>(null)
+  const [cascadeScope, setCascadeScope] = useState<Record<string, string[]>>({})
+  const [previewDocId, setPreviewDocId] = useState<string | null>(null)
+  const [previewHighlightField, setPreviewHighlightField] = useState<string | null>(null)
 
   // UI states
   const [validating, setValidating] = useState(false)
@@ -263,6 +267,40 @@ export default function DossierDetail() {
     loadSummary()
     loadAudit()
   }, [id, loadSummary, loadAudit])
+
+  const handleReplaceResults = useCallback((results: ValidationResult[]) => {
+    setValidationResults(prev => {
+      const updated = [...prev]
+      for (const newR of results) {
+        const idx = updated.findIndex(r => (newR.id && r.id === newR.id) || r.regle === newR.regle)
+        if (idx >= 0) updated[idx] = newR
+        else updated.push(newR)
+      }
+      return updated
+    })
+    loadSummary()
+    loadAudit()
+  }, [loadSummary, loadAudit])
+
+  const handleOpenPreview = useCallback((docId: string, field?: string) => {
+    setPreviewDocId(docId)
+    setPreviewHighlightField(field || null)
+  }, [])
+
+  // Prefetch cascade scope for every rule code that has a result (bounded, cached 60s)
+  useEffect(() => {
+    const codes = new Set<string>()
+    for (const r of validationResults) {
+      const base = r.regle.split('.')[0]
+      codes.add(base)
+    }
+    codes.forEach(code => {
+      if (cascadeScope[code]) return
+      getCascadeScope(code).then(res => {
+        setCascadeScope(prev => prev[code] ? prev : { ...prev, [code]: res.cascade })
+      }).catch(() => {})
+    })
+  }, [validationResults, cascadeScope])
 
   const handleToggleRule = useCallback((regle: string, enabled: boolean) => {
     if (!id) return
@@ -399,7 +437,11 @@ export default function DossierDetail() {
               onNavigateDoc={(docId) => {
                 const el = document.querySelector(`[data-doc-id="${docId}"]`)
                 if (el) { el.scrollIntoView({ behavior: 'smooth', block: 'center' }); (el as HTMLElement).click() }
-              }} />
+              }}
+              onOpenPreview={handleOpenPreview}
+              cascadeScope={cascadeScope}
+              onReplaceResults={handleReplaceResults}
+            />
           </div>
         ) : (docsData === null && !docsError) ? <VerifSkeleton /> : null}
 
@@ -408,6 +450,20 @@ export default function DossierDetail() {
           <div className="block-loaded" style={{ animationDelay: '0.2s' }}>
             <AuditLog audit={audit} />
           </div>
+        )}
+
+        {/* Overlay: document preview drawer */}
+        {previewDocId && id && docsData?.documents && docsData.documents.length > 0 && (
+          <Suspense fallback={null}>
+            <DocumentPreviewDrawer
+              dossierId={id}
+              documents={docsData.documents as DocumentInfo[]}
+              activeDocId={previewDocId}
+              highlightField={previewHighlightField}
+              onChangeActive={setPreviewDocId}
+              onClose={() => { setPreviewDocId(null); setPreviewHighlightField(null) }}
+            />
+          </Suspense>
         )}
       </div>
     </Suspense>

@@ -130,6 +130,29 @@ class ValidationEngine(
         return global?.enabled ?: true
     }
 
+    /**
+     * Returns the set of rules that will be re-executed if [regle] is relaunched.
+     * Includes the rule itself plus its declared dependencies (R12 expands to R12.01-R12.10).
+     * Used by the UI to preview the cascade scope before running.
+     */
+    fun getCascadeScope(regle: String): Set<String> {
+        val scope = mutableSetOf(regle)
+        RULE_DEPENDENCIES[regle]?.let { scope.addAll(it) }
+        if (regle == "R12" || regle.startsWith("R12.")) {
+            scope.add("R12")
+            for (i in 1..10) scope.add("R12.%02d".format(i))
+        }
+        return scope
+    }
+
+    private fun evidence(role: String, champ: String, libelle: String?, doc: Document?, valeur: Any?): ValidationEvidence =
+        ValidationEvidence(
+            role = role, champ = champ, libelle = libelle,
+            documentId = doc?.id?.toString(),
+            documentType = doc?.typeDocument?.name,
+            valeur = valeur?.toString()?.takeIf { it.isNotBlank() }
+        )
+
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running validation for dossier {}", dossier.reference)
@@ -258,17 +281,29 @@ class ValidationEngine(
 
         if (isEnabled("R01") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R01", "Concordance montant TTC : Facture = BC",
-                fTtc, bcTtc, tol, dossier)
+                fTtc, bcTtc, tol, dossier,
+                listOf(
+                    evidence("trouve", "montantTTC", "Montant TTC de la facture", fDoc, fTtc),
+                    evidence("attendu", "montantTTC", "Montant TTC du bon de commande", bcDoc, bcTtc)
+                ))
         }
 
         if (isEnabled("R02") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R02", "Concordance montant HT : Facture = BC",
-                fHt, bcHt, tol, dossier)
+                fHt, bcHt, tol, dossier,
+                listOf(
+                    evidence("trouve", "montantHT", "Montant HT de la facture", fDoc, fHt),
+                    evidence("attendu", "montantHT", "Montant HT du bon de commande", bcDoc, bcHt)
+                ))
         }
 
         if (isEnabled("R03") && dossier.type == DossierType.BC && facture != null && bc != null) {
             results += checkMontantWithFraction("R03", "Concordance TVA : Facture = BC",
-                fTva, bcTva, tol, dossier)
+                fTva, bcTva, tol, dossier,
+                listOf(
+                    evidence("trouve", "montantTVA", "Montant TVA de la facture", fDoc, fTva),
+                    evidence("attendu", "montantTVA", "Montant TVA du bon de commande", bcDoc, bcTva)
+                ))
         }
 
         if (isEnabled("R03b") && dossier.type == DossierType.BC && facture != null && bc != null) {
@@ -280,7 +315,11 @@ class ValidationEngine(
                     libelle = "Taux TVA different entre Facture et BC (multi-taux possible)",
                     statut = StatutCheck.AVERTISSEMENT,
                     detail = "Facture: ${fTauxTva}%, BC: ${bcTauxTva}%",
-                    valeurAttendue = bcTauxTva.toPlainString(), valeurTrouvee = fTauxTva.toPlainString()
+                    valeurAttendue = bcTauxTva.toPlainString(), valeurTrouvee = fTauxTva.toPlainString(),
+                    evidences = listOf(
+                        evidence("trouve", "tauxTVA", "Taux TVA de la facture", fDoc, fTauxTva),
+                        evidence("attendu", "tauxTVA", "Taux TVA du bon de commande", bcDoc, bcTauxTva)
+                    )
                 )
             }
         }
@@ -293,14 +332,24 @@ class ValidationEngine(
 
         if (isEnabled("R04") && facture != null && op != null && op.retenues.isEmpty()) {
             results += checkMontant("R04", "Montant OP = TTC facture (sans retenues)",
-                opMontant, fTtc, tol, dossier)
+                opMontant, fTtc, tol, dossier,
+                listOf(
+                    evidence("trouve", "montantOperation", "Montant de l'ordre de paiement", opDoc, opMontant),
+                    evidence("attendu", "montantTTC", "Montant TTC de la facture", fDoc, fTtc)
+                ))
         }
 
         if (isEnabled("R05") && facture != null && op != null && op.retenues.isNotEmpty()) {
             val totalRetenues = op.retenues.mapNotNull { it.montant }.fold(BigDecimal.ZERO) { acc, m -> acc.add(m) }
             val attendu = fTtc?.subtract(totalRetenues)
             results += checkMontant("R05", "Montant OP = TTC - retenues",
-                opMontant, attendu, tol, dossier)
+                opMontant, attendu, tol, dossier,
+                listOf(
+                    evidence("trouve", "montantOperation", "Montant net de l'OP", opDoc, opMontant),
+                    evidence("source", "montantTTC", "TTC facture", fDoc, fTtc),
+                    evidence("source", "retenues", "Total retenues", opDoc, totalRetenues),
+                    evidence("calcule", "montantAttendu", "TTC - retenues", null, attendu)
+                ))
         }
 
         if (isEnabled("R06") && op != null) {
@@ -313,7 +362,13 @@ class ValidationEngine(
                         libelle = "Calcul retenue ${ret.type} : base x taux = montant",
                         statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
                         detail = "${ret.base} x ${ret.taux}% = ${calcule} (trouve: ${ret.montant})",
-                        valeurAttendue = calcule.toPlainString(), valeurTrouvee = ret.montant?.toPlainString()
+                        valeurAttendue = calcule.toPlainString(), valeurTrouvee = ret.montant?.toPlainString(),
+                        evidences = listOf(
+                            evidence("source", "base", "Base de la retenue ${ret.type}", opDoc, ret.base),
+                            evidence("source", "taux", "Taux de la retenue ${ret.type}", opDoc, ret.taux),
+                            evidence("calcule", "montantAttendu", "base × taux", null, calcule),
+                            evidence("trouve", "montant", "Montant retenue", opDoc, ret.montant)
+                        )
                     )
                 }
             }
@@ -327,12 +382,17 @@ class ValidationEngine(
                 dossier = dossier, regle = "R07",
                 libelle = "Reference facture citee dans l'OP",
                 statut = if (ok) StatutCheck.CONFORME else if (opRefFacture == null) StatutCheck.AVERTISSEMENT else StatutCheck.NON_CONFORME,
-                valeurAttendue = fNumero, valeurTrouvee = opRefFacture
+                valeurAttendue = fNumero, valeurTrouvee = opRefFacture,
+                evidences = listOf(
+                    evidence("attendu", "numeroFacture", "Numero de la facture", fDoc, fNumero),
+                    evidence("trouve", "referenceFacture", "Reference facture dans l'OP", opDoc, opRefFacture)
+                )
             )
         }
 
         if (isEnabled("R08") && op != null) {
             val refAttendue = bc?.reference ?: docStr(bcDoc, "reference") ?: contrat?.referenceContrat ?: docStr(contrat?.document, "referenceContrat")
+            val refDoc = bcDoc ?: contrat?.document
             val opRefBc = op.referenceBcOuContrat ?: docStr(opDoc, "referenceBcOuContrat")
             if (refAttendue != null) {
                 val ok = matchReference(opRefBc, refAttendue)
@@ -340,7 +400,11 @@ class ValidationEngine(
                     dossier = dossier, regle = "R08",
                     libelle = "Reference BC/Contrat citee dans l'OP",
                     statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                    valeurAttendue = refAttendue, valeurTrouvee = opRefBc
+                    valeurAttendue = refAttendue, valeurTrouvee = opRefBc,
+                    evidences = listOf(
+                        evidence("attendu", "reference", "Reference BC/Contrat source", refDoc, refAttendue),
+                        evidence("trouve", "referenceBcOuContrat", "Reference citee dans l'OP", opDoc, opRefBc)
+                    )
                 )
             }
         }
@@ -365,7 +429,11 @@ class ValidationEngine(
                     StatutCheck.AVERTISSEMENT -> "ICE absent dans ${if (iceFacture == null) "la facture" else "l'attestation fiscale"}"
                     StatutCheck.NON_CONFORME -> "ICE differents: facture=$iceFacture, attestation=$iceArf"
                     else -> "ICE identiques"
-                }
+                },
+                evidences = listOf(
+                    evidence("source", "ice", "ICE sur la facture", fDoc, iceFacture),
+                    evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf)
+                )
             )
         }
 
@@ -389,7 +457,11 @@ class ValidationEngine(
                     StatutCheck.AVERTISSEMENT -> "IF absent dans ${if (ifFacture == null) "la facture" else "l'attestation fiscale"}"
                     StatutCheck.NON_CONFORME -> "IF differents: facture=$ifFacture, attestation=$ifArf"
                     else -> "IF identiques"
-                }
+                },
+                evidences = listOf(
+                    evidence("source", "identifiantFiscal", "IF sur la facture", fDoc, ifFacture),
+                    evidence("source", "identifiantFiscal", "IF sur l'attestation fiscale", arfDoc, ifArf)
+                )
             )
         }
 
@@ -412,6 +484,12 @@ class ValidationEngine(
             val hasMatch = combinedFactureRibs.any { fr -> allOpRibs.any { or -> fr == or } }
             val docIds = allFactures.mapNotNull { it.document.id?.toString() } + listOfNotNull(op.document.id?.toString())
 
+            val r11Evidences = mutableListOf<ValidationEvidence>()
+            allFactures.forEach { f ->
+                val rib = normalizeRib(f.rib ?: docStr(f.document, "rib"))
+                if (rib != null) r11Evidences += evidence("source", "rib", "RIB de la facture", f.document, rib)
+            }
+            if (allOpRibs.isNotEmpty()) r11Evidences += evidence("trouve", "rib", "RIB de l'ordre de paiement", opDoc, allOpRibs.joinToString(", "))
             results += ResultatValidation(
                 dossier = dossier, regle = "R11",
                 libelle = "Coherence RIB : Factures ↔ OP",
@@ -426,31 +504,45 @@ class ValidationEngine(
                     combinedFactureRibs.size > 1 -> "${combinedFactureRibs.size} RIBs trouves dans les factures"
                     else -> null
                 },
-                documentIds = docIds.joinToString(",")
+                documentIds = docIds.joinToString(","),
+                evidences = r11Evidences.ifEmpty { null }
             )
         }
 
         if (isEnabled("R14")) {
+            val r14Evidences = mutableListOf<ValidationEvidence>()
+            allFactures.forEach { f ->
+                val v = f.fournisseur ?: docStr(f.document, "fournisseur")
+                if (v != null) r14Evidences += evidence("source", "fournisseur", "Fournisseur facture", f.document, v)
+            }
+            val bcFourn = bc?.fournisseur ?: docStr(bcDoc, "fournisseur")
+            if (bcFourn != null) r14Evidences += evidence("source", "fournisseur", "Fournisseur du BC", bcDoc, bcFourn)
+            val opBenef = op?.beneficiaire ?: docStr(opDoc, "beneficiaire")
+            if (opBenef != null) r14Evidences += evidence("source", "beneficiaire", "Beneficiaire de l'OP", opDoc, opBenef)
+            val tcFourn = tableau?.fournisseur ?: docStr(tcDoc, "fournisseur")
+            if (tcFourn != null) r14Evidences += evidence("source", "fournisseur", "Fournisseur du TC", tcDoc, tcFourn)
+            val ckPrest = checklist?.prestataire ?: docStr(ckDoc, "prestataire")
+            if (ckPrest != null) r14Evidences += evidence("source", "prestataire", "Prestataire checklist", ckDoc, ckPrest)
+
             val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
-                bc?.fournisseur ?: docStr(bcDoc, "fournisseur"),
-                op?.beneficiaire ?: docStr(opDoc, "beneficiaire"),
-                tableau?.fournisseur ?: docStr(tcDoc, "fournisseur"),
-                checklist?.prestataire ?: docStr(ckDoc, "prestataire")
+                bcFourn, opBenef, tcFourn, ckPrest
             ) + allFactures.mapNotNull { it.fournisseur ?: docStr(it.document, "fournisseur") }).map { it.trim().lowercase() }.distinct()
             if (fournisseurs.size > 1) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
                     libelle = "Coherence fournisseur entre documents",
                     statut = StatutCheck.AVERTISSEMENT,
-                    detail = "Fournisseurs differents: ${fournisseurs.joinToString(", ")}"
+                    detail = "Fournisseurs differents: ${fournisseurs.joinToString(", ")}",
+                    evidences = r14Evidences.ifEmpty { null }
                 )
             } else if (fournisseurs.isNotEmpty()) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
                     libelle = "Coherence fournisseur entre documents",
                     statut = StatutCheck.CONFORME,
-                    detail = "Fournisseur: ${fournisseurs.first()}"
+                    detail = "Fournisseur: ${fournisseurs.first()}",
+                    evidences = r14Evidences.ifEmpty { null }
                 )
             }
         }
@@ -523,11 +615,16 @@ class ValidationEngine(
                 ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
             if (isEnabled("R17a") && dateBcContrat != null && dateFacture != null) {
                 val ok = !dateFacture.isBefore(dateBcContrat)
+                val refDoc = bcDoc ?: contrat?.document
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17a",
                     libelle = "Chronologie : date BC/Contrat <= date Facture",
                     statut = if (ok) StatutCheck.CONFORME else StatutCheck.AVERTISSEMENT,
-                    valeurAttendue = dateBcContrat.toString(), valeurTrouvee = dateFacture.toString()
+                    valeurAttendue = dateBcContrat.toString(), valeurTrouvee = dateFacture.toString(),
+                    evidences = listOf(
+                        evidence("attendu", if (bc != null) "dateBc" else "dateSignature", "Date BC / Contrat", refDoc, dateBcContrat),
+                        evidence("trouve", "dateFacture", "Date de la facture", fDoc, dateFacture)
+                    )
                 )
             }
             if (isEnabled("R17b") && dateFacture != null && dateOp != null) {
@@ -536,7 +633,11 @@ class ValidationEngine(
                     dossier = dossier, regle = "R17b",
                     libelle = "Chronologie : date Facture <= date OP",
                     statut = if (ok) StatutCheck.CONFORME else StatutCheck.AVERTISSEMENT,
-                    valeurAttendue = dateFacture.toString(), valeurTrouvee = dateOp.toString()
+                    valeurAttendue = dateFacture.toString(), valeurTrouvee = dateOp.toString(),
+                    evidences = listOf(
+                        evidence("attendu", "dateFacture", "Date de la facture", fDoc, dateFacture),
+                        evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOp)
+                    )
                 )
             }
         }
@@ -549,14 +650,24 @@ class ValidationEngine(
                 dossier = dossier, regle = "R18",
                 libelle = "Validite attestation fiscale (6 mois)",
                 statut = if (valide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${arfDateEdition.plusMonths(6)}"
+                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${arfDateEdition.plusMonths(6)}",
+                evidences = listOf(
+                    evidence("source", "dateEdition", "Date d'edition de l'attestation", arfDoc, arfDateEdition),
+                    evidence("calcule", "dateValidite", "Valide jusqu'au (+6 mois)", null, arfDateEdition.plusMonths(6))
+                )
             )
         }
 
         if (isEnabled("R16") && facture != null && fHt != null && fTva != null && fTtc != null) {
             val calcTtc = fHt.add(fTva)
             results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
-                fTtc, calcTtc, tol, dossier)
+                fTtc, calcTtc, tol, dossier,
+                listOf(
+                    evidence("source", "montantHT", "HT de la facture", fDoc, fHt),
+                    evidence("source", "montantTVA", "TVA de la facture", fDoc, fTva),
+                    evidence("calcule", "montantAttendu", "HT + TVA", null, calcTtc),
+                    evidence("trouve", "montantTTC", "TTC de la facture", fDoc, fTtc)
+                ))
         }
 
         if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
@@ -628,14 +739,16 @@ class ValidationEngine(
     private fun checkMontant(
         regle: String, libelle: String,
         valeur1: BigDecimal?, valeur2: BigDecimal?,
-        tolerance: BigDecimal, dossier: DossierPaiement
+        tolerance: BigDecimal, dossier: DossierPaiement,
+        evidences: List<ValidationEvidence>? = null
     ): ResultatValidation {
         if (valeur1 == null || valeur2 == null) {
             return ResultatValidation(
                 dossier = dossier, regle = regle, libelle = libelle,
                 statut = StatutCheck.AVERTISSEMENT,
                 detail = "Valeur manquante",
-                valeurAttendue = valeur2?.toPlainString(), valeurTrouvee = valeur1?.toPlainString()
+                valeurAttendue = valeur2?.toPlainString(), valeurTrouvee = valeur1?.toPlainString(),
+                evidences = evidences
             )
         }
         val diff = valeur1.subtract(valeur2).abs()
@@ -644,16 +757,18 @@ class ValidationEngine(
             dossier = dossier, regle = regle, libelle = libelle,
             statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
             detail = "${valeur1.toPlainString()} vs ${valeur2.toPlainString()} (ecart: ${diff.toPlainString()})",
-            valeurAttendue = valeur2.toPlainString(), valeurTrouvee = valeur1.toPlainString()
+            valeurAttendue = valeur2.toPlainString(), valeurTrouvee = valeur1.toPlainString(),
+            evidences = evidences
         )
     }
 
     private fun checkMontantWithFraction(
         regle: String, libelle: String,
         factureVal: BigDecimal?, bcVal: BigDecimal?,
-        tolerance: BigDecimal, dossier: DossierPaiement
+        tolerance: BigDecimal, dossier: DossierPaiement,
+        evidences: List<ValidationEvidence>? = null
     ): ResultatValidation {
-        val result = checkMontant(regle, libelle, factureVal, bcVal, tolerance, dossier)
+        val result = checkMontant(regle, libelle, factureVal, bcVal, tolerance, dossier, evidences)
         if (result.statut != StatutCheck.NON_CONFORME || factureVal == null || bcVal == null ||
             bcVal.signum() == 0 || factureVal >= bcVal) {
             return result
@@ -665,7 +780,8 @@ class ValidationEngine(
                     dossier = dossier, regle = regle, libelle = libelle,
                     statut = StatutCheck.AVERTISSEMENT,
                     detail = "Facture = 1/${n} du BC (couverture partielle). Facture: ${factureVal.toPlainString()}, BC: ${bcVal.toPlainString()}",
-                    valeurAttendue = bcVal.toPlainString(), valeurTrouvee = factureVal.toPlainString()
+                    valeurAttendue = bcVal.toPlainString(), valeurTrouvee = factureVal.toPlainString(),
+                    evidences = evidences
                 )
             }
         }
@@ -786,7 +902,12 @@ class ValidationEngine(
                 source = "CHECKLIST",
                 valeurAttendue = if (bc != null) "BC: ${bcTtc?.toPlainString()}" else contrat?.referenceContrat,
                 valeurTrouvee = fTtc?.toPlainString(),
-                documentIds = docIds(1)
+                documentIds = docIds(1),
+                evidences = listOfNotNull(
+                    fTtc?.let { evidence("trouve", "montantTTC", "TTC de la facture", fDoc, it) },
+                    bcTtc?.let { evidence("attendu", "montantTTC", "TTC du bon de commande", bcDoc, it) },
+                    contrat?.referenceContrat?.let { evidence("source", "referenceContrat", "Reference du contrat", contrat.document, it) }
+                ).ifEmpty { null }
             )
         }
 
@@ -812,7 +933,12 @@ class ValidationEngine(
                 source = "CHECKLIST",
                 valeurAttendue = if (fHt != null && fTva != null) "${fHt} + ${fTva}" else null,
                 valeurTrouvee = fTtc?.toPlainString(),
-                documentIds = docIds(2)
+                documentIds = docIds(2),
+                evidences = listOfNotNull(
+                    fHt?.let { evidence("source", "montantHT", "HT de la facture", fDoc, it) },
+                    fTva?.let { evidence("source", "montantTVA", "TVA de la facture", fDoc, it) },
+                    fTtc?.let { evidence("trouve", "montantTTC", "TTC de la facture", fDoc, it) }
+                ).ifEmpty { null }
             )
         }
 

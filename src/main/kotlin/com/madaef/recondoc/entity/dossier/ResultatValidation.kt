@@ -1,6 +1,8 @@
 package com.madaef.recondoc.entity.dossier
 
 import jakarta.persistence.*
+import org.hibernate.annotations.JdbcTypeCode
+import org.hibernate.type.SqlTypes
 import java.time.LocalDateTime
 import java.util.UUID
 
@@ -28,5 +30,9 @@ class ResultatValidation(
     @Column(name = "statut_original") var statutOriginal: String? = null,
     @Column(name = "corrige_par") var corrigePar: String? = null,
     @Column(name = "date_correction") var dateCorrection: LocalDateTime? = null,
-    @Column(name = "document_ids", columnDefinition = "TEXT") var documentIds: String? = null
+    @Column(name = "document_ids", columnDefinition = "TEXT") var documentIds: String? = null,
+
+    @JdbcTypeCode(SqlTypes.JSON)
+    @Column(name = "evidences", columnDefinition = "jsonb")
+    var evidences: List<ValidationEvidence>? = null
 )
