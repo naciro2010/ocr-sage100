@@ -115,7 +115,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
         WHERE LOWER(f.fournisseur) = LOWER(:nom)
         ORDER BY f.id DESC
     """)
-    fun findFactureIdentitiesByFournisseur(nom: String): List<Array<Any?>>
+    fun findFactureIdentitiesByFournisseur(nom: String, pageable: Pageable): List<Array<Any?>>
 
     @Query("""
         SELECT DISTINCT f.fournisseur, f.ice, f.identifiantFiscal, f.rib
@@ -124,6 +124,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
     """)
     fun findAllFactureIdentities(): List<Array<Any?>>
 
+    @EntityGraph(attributePaths = ["documents", "resultatsValidation"])
     fun findByFournisseurIgnoreCaseOrderByDateCreationDesc(fournisseur: String): List<DossierPaiement>
 }
 

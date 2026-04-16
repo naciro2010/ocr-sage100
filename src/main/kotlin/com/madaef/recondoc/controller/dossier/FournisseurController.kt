@@ -7,8 +7,6 @@ import com.madaef.recondoc.service.FournisseurService
 import org.springframework.http.HttpHeaders
 import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
-import java.net.URLDecoder
-import java.nio.charset.StandardCharsets
 
 @RestController
 @RequestMapping("/api/fournisseurs")
@@ -32,9 +30,8 @@ class FournisseurController(
 
     @GetMapping("/{nom}")
     fun detail(@PathVariable nom: String): ResponseEntity<FournisseurDetailResponse> {
-        val decoded = URLDecoder.decode(nom, StandardCharsets.UTF_8)
         return ResponseEntity.ok()
             .header(HttpHeaders.CACHE_CONTROL, "private, max-age=5")
-            .body(fournisseurService.getFournisseurDetail(decoded))
+            .body(fournisseurService.getFournisseurDetail(nom))
     }
 }
