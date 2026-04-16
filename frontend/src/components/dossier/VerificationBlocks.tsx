@@ -320,7 +320,7 @@ export default memo(function VerificationBlocks({ dossier, validating, onValidat
     } finally {
       setRerunning(null)
     }
-  }, [onRerunRule, toast])
+  }, [onRerunRule, toast, cascadeScope])
 
   const { sysOk, sysKo, sysWarn, needsReviewCount, autoOk, autoKo } = useMemo(() => {
     let ok = 0, ko = 0, warn = 0, review = 0

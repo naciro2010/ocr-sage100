@@ -8,6 +8,8 @@ import Login from './pages/Login'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const DossierList = lazy(() => import('./pages/DossierList'))
 const DossierDetail = lazy(() => import('./pages/DossierDetail'))
+const FournisseurList = lazy(() => import('./pages/FournisseurList'))
+const FournisseurDetail = lazy(() => import('./pages/FournisseurDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Finalize = lazy(() => import('./pages/Finalize'))
 const NotFound = lazy(() => import('./pages/NotFound'))
@@ -45,6 +47,8 @@ export default function App() {
                 <Route path="/dossiers" element={<DossierList />} />
                 <Route path="/dossiers/:id" element={<DossierDetail />} />
                 <Route path="/dossiers/:id/finalize" element={<Finalize />} />
+                <Route path="/fournisseurs" element={<FournisseurList />} />
+                <Route path="/fournisseurs/:nom" element={<FournisseurDetail />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="*" element={<NotFound />} />
               </Route>

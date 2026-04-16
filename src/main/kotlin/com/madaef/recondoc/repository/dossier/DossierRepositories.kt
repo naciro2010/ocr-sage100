@@ -70,6 +70,62 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
                  d.montantTtc, d.montantNetAPayer, d.dateCreation
     """)
     fun findAllProjected(pageable: Pageable): Page<Array<Any>>
+
+    @Query("""
+        SELECT d.fournisseur AS nom,
+               COUNT(d) AS nbDossiers,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.BROUILLON THEN 1 END) AS nbBrouillons,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.EN_VERIFICATION THEN 1 END) AS nbEnVerif,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.VALIDE THEN 1 END) AS nbValides,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.REJETE THEN 1 END) AS nbRejetes,
+               COALESCE(SUM(d.montantTtc), 0) AS montantTotal,
+               COALESCE(SUM(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.VALIDE THEN d.montantTtc ELSE 0 END), 0) AS montantValide,
+               MAX(d.dateCreation) AS dernier,
+               MIN(d.dateCreation) AS premier
+        FROM DossierPaiement d
+        WHERE d.fournisseur IS NOT NULL AND TRIM(d.fournisseur) <> ''
+        AND (:q IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :q, '%')))
+        GROUP BY d.fournisseur
+        ORDER BY COUNT(d) DESC
+    """)
+    fun aggregateByFournisseur(q: String?): List<Array<Any?>>
+
+    @Query("""
+        SELECT d.fournisseur AS nom,
+               COUNT(d) AS nbDossiers,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.BROUILLON THEN 1 END) AS nbBrouillons,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.EN_VERIFICATION THEN 1 END) AS nbEnVerif,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.VALIDE THEN 1 END) AS nbValides,
+               COUNT(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.REJETE THEN 1 END) AS nbRejetes,
+               COALESCE(SUM(d.montantTtc), 0) AS montantTotal,
+               COALESCE(SUM(d.montantHt), 0) AS montantHt,
+               COALESCE(SUM(d.montantTva), 0) AS montantTva,
+               COALESCE(SUM(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.VALIDE THEN d.montantTtc ELSE 0 END), 0) AS montantValide,
+               COALESCE(SUM(CASE WHEN d.statut = com.madaef.recondoc.entity.dossier.StatutDossier.EN_VERIFICATION THEN d.montantTtc ELSE 0 END), 0) AS montantEnCours,
+               MAX(d.dateCreation) AS dernier,
+               MIN(d.dateCreation) AS premier
+        FROM DossierPaiement d
+        WHERE LOWER(d.fournisseur) = LOWER(:nom)
+    """)
+    fun aggregateOneFournisseur(nom: String): Array<Any?>?
+
+    @Query("""
+        SELECT f.fournisseur, f.ice, f.identifiantFiscal, f.rc, f.rib
+        FROM Facture f
+        WHERE LOWER(f.fournisseur) = LOWER(:nom)
+        ORDER BY f.id DESC
+    """)
+    fun findFactureIdentitiesByFournisseur(nom: String, pageable: Pageable): List<Array<Any?>>
+
+    @Query("""
+        SELECT DISTINCT f.fournisseur, f.ice, f.identifiantFiscal, f.rib
+        FROM Facture f
+        WHERE f.fournisseur IS NOT NULL AND TRIM(f.fournisseur) <> ''
+    """)
+    fun findAllFactureIdentities(): List<Array<Any?>>
+
+    @EntityGraph(attributePaths = ["documents", "resultatsValidation"])
+    fun findByFournisseurIgnoreCaseOrderByDateCreationDesc(fournisseur: String): List<DossierPaiement>
 }
 
 interface DocumentRepository : JpaRepository<Document, UUID> {
