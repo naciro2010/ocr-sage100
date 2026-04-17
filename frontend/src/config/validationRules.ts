@@ -39,7 +39,7 @@ export const ALL_RULES: (ValidationRule & { group?: RuleGroup })[] = [
   { code: 'R09', label: 'Coherence ICE', desc: 'Verifie que l\'ICE du fournisseur est identique entre facture et attestation fiscale', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'identifiants' },
   { code: 'R10', label: 'Coherence IF', desc: 'Verifie que l\'identifiant fiscal est identique entre documents', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'identifiants' },
   { code: 'R11', label: 'Coherence RIB', desc: 'Verifie que le RIB de la facture correspond a celui de l\'OP', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'identifiants' },
-  { code: 'R14', label: 'Coherence fournisseur', desc: 'Verifie que le nom du fournisseur est coherent entre tous les documents', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'identifiants' },
+  { code: 'R14', label: 'Coherence fournisseur', desc: 'Compare le nom du fournisseur entre la facture, le bon de commande, l\'ordre de paiement (beneficiaire), le tableau de controle, la checklist (prestataire) et la raison sociale de l\'attestation fiscale. Conforme si tous les noms sont identiques apres normalisation.', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'identifiants' },
 
   // 5. Documents
   { code: 'R12', label: 'Checklist autocontrole', desc: 'Verifie que tous les points de la checklist sont valides', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'documents' },
@@ -47,8 +47,8 @@ export const ALL_RULES: (ValidationRule & { group?: RuleGroup })[] = [
 
   // 6. Dates
   { code: 'R17', label: 'Chronologie des dates', desc: 'Verifie que date BC/contrat <= date facture <= date OP', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
-  { code: 'R18', label: 'Validite attestation fiscale', desc: 'Verifie que l\'attestation fiscale a moins de 6 mois', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
-  { code: 'R19', label: 'QR code attestation fiscale', desc: 'Scanne le QR de l\'attestation DGI et verifie qu\'il correspond au code imprime (tax.gov.ma)', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
+  { code: 'R18', label: 'Validite attestation fiscale', desc: 'Verifie que la date d\'edition de l\'attestation fiscale est comprise dans les 6 derniers mois (fenetre reglementaire DGI).', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
+  { code: 'R19', label: 'Authenticite attestation fiscale (QR DGI)', desc: 'Extrait le QR code de l\'attestation, compare le code de verification du QR avec celui imprime sous le QR, et verifie que l\'URL pointe bien vers un domaine officiel tax.gov.ma. Le lien peut etre ouvert dans les preuves pour verification manuelle sur le portail DGI.', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
 
   // Checklist d'autocontrole MADAEF (CCF-EN-04-V02, 15/10/2021)
   // Points exacts du document officiel

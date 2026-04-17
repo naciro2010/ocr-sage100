@@ -526,10 +526,12 @@ class ValidationEngine(
             if (tcFourn != null) r14Evidences += evidence("source", "fournisseur", "Fournisseur du TC", tcDoc, tcFourn)
             val ckPrest = checklist?.prestataire ?: docStr(ckDoc, "prestataire")
             if (ckPrest != null) r14Evidences += evidence("source", "prestataire", "Prestataire checklist", ckDoc, ckPrest)
+            val arfRaison = arf?.raisonSociale ?: docStr(arfDoc, "raisonSociale")
+            if (arfRaison != null) r14Evidences += evidence("source", "raisonSociale", "Raison sociale attestation fiscale", arfDoc, arfRaison)
 
             val fournisseurs = (listOfNotNull(
                 dossier.fournisseur,
-                bcFourn, opBenef, tcFourn, ckPrest
+                bcFourn, opBenef, tcFourn, ckPrest, arfRaison
             ) + allFactures.mapNotNull { it.fournisseur ?: docStr(it.document, "fournisseur") }).map { it.trim().lowercase() }.distinct()
             if (fournisseurs.size > 1) {
                 results += ResultatValidation(

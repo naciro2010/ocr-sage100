@@ -1,8 +1,13 @@
 import { memo } from 'react'
-import { FileText, Eye, Calculator, Target, Search } from 'lucide-react'
+import { FileText, Eye, Calculator, Target, Search, ExternalLink } from 'lucide-react'
 import type { ValidationEvidence } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { TypeDocument } from '../../api/dossierTypes'
+
+function isUrl(v: string | null | undefined): boolean {
+  if (!v) return false
+  return /^https?:\/\//i.test(v.trim())
+}
 
 interface Props {
   evidences: ValidationEvidence[]
@@ -47,20 +52,35 @@ export default memo(function EvidenceList({ evidences, statut, onOpenDocument }:
                 {isMissing ? '(manquant)' : e.valeur}
               </div>
             </div>
-            {e.documentId && onOpenDocument ? (
-              <button
-                className="btn btn-secondary btn-sm"
-                onClick={ev => { ev.stopPropagation(); onOpenDocument(e.documentId!, e.champ) }}
-                title={`Voir la source dans ${e.documentType ? TYPE_DOCUMENT_LABELS[e.documentType as TypeDocument] || e.documentType : 'le document'}`}
-                style={{ padding: '3px 6px', fontSize: 10 }}
-              >
-                <FileText size={10} /> Voir
-              </button>
-            ) : e.documentType ? (
-              <span className="evidence-doc-type">
-                {TYPE_DOCUMENT_LABELS[e.documentType as TypeDocument] || e.documentType}
-              </span>
-            ) : <span />}
+            <div style={{ display: 'flex', gap: 4, alignItems: 'center' }}>
+              {isUrl(e.valeur) && (
+                <a
+                  className="btn btn-secondary btn-sm"
+                  href={e.valeur!.trim()}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  onClick={ev => ev.stopPropagation()}
+                  title="Ouvrir le lien dans un nouvel onglet (verification manuelle DGI)"
+                  style={{ padding: '3px 6px', fontSize: 10 }}
+                >
+                  <ExternalLink size={10} /> Ouvrir
+                </a>
+              )}
+              {e.documentId && onOpenDocument ? (
+                <button
+                  className="btn btn-secondary btn-sm"
+                  onClick={ev => { ev.stopPropagation(); onOpenDocument(e.documentId!, e.champ) }}
+                  title={`Voir la source dans ${e.documentType ? TYPE_DOCUMENT_LABELS[e.documentType as TypeDocument] || e.documentType : 'le document'}`}
+                  style={{ padding: '3px 6px', fontSize: 10 }}
+                >
+                  <FileText size={10} /> Voir
+                </button>
+              ) : e.documentType && !isUrl(e.valeur) ? (
+                <span className="evidence-doc-type">
+                  {TYPE_DOCUMENT_LABELS[e.documentType as TypeDocument] || e.documentType}
+                </span>
+              ) : null}
+            </div>
           </div>
         )
       })}
