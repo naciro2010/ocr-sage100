@@ -235,6 +235,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   const { toast } = useToast()
   const [editing, setEditing] = useState(false)
   const [editValues, setEditValues] = useState({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
+  const [editDocIds, setEditDocIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
 
   const r = item?.result
@@ -246,17 +247,28 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     if (!r) return
     setEditing(true)
     setEditValues({ valeurTrouvee: r.valeurTrouvee || '', valeurAttendue: r.valeurAttendue || '', commentaire: r.commentaire || '' })
+    setEditDocIds(r.documentIds ? [...r.documentIds] : [])
   }, [r])
+
+  const addEditDoc = useCallback((docId: string) => {
+    setEditDocIds(prev => prev.includes(docId) ? prev : [...prev, docId])
+  }, [])
+  const removeEditDoc = useCallback((docId: string) => {
+    setEditDocIds(prev => prev.filter(id => id !== docId))
+  }, [])
 
   const saveEdit = useCallback(async (alsoRerun: boolean) => {
     if (!r?.id) return
     setSaving(true)
     try {
-      const updates = {
+      const originalIds = (r.documentIds || []).join(',')
+      const nextIds = editDocIds.join(',')
+      const updates: Parameters<typeof updateValidationResult>[2] = {
         valeurTrouvee: editValues.valeurTrouvee || undefined,
         valeurAttendue: editValues.valeurAttendue || undefined,
         commentaire: editValues.commentaire || undefined,
       }
+      if (nextIds !== originalIds) updates.documentIds = nextIds
       if (alsoRerun) {
         const results = await correctAndRerun(dossierId, r.id, updates)
         if (onReplaceResults) onReplaceResults(results)
@@ -270,7 +282,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setSaving(false) }
-  }, [r, dossierId, editValues, onReplaceResults, onRefreshResults, toast])
+  }, [r, dossierId, editValues, editDocIds, onReplaceResults, onRefreshResults, toast])
 
   const handleRerun = useCallback(async () => {
     if (!item || !onRerunRule) return
@@ -376,7 +388,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
           </div>
         )}
 
-        {/* Document links */}
+        {/* Document links — click opens the PDF preview on the right */}
         {r?.documentIds && r.documentIds.length > 0 && (
           <div className="ctrl-detail-section">
             <div className="ctrl-detail-section-title">Documents source</div>
@@ -385,9 +397,11 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
                 const doc = dossier.documents.find(d => d.id === docId)
                 if (!doc) return null
                 return (
-                  <button key={docId} className="ctrl-doc-chip" onClick={() => onOpenDoc(docId)}>
+                  <button key={docId} className="ctrl-doc-chip" onClick={() => onOpenDoc(docId)}
+                    title="Afficher le PDF a droite">
                     <FileText size={12} />
                     <span>{TYPE_DOCUMENT_LABELS[doc.typeDocument as TypeDocument] || doc.typeDocument}</span>
+                    <span className="ctrl-doc-chip-action">Afficher</span>
                   </button>
                 )
               })}
@@ -416,6 +430,54 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
                   onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
                   placeholder="Raison de la correction..." />
               </div>
+
+              <div className="ctrl-edit-row">
+                <label>Documents lies a cette regle</label>
+                <div className="ctrl-edit-docs">
+                  {editDocIds.length === 0 && (
+                    <span className="ctrl-edit-docs-empty">Aucun document lie</span>
+                  )}
+                  {editDocIds.map(docId => {
+                    const doc = dossier.documents.find(d => d.id === docId)
+                    const label = doc ? (TYPE_DOCUMENT_LABELS[doc.typeDocument as TypeDocument] || doc.typeDocument) : 'Document supprime'
+                    return (
+                      <span key={docId} className="ctrl-edit-doc-chip">
+                        <FileText size={11} />
+                        <span title={doc?.nomFichier}>{label}</span>
+                        {doc && (
+                          <button type="button" className="ctrl-edit-doc-view"
+                            onClick={() => onOpenDoc(docId)}
+                            title="Afficher le PDF">
+                            Voir
+                          </button>
+                        )}
+                        <button type="button" className="ctrl-edit-doc-remove"
+                          onClick={() => removeEditDoc(docId)}
+                          title="Retirer ce document de la regle">
+                          <X size={11} />
+                        </button>
+                      </span>
+                    )
+                  })}
+                </div>
+                <select className="form-input"
+                  style={{ marginTop: 6, fontSize: 12, padding: '6px 8px' }}
+                  value=""
+                  onChange={e => {
+                    if (e.target.value) addEditDoc(e.target.value)
+                    e.target.value = ''
+                  }}>
+                  <option value="" disabled>+ Ajouter un document du dossier…</option>
+                  {dossier.documents
+                    .filter(d => !editDocIds.includes(d.id))
+                    .map(d => (
+                      <option key={d.id} value={d.id}>
+                        {TYPE_DOCUMENT_LABELS[d.typeDocument as TypeDocument] || d.typeDocument} — {d.nomFichier}
+                      </option>
+                    ))}
+                </select>
+              </div>
+
               <div className="ctrl-edit-buttons">
                 <button className="ctrl-btn-primary" disabled={saving} onClick={() => saveEdit(true)}>
                   {saving ? <Loader2 size={12} className="spin" /> : <ZapIcon size={12} />} Sauvegarder &amp; relancer
@@ -644,16 +706,6 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     const first = items.find(i => i.status === 'ko' || i.status === 'warn') || items[0]
     if (first) setSelectedKey(first.key)
   }, [items, selectedKey])
-
-  // Auto-open first evidence document when selecting a rule
-  useEffect(() => {
-    if (!selectedItem?.result?.evidences?.length) return
-    const firstDocEvidence = selectedItem.result.evidences.find(e => e.documentId)
-    if (firstDocEvidence?.documentId) {
-      setPreviewDocId(firstDocEvidence.documentId)
-      setHighlightField(firstDocEvidence.champ || null)
-    }
-  }, [selectedItem])
 
   // J/K keyboard navigation
   useEffect(() => {

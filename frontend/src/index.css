@@ -1666,20 +1666,68 @@ body {
 .ctrl-compare-value.danger { color: var(--ctrl-ko); }
 .ctrl-compare-value.ok { color: var(--ctrl-ok); }
 
-/* Document chips */
+/* Document chips — click reveals the PDF viewer on the right */
 .ctrl-docs-chips { display: flex; gap: 6px; flex-wrap: wrap; }
 .ctrl-doc-chip {
-  display: inline-flex; align-items: center; gap: 6px;
-  padding: 6px 10px; border-radius: 6px;
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 6px 6px 6px 10px; border-radius: 6px;
   background: #fff; border: 1px solid var(--ink-10);
   font-family: var(--font-display); font-size: 12px; font-weight: 500;
   color: var(--ink-70); cursor: pointer;
   transition: background 0.12s, border-color 0.12s, color 0.12s;
 }
 .ctrl-doc-chip:hover {
-  background: var(--ink-02); border-color: var(--ink-20); color: var(--ink);
+  background: var(--ink-02); border-color: var(--ink-30); color: var(--ink);
+}
+.ctrl-doc-chip:hover .ctrl-doc-chip-action {
+  background: var(--ink); color: #fff; border-color: var(--ink);
 }
 .ctrl-doc-chip svg { color: var(--ink-40); }
+.ctrl-doc-chip-action {
+  padding: 2px 8px; border-radius: 4px;
+  background: var(--ink-05); color: var(--ink-60);
+  border: 1px solid var(--ink-10);
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 600;
+  letter-spacing: 0;
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+
+/* Edit panel — documents manager */
+.ctrl-edit-docs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  padding: 6px; min-height: 38px;
+  border: 1px dashed var(--ink-10); border-radius: 6px;
+  background: #fff;
+}
+.ctrl-edit-docs-empty {
+  font-family: var(--font-display); font-size: 11.5px; color: var(--ink-40);
+  padding: 6px;
+}
+.ctrl-edit-doc-chip {
+  display: inline-flex; align-items: center; gap: 6px;
+  padding: 4px 4px 4px 8px; border-radius: 5px;
+  background: var(--ink-02); border: 1px solid var(--ink-10);
+  font-family: var(--font-display); font-size: 11.5px; font-weight: 500;
+  color: var(--ink-70);
+}
+.ctrl-edit-doc-chip svg { color: var(--ink-40); }
+.ctrl-edit-doc-view {
+  background: transparent; border: none; cursor: pointer;
+  font-family: var(--font-display); font-size: 10.5px; font-weight: 600;
+  color: var(--ink-60); padding: 2px 6px; border-radius: 3px;
+}
+.ctrl-edit-doc-view:hover { background: var(--ink-05); color: var(--ink); }
+.ctrl-edit-doc-remove {
+  display: inline-flex; align-items: center; justify-content: center;
+  width: 20px; height: 20px; border-radius: 4px;
+  background: transparent; border: 1px solid transparent; cursor: pointer;
+  color: var(--ink-40);
+  transition: background 0.12s, color 0.12s, border-color 0.12s;
+}
+.ctrl-edit-doc-remove:hover {
+  background: var(--ctrl-ko-tint); color: var(--ctrl-ko);
+  border-color: var(--ctrl-ko-halo);
+}
 
 /* Edit panel — plain */
 .ctrl-edit-panel {

@@ -896,6 +896,7 @@ class DossierService(
         updates["valeurTrouvee"]?.let { result.valeurTrouvee = it }
         updates["valeurAttendue"]?.let { result.valeurAttendue = it }
         updates["detail"]?.let { result.detail = it }
+        updates["documentIds"]?.let { result.documentIds = it.ifBlank { null } }
         result.dateCorrection = java.time.LocalDateTime.now()
         return repo.save(result)
     }
