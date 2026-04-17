@@ -20,6 +20,7 @@ class ValidationEngine(
     private val resultatRepository: ResultatValidationRepository,
     private val ruleConfigRepo: RuleConfigRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
+    private val ruleConfigCache: RuleConfigCache,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -118,15 +119,15 @@ class ValidationEngine(
     )
 
     private fun loadEnabledRules(dossierId: UUID): (String) -> Boolean {
-        val overrides = overrideRepo.findByDossierId(dossierId).associate { it.regle to it.enabled }
-        val globals = ruleConfigRepo.findAll().associate { it.regle to it.enabled }
+        val overrides = ruleConfigCache.listOverrides(dossierId).associate { it.regle to it.enabled }
+        val globals = ruleConfigCache.listGlobal().associate { it.regle to it.enabled }
         return { regle -> overrides[regle] ?: globals[regle] ?: true }
     }
 
     fun isRuleEnabled(dossierId: UUID, regle: String): Boolean {
-        val override = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
+        val override = ruleConfigCache.listOverrides(dossierId).firstOrNull { it.regle == regle }
         if (override != null) return override.enabled
-        val global = ruleConfigRepo.findByRegle(regle)
+        val global = ruleConfigCache.findGlobal(regle)
         return global?.enabled ?: true
     }
 

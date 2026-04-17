@@ -8,6 +8,7 @@ import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.storage.ExtractStorage
+import com.madaef.recondoc.service.validation.RuleConfigCache
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -51,6 +52,7 @@ class DossierService(
     private val auditLogRepo: AuditLogRepository,
     private val ruleConfigRepo: RuleConfigRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
+    private val ruleConfigCache: RuleConfigCache,
     private val extractStorage: ExtractStorage,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
@@ -549,8 +551,8 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getRuleConfig(dossierId: UUID): Map<String, Any> {
-        val globals = ruleConfigRepo.findAll().associate { it.regle to it.enabled }
-        val overrides = overrideRepo.findByDossierId(dossierId).associate { it.regle to it.enabled }
+        val globals = ruleConfigCache.listGlobal().associate { it.regle to it.enabled }
+        val overrides = ruleConfigCache.listOverrides(dossierId).associate { it.regle to it.enabled }
         return mapOf("global" to globals, "overrides" to overrides)
     }
 
@@ -560,8 +562,9 @@ class DossierService(
             val existing = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
             if (existing != null) {
                 existing.enabled = enabled
+                ruleConfigCache.saveOverride(existing)
             } else {
-                overrideRepo.save(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
+                ruleConfigCache.saveOverride(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
             }
         }
         audit(dossierId, "RULE_CONFIG", "Config regles modifiee: $rules")
@@ -569,7 +572,7 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getGlobalRuleConfig(): List<Map<String, Any>> {
-        return ruleConfigRepo.findAll().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
+        return ruleConfigCache.listGlobal().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
     }
 
     @Transactional
@@ -579,8 +582,9 @@ class DossierService(
             if (existing != null) {
                 existing.enabled = enabled
                 existing.updatedAt = java.time.LocalDateTime.now()
+                ruleConfigCache.saveGlobal(existing)
             } else {
-                ruleConfigRepo.save(RuleConfig(regle = regle, enabled = enabled))
+                ruleConfigCache.saveGlobal(RuleConfig(regle = regle, enabled = enabled))
             }
         }
     }

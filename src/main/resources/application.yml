@@ -106,10 +106,18 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: never
+      show-details: when-authorized
+      show-components: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
 
   jackson:
     default-property-inclusion: non_null

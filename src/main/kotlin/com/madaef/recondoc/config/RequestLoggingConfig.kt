@@ -4,10 +4,12 @@ import jakarta.servlet.FilterChain
 import jakarta.servlet.http.HttpServletRequest
 import jakarta.servlet.http.HttpServletResponse
 import org.slf4j.LoggerFactory
+import org.slf4j.MDC
 import org.springframework.core.Ordered
 import org.springframework.core.annotation.Order
 import org.springframework.stereotype.Component
 import org.springframework.web.filter.OncePerRequestFilter
+import java.util.UUID
 
 @Component
 @Order(Ordered.HIGHEST_PRECEDENCE)
@@ -24,6 +26,14 @@ class RequestLoggingFilter : OncePerRequestFilter() {
         val method = request.method
         val uri = request.requestURI
 
+        // Correlation id: honor an incoming X-Request-Id, otherwise mint one.
+        // Surfaced in JSON logs (logback-spring.xml MDC keys) and echoed back
+        // so the frontend / Railway proxy can stitch traces together.
+        val requestId = request.getHeader("X-Request-Id")?.takeIf { it.isNotBlank() }
+            ?: UUID.randomUUID().toString()
+        MDC.put("requestId", requestId)
+        response.setHeader("X-Request-Id", requestId)
+
         try {
             filterChain.doFilter(request, response)
         } finally {
@@ -35,6 +45,7 @@ class RequestLoggingFilter : OncePerRequestFilter() {
             } else if (duration > 1000) {
                 log.info("{} {} {} {}ms", method, uri, status, duration)
             }
+            MDC.clear()
         }
     }
 }
