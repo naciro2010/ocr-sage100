@@ -58,9 +58,16 @@ class S3DocumentStorage(
         DefaultCredentialsProvider.create()
     }
 
+    // Cloudflare R2 / Railway T3 both advertise "auto" as region — the SDK accepts
+    // it at construction time but SigV4 needs a concrete value. us-east-1 is the
+    // conventional stand-in the R2 docs recommend, and T3 follows the same rule.
+    private val effectiveRegion: Region =
+        if (region.isBlank() || region.equals("auto", ignoreCase = true)) Region.US_EAST_1
+        else Region.of(region)
+
     private val s3: S3Client by lazy {
         val b = S3Client.builder()
-            .region(Region.of(region))
+            .region(effectiveRegion)
             .credentialsProvider(credentials)
             .forcePathStyle(forcePathStyle)
         if (endpoint.isNotBlank()) b.endpointOverride(URI.create(endpoint))
@@ -69,7 +76,7 @@ class S3DocumentStorage(
 
     private val presigner: S3Presigner by lazy {
         val b = S3Presigner.builder()
-            .region(Region.of(region))
+            .region(effectiveRegion)
             .credentialsProvider(credentials)
         if (endpoint.isNotBlank()) b.endpointOverride(URI.create(endpoint))
         b.build()

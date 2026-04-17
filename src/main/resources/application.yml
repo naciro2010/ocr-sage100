@@ -78,11 +78,13 @@ storage:
   upload-dir: ${STORAGE_DIR:uploads}
   extracts-subdir: ${STORAGE_EXTRACTS_SUBDIR:extracts}
   s3:
-    bucket: ${S3_BUCKET:}
-    region: ${S3_REGION:eu-west-1}
-    endpoint: ${S3_ENDPOINT:}
-    access-key: ${S3_ACCESS_KEY:}
-    secret-key: ${S3_SECRET_KEY:}
+    # Variable names match Railway's default bucket credential keys (BUCKET_*)
+    # with S3_* accepted as a fallback for self-hosted AWS / Wasabi setups.
+    bucket: ${BUCKET_NAME:${S3_BUCKET:}}
+    region: ${BUCKET_REGION:${S3_REGION:auto}}
+    endpoint: ${BUCKET_ENDPOINT:${S3_ENDPOINT:}}
+    access-key: ${BUCKET_ACCESS_KEY_ID:${S3_ACCESS_KEY:}}
+    secret-key: ${BUCKET_SECRET_ACCESS_KEY:${S3_SECRET_KEY:}}
     force-path-style: ${S3_FORCE_PATH_STYLE:false}
 
 # Resilience4j — protect the app from Claude API failures & bursts.
