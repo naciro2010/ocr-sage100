@@ -22,27 +22,29 @@ class AdminController(
 
     @GetMapping("/claude-usage/dossier/{dossierId}")
     fun usageForDossier(@PathVariable dossierId: UUID): Map<String, Any> {
-        val row = claudeUsageRepository.aggregateByDossier(dossierId)
+        val raw = claudeUsageRepository.aggregateByDossier(dossierId)
+        val row = if (raw.isNotEmpty() && raw[0] is Array<*>) raw[0] as Array<*> else raw
         return mapOf(
             "dossierId" to dossierId,
-            "inputTokens" to (row[0] as Number).toLong(),
-            "outputTokens" to (row[1] as Number).toLong(),
-            "calls" to (row[2] as Number).toLong(),
-            "avgDurationMs" to (row[3] as Number).toDouble()
+            "inputTokens" to (row[0] as? Number ?: 0).toLong(),
+            "outputTokens" to (row[1] as? Number ?: 0).toLong(),
+            "calls" to (row[2] as? Number ?: 0).toLong(),
+            "avgDurationMs" to (row[3] as? Number ?: 0).toDouble()
         )
     }
 
     @GetMapping("/claude-usage/summary")
     fun summary(@RequestParam(defaultValue = "30") days: Long): Map<String, Any> {
         val since = LocalDateTime.now().minusDays(days)
-        val s = claudeUsageRepository.summarySince(since)
+        val raw = claudeUsageRepository.summarySince(since)
+        val s = if (raw.isNotEmpty() && raw[0] is Array<*>) raw[0] as Array<*> else raw
         return mapOf(
             "days" to days,
             "since" to since.toLocalDate(),
-            "inputTokens" to (s[0] as Number).toLong(),
-            "outputTokens" to (s[1] as Number).toLong(),
-            "calls" to (s[2] as Number).toLong(),
-            "errors" to (s[3] as Number).toLong()
+            "inputTokens" to (s[0] as? Number ?: 0).toLong(),
+            "outputTokens" to (s[1] as? Number ?: 0).toLong(),
+            "calls" to (s[2] as? Number ?: 0).toLong(),
+            "errors" to (s[3] as? Number ?: 0).toLong()
         )
     }
 

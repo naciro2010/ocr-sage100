@@ -51,7 +51,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
         LEFT JOIN d.resultatsValidation rv
         WHERE (:statut IS NULL OR d.statut = :statut)
         AND (:type IS NULL OR d.type = :type)
-        AND (:fournisseur IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :fournisseur, '%')))
+        AND (:fournisseur IS NULL OR LOWER(CAST(d.fournisseur AS string)) LIKE LOWER(CONCAT('%', CAST(:fournisseur AS string), '%')))
         GROUP BY d.id, d.reference, d.type, d.statut, d.fournisseur, d.description,
                  d.montantTtc, d.montantNetAPayer, d.dateCreation
     """)
@@ -84,7 +84,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
                MIN(d.dateCreation) AS premier
         FROM DossierPaiement d
         WHERE d.fournisseur IS NOT NULL AND TRIM(d.fournisseur) <> ''
-        AND (:q IS NULL OR LOWER(d.fournisseur) LIKE LOWER(CONCAT('%', :q, '%')))
+        AND (:q IS NULL OR LOWER(CAST(d.fournisseur AS string)) LIKE LOWER(CONCAT('%', CAST(:q AS string), '%')))
         GROUP BY d.fournisseur
         ORDER BY COUNT(d) DESC
     """)
@@ -105,14 +105,14 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
                MAX(d.dateCreation) AS dernier,
                MIN(d.dateCreation) AS premier
         FROM DossierPaiement d
-        WHERE LOWER(d.fournisseur) = LOWER(:nom)
+        WHERE LOWER(CAST(d.fournisseur AS string)) = LOWER(CAST(:nom AS string))
     """)
     fun aggregateOneFournisseur(nom: String): Array<Any?>?
 
     @Query("""
         SELECT f.fournisseur, f.ice, f.identifiantFiscal, f.rc, f.rib
         FROM Facture f
-        WHERE LOWER(f.fournisseur) = LOWER(:nom)
+        WHERE LOWER(CAST(f.fournisseur AS string)) = LOWER(CAST(:nom AS string))
         ORDER BY f.id DESC
     """)
     fun findFactureIdentitiesByFournisseur(nom: String, pageable: Pageable): List<Array<Any?>>
