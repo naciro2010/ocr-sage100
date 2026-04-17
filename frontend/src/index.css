@@ -1460,7 +1460,10 @@ body {
 .ctrl-left-group { }
 .ctrl-left-group-head {
   display: flex; align-items: center; gap: 8px;
-  padding: 14px 14px 6px;
+  padding: 10px 14px 6px;
+  background: #fff;
+  border-bottom: 1px solid var(--ink-05);
+  position: sticky; top: 0; z-index: 1;
 }
 .ctrl-left-group-label {
   font-family: var(--font-mono); font-size: 10px; font-weight: 600;
@@ -1541,12 +1544,44 @@ body {
 }
 .ctrl-left-reset:hover { background: var(--ink-02); color: var(--ink); border-color: var(--ink-20); }
 
-/* ---------- Center: detail header ---------- */
+/* ---------- Center: detail header (sticky while scrolling body) ---------- */
 .ctrl-detail-header {
-  padding: 18px 22px 16px;
-  border-bottom: 1px solid var(--ink-05);
+  padding: 14px 22px 14px;
+  border-bottom: 1px solid var(--ink-10);
   background: #fff;
+  position: sticky;
+  top: 0;
+  z-index: 4;
 }
+.ctrl-detail-nav {
+  display: flex; align-items: center; justify-content: space-between;
+  gap: 10px; padding-bottom: 10px; margin-bottom: 10px;
+  border-bottom: 1px dashed var(--ink-10);
+}
+.ctrl-detail-nav-label {
+  font-family: var(--font-display); font-size: 11.5px;
+  color: var(--ink-50);
+}
+.ctrl-detail-nav-label strong {
+  font-family: var(--font-mono); color: var(--ink); font-weight: 600;
+  padding: 0 2px;
+}
+.ctrl-detail-nav-buttons { display: flex; gap: 4px; }
+.ctrl-detail-nav-btn {
+  display: inline-flex; align-items: center; gap: 4px;
+  padding: 5px 10px;
+  font-family: var(--font-display); font-size: 11.5px; font-weight: 500;
+  color: var(--ink-60);
+  background: var(--ink-02);
+  border: 1px solid var(--ink-10);
+  border-radius: 6px;
+  cursor: pointer;
+  transition: background 0.12s, border-color 0.12s, color 0.12s;
+}
+.ctrl-detail-nav-btn:hover:not(:disabled) {
+  background: #fff; border-color: var(--ink-30); color: var(--ink);
+}
+.ctrl-detail-nav-btn:disabled { opacity: 0.4; cursor: not-allowed; }
 .ctrl-detail-header-meta {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 12px;
@@ -1641,19 +1676,20 @@ body {
   margin: 0;
 }
 
-/* Comparison — two plain cells, subtle divider */
+/* Comparison — Attendu | op | Trouve */
 .ctrl-compare {
-  display: grid; grid-template-columns: 1fr 1fr;
+  display: grid; grid-template-columns: 1fr auto 1fr;
   border: 1px solid var(--ink-10); border-radius: 8px;
   overflow: hidden;
   background: #fff;
 }
+.ctrl-compare.equal  { border-color: color-mix(in srgb, var(--ctrl-ok) 30%, var(--ink-10)); }
+.ctrl-compare.differ { border-color: color-mix(in srgb, var(--ctrl-ko) 30%, var(--ink-10)); }
 .ctrl-compare-side {
   padding: 12px 14px;
   display: flex; flex-direction: column; gap: 5px;
   min-width: 0;
 }
-.ctrl-compare-side + .ctrl-compare-side { border-left: 1px solid var(--ink-05); }
 .ctrl-compare-label {
   font-family: var(--font-display); font-size: 11px; font-weight: 500;
   color: var(--ink-40);
@@ -1665,6 +1701,18 @@ body {
 }
 .ctrl-compare-value.danger { color: var(--ctrl-ko); }
 .ctrl-compare-value.ok { color: var(--ctrl-ok); }
+.ctrl-compare-op {
+  display: flex; align-items: center; justify-content: center;
+  width: 40px;
+  font-family: var(--font-mono); font-size: 18px; font-weight: 600;
+  color: var(--ink-40);
+  background: var(--ink-02);
+  border-left: 1px solid var(--ink-05);
+  border-right: 1px solid var(--ink-05);
+  user-select: none;
+}
+.ctrl-compare.equal  .ctrl-compare-op { color: var(--ctrl-ok);  background: var(--ctrl-ok-tint); border-color: var(--ctrl-ok-halo); }
+.ctrl-compare.differ .ctrl-compare-op { color: var(--ctrl-ko);  background: var(--ctrl-ko-tint); border-color: var(--ctrl-ko-halo); }
 
 /* Document chips — click reveals the PDF viewer on the right */
 .ctrl-docs-chips { display: flex; gap: 6px; flex-wrap: wrap; }

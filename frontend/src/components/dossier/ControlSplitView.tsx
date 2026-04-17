@@ -110,6 +110,9 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
     return list
   }, [items, filterMode, search])
 
+  const STATUS_PRIORITY: Record<ItemStatus, number> = {
+    ko: 0, warn: 1, pending: 2, na: 3, ok: 4,
+  }
   const grouped = useMemo(() => {
     const groups: { label: string; items: RuleItem[]; okCount: number; koCount: number }[] = []
     let cur: typeof groups[0] | null = null
@@ -118,6 +121,10 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
       cur.items.push(item)
       if (item.status === 'ok') cur.okCount++
       if (item.status === 'ko' || item.status === 'warn') cur.koCount++
+    }
+    // Within each group, surface problems first
+    for (const g of groups) {
+      g.items.sort((a, b) => (STATUS_PRIORITY[a.status] ?? 9) - (STATUS_PRIORITY[b.status] ?? 9))
     }
     return groups
   }, [filtered])
@@ -219,8 +226,17 @@ function StatusIcon({ status, size = 16 }: { status: ItemStatus; size?: number }
   return <Clock {...props} />
 }
 
+interface ProblemNav {
+  hasPrev: boolean
+  hasNext: boolean
+  index: number
+  total: number
+  goPrev: () => void
+  goNext: () => void
+}
+
 /* ===== CENTER PANEL ===== */
-function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResults, onRerunRule, onOptimisticUpdate, onOpenDoc, cascadeScope, rerunning }: {
+function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResults, onRerunRule, onOptimisticUpdate, onOpenDoc, cascadeScope, rerunning, problemNav }: {
   item: RuleItem | null
   dossier: DossierDetail
   dossierId: string
@@ -231,6 +247,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   onOpenDoc: (docId: string, field?: string) => void
   cascadeScope?: Record<string, string[]>
   rerunning: string | null
+  problemNav: ProblemNav
 }) {
   const { toast } = useToast()
   const [editing, setEditing] = useState(false)
@@ -322,6 +339,25 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     <div className={`ctrl-split-center ctrl-detail status-${item.status}`}>
       {/* Header */}
       <div className="ctrl-detail-header">
+        {problemNav.total > 0 && (item.status === 'ko' || item.status === 'warn') && (
+          <div className="ctrl-detail-nav">
+            <span className="ctrl-detail-nav-label">
+              Probleme <strong>{problemNav.index + 1}</strong> sur <strong>{problemNav.total}</strong>
+            </span>
+            <div className="ctrl-detail-nav-buttons">
+              <button className="ctrl-btn-ghost ctrl-detail-nav-btn"
+                onClick={problemNav.goPrev} disabled={problemNav.total < 2}
+                title="Probleme precedent">
+                <ChevronLeft size={14} /> Precedent
+              </button>
+              <button className="ctrl-btn-ghost ctrl-detail-nav-btn"
+                onClick={problemNav.goNext} disabled={problemNav.total < 2}
+                title="Probleme suivant">
+                Suivant <ChevronRight size={14} />
+              </button>
+            </div>
+          </div>
+        )}
         <div className="ctrl-detail-header-meta">
           <span className={`ctrl-detail-status-dot status-${item.status}`} aria-hidden="true" />
           <span className="ctrl-detail-code">{item.code}</span>
@@ -367,10 +403,13 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
         {(!r?.evidences || r.evidences.length === 0) && (r?.valeurAttendue || r?.valeurTrouvee) && (
           <div className="ctrl-detail-section">
             <div className="ctrl-detail-section-title">Comparaison</div>
-            <div className="ctrl-compare">
+            <div className={`ctrl-compare ${valsDiffer ? 'differ' : valsEqual ? 'equal' : ''}`}>
               <div className="ctrl-compare-side">
                 <div className="ctrl-compare-label">Attendu</div>
                 <div className="ctrl-compare-value">{r?.valeurAttendue || '—'}</div>
+              </div>
+              <div className="ctrl-compare-op" aria-hidden="true">
+                {valsEqual ? '=' : valsDiffer ? '≠' : '→'}
               </div>
               <div className="ctrl-compare-side">
                 <div className="ctrl-compare-label">Trouve</div>
@@ -684,6 +723,34 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
 
   const selectedItem = useMemo(() => items.find(i => i.key === selectedKey) || null, [items, selectedKey])
 
+  const problemItems = useMemo(
+    () => items.filter(i => i.status === 'ko' || i.status === 'warn'),
+    [items]
+  )
+  const problemNav = useMemo(() => {
+    if (problemItems.length === 0 || !selectedKey) return { hasPrev: false, hasNext: false, index: -1, total: 0, goPrev: () => {}, goNext: () => {} }
+    const idx = problemItems.findIndex(i => i.key === selectedKey)
+    const goPrev = () => {
+      if (problemItems.length === 0) return
+      const cur = idx >= 0 ? idx : 0
+      const next = (cur - 1 + problemItems.length) % problemItems.length
+      setSelectedKey(problemItems[next].key)
+    }
+    const goNext = () => {
+      if (problemItems.length === 0) return
+      const cur = idx >= 0 ? idx : -1
+      const next = (cur + 1) % problemItems.length
+      setSelectedKey(problemItems[next].key)
+    }
+    return {
+      hasPrev: problemItems.length > 1 || idx < 0,
+      hasNext: problemItems.length > 1 || idx < 0,
+      index: idx,
+      total: problemItems.length,
+      goPrev, goNext,
+    }
+  }, [problemItems, selectedKey])
+
   const handleOpenDoc = useCallback((docId: string, field?: string) => {
     setPreviewDocId(docId)
     setHighlightField(field || null)
@@ -798,7 +865,8 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         <CenterPanel item={selectedItem} dossier={dossier} dossierId={dossierId}
           onRefreshResults={onRefreshResults} onReplaceResults={onReplaceResults}
           onRerunRule={handleRerunRule} onOptimisticUpdate={onOptimisticUpdate}
-          onOpenDoc={handleOpenDoc} cascadeScope={cascadeScope} rerunning={rerunning} />
+          onOpenDoc={handleOpenDoc} cascadeScope={cascadeScope} rerunning={rerunning}
+          problemNav={problemNav} />
 
         {previewDocId && (
           <RightPanel dossierId={dossierId} docId={previewDocId}
