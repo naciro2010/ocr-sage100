@@ -46,6 +46,7 @@ class DossierService(
     private val eventPublisher: ApplicationEventPublisher,
     private val progressService: DocumentProgressService,
     private val pdfGenerator: PdfGeneratorService,
+    private val qrCodeService: QrCodeService,
     private val entityManager: jakarta.persistence.EntityManager,
     private val resultatRepo: ResultatValidationRepository,
     private val objectMapper: ObjectMapper,
@@ -1150,7 +1151,36 @@ class DossierService(
         arf.rc = data["rc"] as? String
         arf.estEnRegle = data["estEnRegle"] as? Boolean
         arf.dateValidite = parseDate(data["dateValidite"] as? String)
+        arf.codeVerification = (data["codeVerification"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+        scanQrAndPopulate(doc, arf, data)
         arfRepo.save(arf)
+    }
+
+    private fun scanQrAndPopulate(doc: Document, arf: AttestationFiscale, data: Map<String, Any?>) {
+        val path = Path.of(doc.cheminFichier)
+        if (!Files.exists(path)) {
+            arf.qrScanError = "Fichier introuvable au moment du scan QR"
+            arf.qrScannedAt = LocalDateTime.now()
+            return
+        }
+        val result = qrCodeService.scan(path, doc.nomFichier)
+        arf.qrScannedAt = LocalDateTime.now()
+        arf.qrPayload = result.primary
+        arf.qrCodeExtrait = QrCodeService.extractVerificationCode(result.primary)
+        arf.qrHost = QrCodeService.extractHost(result.primary)
+        arf.qrScanError = result.error
+        // Expose the QR summary alongside the LLM data so the frontend can show
+        // everything in one place without a separate endpoint.
+        val mutable = data.toMutableMap()
+        mutable["_qr"] = mapOf(
+            "payload" to arf.qrPayload,
+            "codeExtrait" to arf.qrCodeExtrait,
+            "host" to arf.qrHost,
+            "officialHost" to QrCodeService.isOfficialDgiHost(arf.qrHost),
+            "scannedAt" to arf.qrScannedAt?.toString(),
+            "error" to arf.qrScanError
+        )
+        doc.donneesExtraites = mutable
     }
 
     private fun updateDossierFromFacture(dossier: DossierPaiement) {

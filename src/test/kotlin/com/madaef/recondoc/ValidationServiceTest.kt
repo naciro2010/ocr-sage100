@@ -184,6 +184,72 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R19 CONFORME when QR code matches printed verification code`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrPayload = "https://www.tax.gov.ma/verify?code=18a50bf6baf372bd"
+            qrCodeExtrait = "18a50bf6baf372bd"
+            qrHost = "www.tax.gov.ma"
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.CONFORME, r19.statut, r19.detail)
+    }
+
+    @Test
+    fun `R19 NON_CONFORME when QR code differs from printed code`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrPayload = "https://www.tax.gov.ma/verify?code=deadbeefcafebabe"
+            qrCodeExtrait = "deadbeefcafebabe"
+            qrHost = "www.tax.gov.ma"
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.NON_CONFORME, r19.statut, r19.detail)
+    }
+
+    @Test
+    fun `R19 NON_CONFORME when no QR code was decoded`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrScanError = "Aucun QR code lisible"
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.NON_CONFORME, r19.statut, r19.detail)
+    }
+
+    @Test
+    fun `R19 AVERTISSEMENT when QR host is not tax gov ma`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrPayload = "https://phishing.example.com/?code=18a50bf6baf372bd"
+            qrCodeExtrait = "18a50bf6baf372bd"
+            qrHost = "phishing.example.com"
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.AVERTISSEMENT, r19.statut, r19.detail)
+    }
+
+    @Test
     fun `R11 CONFORME when RIB matches with different spacing`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE)

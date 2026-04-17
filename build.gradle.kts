@@ -69,6 +69,10 @@ dependencies {
     // Excel export
     implementation("org.apache.poi:poi-ooxml:5.2.5")
 
+    // QR code decoding (attestation fiscale DGI verification)
+    implementation("com.google.zxing:core:3.5.3")
+    implementation("com.google.zxing:javase:3.5.3")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

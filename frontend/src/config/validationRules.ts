@@ -48,6 +48,7 @@ export const ALL_RULES: (ValidationRule & { group?: RuleGroup })[] = [
   // 6. Dates
   { code: 'R17', label: 'Chronologie des dates', desc: 'Verifie que date BC/contrat <= date facture <= date OP', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
   { code: 'R18', label: 'Validite attestation fiscale', desc: 'Verifie que l\'attestation fiscale a moins de 6 mois', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
+  { code: 'R19', label: 'QR code attestation fiscale', desc: 'Scanne le QR de l\'attestation DGI et verifie qu\'il correspond au code imprime (tax.gov.ma)', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'dates' },
 
   // Checklist d'autocontrole MADAEF (CCF-EN-04-V02, 15/10/2021)
   // Points exacts du document officiel

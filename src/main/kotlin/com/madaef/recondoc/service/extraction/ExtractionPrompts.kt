@@ -353,13 +353,14 @@ object ExtractionPrompts {
 
         Schema JSON attendu :
         {
-          "numero": "string",
+          "numero": "string (ex: 2140|2026|798)",
           "dateEdition": "YYYY-MM-DD",
           "raisonSociale": "string",
           "identifiantFiscal": "string",
           "ice": "string (15 chiffres)",
           "rc": "string",
           "estEnRegle": true,
+          "codeVerification": "string ou null (code imprime sous le QR, ex: 18a50bf6baf372bd)",
           "_confidence": number,
           "_warnings": ["string"]
         }
@@ -367,6 +368,7 @@ object ExtractionPrompts {
         Regles specifiques :
         - estEnRegle=true si l'attestation confirme que le contribuable est en situation reguliere.
         - L'ICE doit avoir exactement 15 chiffres. Si l'OCR donne un nombre different, retourner tel quel et ajouter un warning.
+        - codeVerification : code alphanumerique imprime a cote ou sous le QR code, apres "Code de verification sur le site www.tax.gov.ma". Souvent 12-32 caracteres hexadecimaux. Retourner tel quel, sans espace, sans ponctuation.
 
         $COMMON_RULES
     """.trimIndent()

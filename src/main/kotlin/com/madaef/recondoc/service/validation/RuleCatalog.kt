@@ -35,7 +35,8 @@ object RuleCatalog {
         Def("R13", "Tableau de controle", "Verifie que tous les points du TC sont Conforme ou NA", "documents"),
         Def("R17a", "Chronologie BC/Contrat → Facture", "Verifie que date BC/Contrat <= date facture", "dates"),
         Def("R17b", "Chronologie Facture → OP", "Verifie que date facture <= date OP", "dates"),
-        Def("R18", "Validite attestation fiscale", "Verifie que l'attestation fiscale a moins de 6 mois", "dates")
+        Def("R18", "Validite attestation fiscale", "Verifie que l'attestation fiscale a moins de 6 mois", "dates"),
+        Def("R19", "QR code attestation fiscale", "Scanne le QR de l'attestation fiscale DGI et verifie qu'il correspond au code imprime", "dates")
     ) + (1..10).map { i ->
         val num = "%02d".format(i)
         Def("R12.$num", "Point checklist $num", "Controle CK$num de la checklist autocontrole CCF-EN-04", "documents", categorie = "checklist")

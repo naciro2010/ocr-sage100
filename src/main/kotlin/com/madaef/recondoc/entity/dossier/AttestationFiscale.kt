@@ -2,6 +2,7 @@ package com.madaef.recondoc.entity.dossier
 
 import jakarta.persistence.*
 import java.time.LocalDate
+import java.time.LocalDateTime
 import java.util.UUID
 
 @Entity
@@ -24,5 +25,16 @@ class AttestationFiscale(
     var ice: String? = null,
     var rc: String? = null,
     @Column(name = "est_en_regle") var estEnRegle: Boolean? = null,
-    @Column(name = "date_validite") var dateValidite: LocalDate? = null
+    @Column(name = "date_validite") var dateValidite: LocalDate? = null,
+
+    // "Code de verification sur www.tax.gov.ma" printed under the QR. Read by OCR/LLM.
+    @Column(name = "code_verification") var codeVerification: String? = null,
+    // Raw payload decoded from the QR code on the document.
+    @Column(name = "qr_payload", columnDefinition = "TEXT") var qrPayload: String? = null,
+    // Verification code parsed out of qrPayload (query param or hex blob).
+    @Column(name = "qr_code_extrait") var qrCodeExtrait: String? = null,
+    // Host parsed out of the QR URL — expected to be a tax.gov.ma subdomain.
+    @Column(name = "qr_host") var qrHost: String? = null,
+    @Column(name = "qr_scanned_at") var qrScannedAt: LocalDateTime? = null,
+    @Column(name = "qr_scan_error", columnDefinition = "TEXT") var qrScanError: String? = null
 )
