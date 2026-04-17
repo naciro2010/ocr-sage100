@@ -197,6 +197,64 @@ export function getExportOPUrl(dossierId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/export/op`
 }
 
+export function getExportExcelUrl(dossierId: string): string {
+  return `${API_URL}/api/dossiers/${dossierId}/export/excel`
+}
+
+export interface CompareRow {
+  label: string
+  values: Record<string, string | null>
+  conflict: boolean
+}
+
+export async function compareDocuments(dossierId: string): Promise<{ dossierId: string; rows: CompareRow[] }> {
+  const res = await apiFetch(`${BASE}/${dossierId}/compare`)
+  return handleResponse(res)
+}
+
+export interface DocumentSearchHit {
+  documentId: string
+  dossierId: string
+  dossierReference: string
+  nomFichier: string
+  typeDocument: string
+  dateUpload: string
+  rank: number
+}
+
+export async function searchDocuments(q: string, limit = 50): Promise<DocumentSearchHit[]> {
+  if (!q.trim()) return []
+  const url = `${BASE}/search-documents?q=${encodeURIComponent(q)}&limit=${limit}`
+  return cachedFetch<DocumentSearchHit[]>(url, 30_000)
+}
+
+export async function uploadZip(dossierId: string, file: File, type?: string): Promise<{
+  documents: DocumentInfo[]
+  stats: { accepted: number; deduped: number; skipped: number }
+}> {
+  const fd = new FormData()
+  fd.append('file', file)
+  if (type) fd.append('type', type)
+  const res = await apiFetch(`${BASE}/${dossierId}/documents/zip`, { method: 'POST', body: fd })
+  invalidateCache(`/${dossierId}`)
+  return handleResponse(res)
+}
+
+export async function bulkChangeStatut(
+  ids: string[],
+  statut: string,
+  motifRejet?: string,
+  validePar?: string
+): Promise<Array<{ id: string; ok: boolean; error?: string }>> {
+  const res = await apiFetch(`${BASE}/bulk/statut`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ ids, statut, motifRejet, validePar })
+  })
+  invalidateCache('/api/dossiers')
+  return handleResponse(res)
+}
+
 // Download a file with auth headers (for links that open in new tab)
 export async function downloadWithAuth(url: string, filename: string) {
   const res = await apiFetch(url)
