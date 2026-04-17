@@ -37,6 +37,8 @@ const FIELD_LABELS: Record<string, string> = {
   prestataire: 'Prestataire', referenceFacture2: 'Ref. Facture', nomProjet: 'Projet',
   signataire: 'Signataire', dateEdition: 'Date edition', validite: 'Validite',
   titre: 'Titre', dateReception: 'Date reception',
+  raisonSociale: 'Raison sociale', numero: 'N\u00b0 attestation',
+  estEnRegle: 'En regle', codeVerification: 'Code de verification',
 }
 
 function formatValue(key: string, value: unknown): string {
@@ -208,9 +210,13 @@ function SubSections({ data }: { data: Record<string, unknown> }) {
   const pieces = (data['pieces'] as Array<Record<string, unknown>> | undefined) || []
   const signataires = (data['signataires'] as Array<Record<string, unknown>> | undefined) || []
   const signataire = data['signataire'] as string | undefined
+  const qr = data['_qr'] as Record<string, unknown> | undefined
+  const codeVerification = (data['codeVerification'] as string | null | undefined) || null
 
   return (
     <>
+      {qr && <QrVerificationPanel qr={qr} printedCode={codeVerification} />}
+
       {points.length > 0 && (
         <div>
           <div className="edv-section-title">
@@ -270,5 +276,89 @@ function SubSections({ data }: { data: Record<string, unknown> }) {
         </div>
       )}
     </>
+  )
+}
+
+function QrVerificationPanel({
+  qr, printedCode,
+}: {
+  qr: Record<string, unknown>
+  printedCode: string | null
+}) {
+  const payload = (qr.payload as string | null) || null
+  const qrCode = (qr.codeExtrait as string | null) || null
+  const host = (qr.host as string | null) || null
+  const officialHost = Boolean(qr.officialHost)
+  const error = (qr.error as string | null) || null
+  const scannedAt = (qr.scannedAt as string | null) || null
+
+  const norm = (s: string | null) => (s ? s.trim().toLowerCase().replace(/[\s\-_|/.]+/g, '') : '')
+  const match = qrCode && printedCode ? norm(qrCode) === norm(printedCode) : null
+
+  const status: { label: string; bg: string; color: string } =
+    !payload ? { label: 'QR illisible', bg: 'rgba(239,68,68,0.1)', color: '#b91c1c' }
+    : match === true && officialHost ? { label: 'Verifie', bg: 'var(--success-bg)', color: 'var(--success)' }
+    : match === true ? { label: 'Codes coherents', bg: 'rgba(245,158,11,0.1)', color: '#b45309' }
+    : match === false ? { label: 'Mismatch', bg: 'rgba(239,68,68,0.1)', color: '#b91c1c' }
+    : { label: 'A verifier', bg: 'rgba(245,158,11,0.1)', color: '#b45309' }
+
+  const isUrl = payload ? /^https?:\/\//i.test(payload) : false
+
+  return (
+    <div style={{
+      border: '1px solid var(--ink-10)', borderRadius: 6, padding: 12,
+      background: 'var(--ink-05)', display: 'flex', flexDirection: 'column', gap: 8,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between' }}>
+        <div className="edv-section-title" style={{ margin: 0 }}>Verification QR code DGI</div>
+        <span className="tag" style={{ background: status.bg, color: status.color, fontWeight: 600 }}>
+          {status.label}
+        </span>
+      </div>
+
+      {error && !payload && (
+        <div style={{ fontSize: 12, color: '#b91c1c' }}>
+          Scan QR : {error}
+        </div>
+      )}
+
+      <div className="edv-grid cols-auto" style={{ gap: 8 }}>
+        <div className="edv-cell">
+          <span className="edv-cell-key">Code imprime (OCR)</span>
+          <span className="edv-cell-value mono">{printedCode || '\u2014'}</span>
+        </div>
+        <div className="edv-cell">
+          <span className="edv-cell-key">Code extrait du QR</span>
+          <span className="edv-cell-value mono" style={{ color: match === false ? '#b91c1c' : undefined }}>
+            {qrCode || '\u2014'}
+          </span>
+        </div>
+        <div className="edv-cell">
+          <span className="edv-cell-key">Domaine cible</span>
+          <span className="edv-cell-value mono" style={{ color: host && !officialHost ? '#b45309' : undefined }}>
+            {host || '\u2014'}{officialHost ? ' \u2713' : host ? ' (inattendu)' : ''}
+          </span>
+        </div>
+        {scannedAt && (
+          <div className="edv-cell">
+            <span className="edv-cell-key">Scanne le</span>
+            <span className="edv-cell-value">{new Date(scannedAt).toLocaleString('fr-FR')}</span>
+          </div>
+        )}
+      </div>
+
+      {payload && (
+        <div style={{ fontSize: 11, color: 'var(--ink-50)', wordBreak: 'break-all' }}>
+          <span style={{ fontWeight: 600 }}>Contenu du QR :</span>{' '}
+          {isUrl ? (
+            <a href={payload} target="_blank" rel="noreferrer noopener" style={{ color: 'var(--link)' }}>
+              {payload}
+            </a>
+          ) : (
+            <span className="mono">{payload}</span>
+          )}
+        </div>
+      )}
+    </div>
   )
 }

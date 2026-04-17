@@ -4,6 +4,7 @@ import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository
 import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.repository.dossier.RuleConfigRepository
+import com.madaef.recondoc.service.QrCodeService
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
 import org.springframework.stereotype.Service
@@ -92,6 +93,7 @@ class ValidationEngine(
             "R17a" to setOf("R17b"),
             "R17b" to setOf("R17a"),
             "R18" to emptySet(),
+            "R19" to emptySet(),
             "R20" to emptySet(),
             "R12" to emptySet(),
             "R13" to emptySet(),
@@ -659,6 +661,10 @@ class ValidationEngine(
             )
         }
 
+        if (isEnabled("R19") && arf != null) {
+            results += checkAttestationQr(arf, arfDoc, dossier)
+        }
+
         if (isEnabled("R16") && facture != null && fHt != null && fTva != null && fTtc != null) {
             val calcTtc = fHt.add(fTva)
             results += checkMontant("R16", "Verification arithmetique : HT + TVA = TTC",
@@ -719,6 +725,7 @@ class ValidationEngine(
             "R16" to listOf(TypeDocument.FACTURE),
             "R17" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
             "R18" to listOf(TypeDocument.ATTESTATION_FISCALE),
+            "R19" to listOf(TypeDocument.ATTESTATION_FISCALE),
             "R20" to emptyList(),
         )
         for (r in results) {
@@ -1169,6 +1176,57 @@ class ValidationEngine(
         else if (systemStatut == StatutCheck.AVERTISSEMENT || ckStatut == StatutCheck.AVERTISSEMENT) StatutCheck.AVERTISSEMENT
         else StatutCheck.CONFORME
     }
+
+    /**
+     * R19: Verify the QR code on the DGI "attestation de regularite fiscale".
+     * The attestation prints a "Code de verification" under the QR; the QR
+     * itself encodes a tax.gov.ma URL that carries the same code. A mismatch
+     * between them (or a missing/unreadable QR) suggests tampering or a
+     * photocopy of an outdated attestation.
+     */
+    private fun checkAttestationQr(arf: AttestationFiscale, arfDoc: Document?, dossier: DossierPaiement): ResultatValidation {
+        val printedCode = arf.codeVerification?.trim()?.takeIf { it.isNotBlank() }
+        val qrCode = arf.qrCodeExtrait?.trim()?.takeIf { it.isNotBlank() }
+        val qrPayload = arf.qrPayload?.trim()?.takeIf { it.isNotBlank() }
+        val qrHost = arf.qrHost?.trim()?.takeIf { it.isNotBlank() }
+        val officialHost = QrCodeService.isOfficialDgiHost(qrHost)
+
+        val evidences = mutableListOf<ValidationEvidence>().apply {
+            add(evidence("source", "qrPayload", "Contenu du QR code", arfDoc, qrPayload ?: "(absent)"))
+            add(evidence("trouve", "qrCodeExtrait", "Code extrait du QR", arfDoc, qrCode))
+            add(evidence("attendu", "codeVerification", "Code imprime sous le QR", arfDoc, printedCode))
+            if (qrHost != null) {
+                add(evidence("source", "qrHost", "Domaine cible du QR", arfDoc, qrHost))
+            }
+        }
+
+        val (statut, detail) = when {
+            qrPayload == null -> {
+                val reason = arf.qrScanError ?: "Aucun QR code lisible sur le document"
+                StatutCheck.NON_CONFORME to "QR code introuvable ou illisible : $reason"
+            }
+            qrCode == null -> StatutCheck.AVERTISSEMENT to "QR decode mais aucun code de verification extractible du contenu"
+            printedCode == null -> StatutCheck.AVERTISSEMENT to "QR decode (${qrCode}) mais code imprime non extrait par l'OCR — verification visuelle requise"
+            normalizeCode(printedCode) != normalizeCode(qrCode) -> StatutCheck.NON_CONFORME to
+                "Incoherence : code imprime = '$printedCode', code QR = '$qrCode'"
+            !officialHost && qrHost != null -> StatutCheck.AVERTISSEMENT to
+                "Codes coherents ($printedCode) mais domaine inattendu : $qrHost (attendu tax.gov.ma)"
+            else -> StatutCheck.CONFORME to "Codes coherents ($printedCode)" +
+                (qrHost?.let { " sur $it" } ?: "")
+        }
+
+        return ResultatValidation(
+            dossier = dossier, regle = "R19",
+            libelle = "QR code attestation fiscale coherent avec le code imprime",
+            statut = statut,
+            detail = detail,
+            valeurAttendue = printedCode, valeurTrouvee = qrCode,
+            evidences = evidences
+        )
+    }
+
+    private fun normalizeCode(code: String): String =
+        code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
 
     private fun matchReference(ref1: String?, ref2: String?): Boolean {
         if (ref1 == null || ref2 == null) return false
