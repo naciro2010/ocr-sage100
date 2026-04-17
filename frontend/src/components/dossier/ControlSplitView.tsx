@@ -12,8 +12,7 @@ import {
   FileText, RefreshCw, Edit3, Save, X,
   MessageSquare, ChevronLeft, ChevronRight, Download,
   Zap as ZapIcon, MousePointer, Search, CheckCircle2,
-  XCircle, AlertCircle, MinusCircle, Clock,
-  Keyboard
+  XCircle, AlertCircle, MinusCircle, Clock
 } from 'lucide-react'
 
 type FilterMode = 'all' | 'problems' | 'conforme' | 'pending'
@@ -207,10 +206,6 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
           </div>
         ))}
       </div>
-      <div className="ctrl-left-foot">
-        <Keyboard size={11} />
-        <span>Utiliser <kbd>J</kbd> / <kbd>K</kbd> pour naviguer</span>
-      </div>
     </div>
   )
 }
@@ -312,19 +307,17 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   const valsEqual = r?.statut === 'CONFORME'
 
   return (
-    <div className={`ctrl-split-center ctrl-detail`}>
-      {/* Header with inline actions */}
+    <div className={`ctrl-split-center ctrl-detail status-${item.status}`}>
+      {/* Header */}
       <div className="ctrl-detail-header">
-        <div className="ctrl-detail-header-main">
-          <div className="ctrl-detail-header-ids">
-            <span className="ctrl-detail-code">{item.code}</span>
-            <span className="ctrl-detail-group">{item.group}</span>
-            <span className={`ctrl-status-chip status-${item.status}`}>
-              <span className={`ctrl-status-dot status-${item.status}`} aria-hidden="true" />
-              {sd.label}
-            </span>
-            {stale && <span className="ctrl-chip-neutral">Obsolete</span>}
-          </div>
+        <div className="ctrl-detail-header-meta">
+          <span className={`ctrl-detail-status-dot status-${item.status}`} aria-hidden="true" />
+          <span className="ctrl-detail-code">{item.code}</span>
+          <span className="ctrl-detail-dot" aria-hidden="true" />
+          <span className="ctrl-detail-group">{item.group}</span>
+          <span className="ctrl-detail-dot" aria-hidden="true" />
+          <span className={`ctrl-detail-status-label status-${item.status}`}>{sd.label}</span>
+          {stale && <span className="ctrl-chip-neutral">Obsolete</span>}
           {r && !editing && (
             <div className="ctrl-detail-header-actions">
               <select className="ctrl-status-select" value={r.statut}
