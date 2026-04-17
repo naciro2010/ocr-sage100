@@ -598,7 +598,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     counts.warn > 0 ? 'warn' :
     'ok'
 
-  const lastRunAt = useMemo(() => {
+  const lastRunLabel = useMemo(() => {
     let max = 0
     for (const r of results) {
       if (r.dateExecution) {
@@ -606,20 +606,14 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         if (t > max) max = t
       }
     }
-    return max > 0 ? new Date(max) : null
-  }, [results])
-
-  const lastRunLabel = useMemo(() => {
-    if (!lastRunAt) return null
-    const diffMs = Date.now() - lastRunAt.getTime()
-    const m = Math.floor(diffMs / 60000)
+    if (max === 0) return null
+    const m = Math.floor((Date.now() - max) / 60000)
     if (m < 1) return 'a l\'instant'
     if (m < 60) return `il y a ${m} min`
     const h = Math.floor(m / 60)
     if (h < 24) return `il y a ${h}h`
-    const d = Math.floor(h / 24)
-    return `il y a ${d}j`
-  }, [lastRunAt])
+    return `il y a ${Math.floor(h / 24)}j`
+  }, [results])
 
   const selectedItem = useMemo(() => items.find(i => i.key === selectedKey) || null, [items, selectedKey])
 
@@ -682,7 +676,6 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
 
   const pctKo = counts.total > 0 ? (counts.ko / counts.total) * 100 : 0
   const pctWarn = counts.total > 0 ? (counts.warn / counts.total) * 100 : 0
-  const pctOkBar = counts.total > 0 ? (counts.ok / counts.total) * 100 : 0
 
   const headline = !hasResults ? 'Verification non executee'
     : healthTone === 'ok' ? 'Dossier conforme'
@@ -755,7 +748,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
 
         {counts.total > 0 && (
           <div className="ctrl-hero-bar" role="img" aria-label={`${counts.ok} conformes, ${counts.ko} non conformes, ${counts.warn} avertissements sur ${counts.total}`}>
-            <span className="ctrl-hero-bar-seg ok" style={{ width: `${pctOkBar}%` }} />
+            <span className="ctrl-hero-bar-seg ok" style={{ width: `${pctOk}%` }} />
             <span className="ctrl-hero-bar-seg ko" style={{ width: `${pctKo}%` }} />
             <span className="ctrl-hero-bar-seg warn" style={{ width: `${pctWarn}%` }} />
           </div>
