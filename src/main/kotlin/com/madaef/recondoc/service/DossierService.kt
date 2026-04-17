@@ -7,6 +7,7 @@ import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.storage.DocumentStorage
 import com.madaef.recondoc.service.storage.ExtractStorage
 import com.madaef.recondoc.service.validation.RuleConfigCache
 import com.madaef.recondoc.service.validation.ValidationEngine
@@ -55,6 +56,7 @@ class DossierService(
     private val overrideRepo: DossierRuleOverrideRepository,
     private val ruleConfigCache: RuleConfigCache,
     private val extractStorage: ExtractStorage,
+    private val documentStorage: DocumentStorage,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -330,8 +332,6 @@ class DossierService(
     @Transactional
     fun uploadDocuments(dossierId: UUID, files: List<MultipartFile>, typeDocument: TypeDocument?): List<DocumentResponse> {
         val dossier = getDossier(dossierId)
-        val uploadPath = Path.of(uploadDir, dossierId.toString())
-        Files.createDirectories(uploadPath)
 
         var dedupedCount = 0
         val responses = files.map { file ->
@@ -347,15 +347,14 @@ class DossierService(
                 return@map existing.toResponse()
             }
 
-            val fileName = "${System.currentTimeMillis()}_${file.originalFilename}"
-            val filePath = uploadPath.resolve(fileName)
-            Files.write(filePath, bytes)
+            val originalName = file.originalFilename ?: "unknown"
+            val pointer = documentStorage.store(dossierId, originalName, bytes)
 
             val doc = Document(
                 dossier = dossier,
                 typeDocument = typeDocument ?: TypeDocument.INCONNU,
-                nomFichier = file.originalFilename ?: "unknown",
-                cheminFichier = filePath.toString(),
+                nomFichier = originalName,
+                cheminFichier = pointer,
                 fileHash = hash
             )
             documentRepo.save(doc)
@@ -385,8 +384,6 @@ class DossierService(
     @Transactional
     fun uploadZip(dossierId: UUID, zipFile: MultipartFile, typeDocument: TypeDocument?): Map<String, Any> {
         val dossier = getDossier(dossierId)
-        val uploadPath = Path.of(uploadDir, dossierId.toString())
-        Files.createDirectories(uploadPath)
 
         val accepted = mutableListOf<DocumentResponse>()
         var skipped = 0
@@ -426,14 +423,12 @@ class DossierService(
                     entry = zis.nextEntry
                     continue
                 }
-                val storedName = "${System.currentTimeMillis()}_$basename"
-                val filePath = uploadPath.resolve(storedName)
-                Files.write(filePath, bytes)
+                val pointer = documentStorage.store(dossierId, basename, bytes)
                 val doc = Document(
                     dossier = dossier,
                     typeDocument = typeDocument ?: TypeDocument.INCONNU,
                     nomFichier = basename,
-                    cheminFichier = filePath.toString(),
+                    cheminFichier = pointer,
                     fileHash = hash
                 )
                 documentRepo.save(doc)
@@ -527,8 +522,7 @@ class DossierService(
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         if (doc.dossier.id != dossierId) throw NoSuchElementException("Document does not belong to this dossier")
         log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
-        // Delete file on disk if exists
-        try { val path = Path.of(doc.cheminFichier); if (Files.exists(path)) Files.delete(path) } catch (_: Exception) {}
+        documentStorage.delete(doc.cheminFichier)
         doc.texteExtraitKey?.let { extractStorage.delete(it) }
         documentRepo.delete(doc)
         audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
@@ -551,8 +545,8 @@ class DossierService(
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
 
         // Try to extract text: from file first (full OCR cascade), then from stored text
-        val path = Path.of(doc.cheminFichier)
-        val ocrResult = if (Files.exists(path)) {
+        val path = documentStorage.resolveToLocalPath(doc.cheminFichier)
+        val ocrResult = if (path != null && Files.exists(path)) {
             val result = ocrService.extractWithDetails(Files.newInputStream(path), doc.nomFichier, path)
             log.info("Re-extracted {} chars from {} via {}", result.text.length, doc.nomFichier, result.engine)
             result
@@ -792,12 +786,10 @@ class DossierService(
 
         // Generate TC PDF
         val tcPdf = pdfGenerator.generateTC(dossier, request)
-        val tcPath = Path.of(uploadDir, dossierId.toString(), "TC_${dossier.reference}.pdf")
-        Files.createDirectories(tcPath.parent)
-        Files.write(tcPath, tcPdf)
+        val tcPointer = documentStorage.store(dossierId, "TC_${dossier.reference}.pdf", tcPdf)
         val tcDoc = Document(
             dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE,
-            nomFichier = "TC_${dossier.reference}.pdf", cheminFichier = tcPath.toString(),
+            nomFichier = "TC_${dossier.reference}.pdf", cheminFichier = tcPointer,
             statutExtraction = StatutExtraction.EXTRAIT
         )
         documentRepo.save(tcDoc)
@@ -811,11 +803,10 @@ class DossierService(
 
         // Generate OP PDF
         val opPdf = pdfGenerator.generateOP(dossier, request)
-        val opPath = Path.of(uploadDir, dossierId.toString(), "OP_${dossier.reference}.pdf")
-        Files.write(opPath, opPdf)
+        val opPointer = documentStorage.store(dossierId, "OP_${dossier.reference}.pdf", opPdf)
         val opDoc = Document(
             dossier = dossier, typeDocument = TypeDocument.ORDRE_PAIEMENT,
-            nomFichier = "OP_${dossier.reference}.pdf", cheminFichier = opPath.toString(),
+            nomFichier = "OP_${dossier.reference}.pdf", cheminFichier = opPointer,
             statutExtraction = StatutExtraction.EXTRAIT
         )
         documentRepo.save(opDoc)
@@ -1178,8 +1169,8 @@ class DossierService(
     }
 
     private fun scanQrAndPopulate(doc: Document, arf: AttestationFiscale, data: Map<String, Any?>) {
-        val path = Path.of(doc.cheminFichier)
-        if (!Files.exists(path)) {
+        val path = documentStorage.resolveToLocalPath(doc.cheminFichier)
+        if (path == null || !Files.exists(path)) {
             arf.qrScanError = "Fichier introuvable au moment du scan QR"
             arf.qrScannedAt = LocalDateTime.now()
             return
@@ -1269,12 +1260,27 @@ class DossierService(
         val doc = documentRepo.findById(documentId)
             .orElseThrow { NoSuchElementException("Document not found: $documentId") }
         if (doc.dossier.id != dossierId) throw NoSuchElementException("Document $documentId does not belong to dossier $dossierId")
-        val path = Path.of(doc.cheminFichier)
-        if (!Files.exists(path)) {
-            log.warn("File missing on disk: {} (storage.upload-dir={}). Likely cause: uploads directory is not a persistent Railway Volume — redeploy wiped the file.", doc.cheminFichier, uploadDir)
-            throw NoSuchElementException("Fichier introuvable (probablement perdu lors d'un redeploiement). Re-uploadez le document ou configurez un Railway Volume sur /app/data.")
+        val path = documentStorage.resolveToLocalPath(doc.cheminFichier)
+        if (path == null || !Files.exists(path)) {
+            log.warn("File missing: pointer={} storage.upload-dir={}", doc.cheminFichier, uploadDir)
+            throw NoSuchElementException("Fichier introuvable (stockage distant indisponible ou volume local non persistant). Re-uploadez le document ou verifiez la configuration du stockage.")
         }
-        return Pair(doc.cheminFichier, doc.nomFichier)
+        return Pair(path.toString(), doc.nomFichier)
+    }
+
+    /**
+     * Optional fast-path for browsers: if the storage backend supports presigned
+     * URLs (S3), return one so the PDF is streamed directly from the bucket
+     * without going through the Spring controller. Saves bandwidth and latency.
+     * Returns null for filesystem storage — caller falls back to the byte-stream
+     * endpoint.
+     */
+    @Transactional(readOnly = true)
+    fun getDocumentPresignedUrl(dossierId: UUID, documentId: UUID): String? {
+        val doc = documentRepo.findById(documentId)
+            .orElseThrow { NoSuchElementException("Document not found: $documentId") }
+        if (doc.dossier.id != dossierId) throw NoSuchElementException("Document $documentId does not belong to dossier $dossierId")
+        return documentStorage.presignGet(doc.cheminFichier)
     }
 
     fun getAuditLog(dossierId: UUID): List<AuditLogResponse> {

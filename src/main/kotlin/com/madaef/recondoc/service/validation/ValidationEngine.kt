@@ -92,7 +92,9 @@ class ValidationEngine(
             "R16" to setOf("R04", "R05", "R15", "R16b", "R16c"),
             "R16b" to setOf("R16", "R16c"),
             "R16c" to setOf("R16", "R16b", "R01f"),
-            "R01f" to setOf("R01", "R02", "R16c"),
+            "R01f" to setOf("R01", "R02", "R16c", "R01g"),
+            "R01g" to setOf("R01", "R02", "R01f", "R15"),
+            "R14b" to setOf("R09", "R10", "R14"),
             "R17a" to setOf("R17b"),
             "R17b" to setOf("R17a"),
             "R18" to emptySet(),
@@ -555,6 +557,61 @@ class ValidationEngine(
             }
         }
 
+        // R14b: attestation fiscale non conforme si raison sociale / ICE / IF different de la facture
+        if (isEnabled("R14b") && facture != null && arf != null) {
+            val fRaison = (facture.fournisseur ?: docStr(fDoc, "fournisseur"))?.trim()?.takeIf { it.isNotBlank() }
+            val arfRaison = (arf.raisonSociale ?: docStr(arfDoc, "raisonSociale"))?.trim()?.takeIf { it.isNotBlank() }
+            val fIce = (facture.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val arfIce = (arf.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val fIf = (facture.identifiantFiscal ?: docStr(fDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
+            val arfIf = (arf.identifiantFiscal ?: docStr(arfDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
+
+            val mismatches = mutableListOf<String>()
+            val r14bEvidences = mutableListOf<ValidationEvidence>()
+
+            if (fRaison != null && arfRaison != null) {
+                val sim = labelSimilarity(fRaison, arfRaison)
+                if (sim < 0.70) {
+                    mismatches += "Raison sociale : facture « $fRaison » ≠ attestation « $arfRaison » (similarite ${"%.0f".format(sim * 100)}%)"
+                }
+            }
+            if (fIce != null && arfIce != null && normalizeId(fIce) != normalizeId(arfIce)) {
+                mismatches += "ICE : facture=$fIce, attestation=$arfIce"
+            }
+            if (fIf != null && arfIf != null && normalizeId(fIf) != normalizeId(arfIf)) {
+                mismatches += "IF : facture=$fIf, attestation=$arfIf"
+            }
+
+            r14bEvidences += evidence("source", "fournisseur", "Fournisseur facture", fDoc, fRaison)
+            r14bEvidences += evidence("source", "raisonSociale", "Raison sociale attestation fiscale", arfDoc, arfRaison)
+            if (fIce != null) r14bEvidences += evidence("source", "ice", "ICE facture", fDoc, fIce)
+            if (arfIce != null) r14bEvidences += evidence("source", "ice", "ICE attestation fiscale", arfDoc, arfIce)
+            if (fIf != null) r14bEvidences += evidence("source", "identifiantFiscal", "IF facture", fDoc, fIf)
+            if (arfIf != null) r14bEvidences += evidence("source", "identifiantFiscal", "IF attestation fiscale", arfDoc, arfIf)
+
+            val missingData = fRaison == null || arfRaison == null
+            val statut = when {
+                mismatches.isNotEmpty() -> StatutCheck.NON_CONFORME
+                missingData -> StatutCheck.AVERTISSEMENT
+                else -> StatutCheck.CONFORME
+            }
+            val detail = when {
+                mismatches.isNotEmpty() -> "Attestation fiscale non conforme au fournisseur : " + mismatches.joinToString(" | ")
+                missingData -> "Donnees fournisseur incompletes pour comparer (facture=${fRaison ?: "?"}, attestation=${arfRaison ?: "?"})"
+                else -> "Attestation appartient bien au fournisseur « ${arfRaison ?: fRaison} »"
+            }
+
+            results += ResultatValidation(
+                dossier = dossier, regle = "R14b",
+                libelle = "Attestation fiscale conforme au fournisseur de la facture",
+                statut = statut,
+                detail = detail,
+                valeurAttendue = fRaison,
+                valeurTrouvee = arfRaison,
+                evidences = r14bEvidences.ifEmpty { null }
+            )
+        }
+
         if (isEnabled("R12")) {
             val ckDocMapping = mapOf(
                 1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
@@ -755,6 +812,108 @@ class ValidationEngine(
             }
         }
 
+        // R01g: matching ligne par ligne facture ↔ BC (ou grille tarifaire du contrat)
+        if (isEnabled("R01g") && facture != null && facture.lignes.isNotEmpty()) {
+            val refLines: List<BcLigne>
+            val refDoc: Document?
+            val refLabel: String
+            when {
+                dossier.type == DossierType.BC && bcDoc != null -> {
+                    refLines = parseBcLignes(bcDoc)
+                    refDoc = bcDoc
+                    refLabel = "BC"
+                }
+                dossier.type == DossierType.CONTRACTUEL && contrat != null && contrat.grillesTarifaires.isNotEmpty() -> {
+                    refLines = contrat.grillesTarifaires.map { g ->
+                        BcLigne(
+                            codeArticle = null,
+                            designation = g.designation,
+                            quantite = null,
+                            prixUnitaireHt = g.prixUnitaireHt,
+                            montantHt = null
+                        )
+                    }
+                    refDoc = contrat.document
+                    refLabel = "grille contrat"
+                }
+                else -> {
+                    refLines = emptyList()
+                    refDoc = null
+                    refLabel = ""
+                }
+            }
+
+            if (refLines.isNotEmpty()) {
+                val issues = mutableListOf<String>()
+                val r01gEvidences = mutableListOf<ValidationEvidence>()
+                val used = mutableSetOf<Int>()
+                var conformCount = 0
+
+                for ((i, fl) in facture.lignes.withIndex()) {
+                    val flLabel = fl.designation.take(60)
+                    val match = findBestRefMatch(fl, refLines, used)
+                    if (match == null) {
+                        issues += "Ligne facture ${i + 1} « $flLabel » sans correspondance dans $refLabel"
+                        r01gEvidences += evidence("trouve", "ligne${i + 1}",
+                            "Ligne facture ${i + 1} sans correspondance", fDoc, fl.designation)
+                        continue
+                    }
+                    used += match.first
+                    val rl = match.second
+                    val lineIssues = mutableListOf<String>()
+
+                    val flQte = fl.quantite
+                    val flPu = fl.prixUnitaireHt
+                    val flTotal = fl.montantTotalHt
+                    if (flQte != null && rl.quantite != null) {
+                        val diff = flQte.subtract(rl.quantite).abs()
+                        if (diff > tol) lineIssues += "qte facture=${flQte}, $refLabel=${rl.quantite}"
+                    }
+                    if (flPu != null && rl.prixUnitaireHt != null) {
+                        val diff = flPu.subtract(rl.prixUnitaireHt).abs()
+                        val base = rl.prixUnitaireHt.abs().max(BigDecimal.ONE)
+                        if (diff.divide(base, 6, RoundingMode.HALF_UP) > tol) {
+                            lineIssues += "PU facture=${flPu}, $refLabel=${rl.prixUnitaireHt}"
+                        }
+                    }
+                    if (flTotal != null && rl.montantHt != null) {
+                        val diff = flTotal.subtract(rl.montantHt).abs()
+                        if (diff > tol) lineIssues += "total facture=${flTotal}, $refLabel=${rl.montantHt}"
+                    }
+
+                    if (lineIssues.isEmpty()) {
+                        conformCount++
+                    } else {
+                        issues += "Ligne ${i + 1} « $flLabel » : ${lineIssues.joinToString("; ")}"
+                        r01gEvidences += evidence("trouve", "ligne${i + 1}",
+                            "Facture L${i + 1}: ${flLabel}", fDoc,
+                            "qte=${fl.quantite}, pu=${fl.prixUnitaireHt}, total=${fl.montantTotalHt}")
+                        r01gEvidences += evidence("attendu", "ligne${i + 1}",
+                            "$refLabel: ${rl.designation?.take(60)}", refDoc,
+                            "qte=${rl.quantite}, pu=${rl.prixUnitaireHt}, total=${rl.montantHt}")
+                    }
+                }
+
+                if (dossier.type == DossierType.BC) {
+                    val unmatchedRef = refLines.withIndex().filter { it.index !in used }
+                    for ((idx, rl) in unmatchedRef) {
+                        issues += "Ligne $refLabel ${idx + 1} « ${rl.designation?.take(50)} » absente de la facture"
+                    }
+                }
+
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R01g",
+                    libelle = "Correspondance ligne par ligne facture ↔ $refLabel",
+                    statut = if (issues.isEmpty()) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (issues.isEmpty())
+                        "${conformCount}/${facture.lignes.size} ligne(s) concordent"
+                    else
+                        "${conformCount}/${facture.lignes.size} concordent. " + issues.joinToString(" | "),
+                    evidences = r01gEvidences.ifEmpty { null }
+                )
+            }
+        }
+
         if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
             val grilles = contrat.grillesTarifaires
             if (grilles.isNotEmpty()) {
@@ -803,7 +962,9 @@ class ValidationEngine(
             "R16b" to listOf(TypeDocument.FACTURE),
             "R16c" to listOf(TypeDocument.FACTURE),
             "R01f" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R01g" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
             "R14" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT, TypeDocument.ATTESTATION_FISCALE),
+            "R14b" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
             "R17" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
             "R18" to listOf(TypeDocument.ATTESTATION_FISCALE),
             "R19" to listOf(TypeDocument.ATTESTATION_FISCALE),
@@ -1309,7 +1470,13 @@ class ValidationEngine(
     private fun normalizeCode(code: String): String =
         code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
 
-    private data class BcLigne(val designation: String?, val quantite: BigDecimal?, val prixUnitaireHt: BigDecimal?, val montantHt: BigDecimal?)
+    private data class BcLigne(
+        val codeArticle: String?,
+        val designation: String?,
+        val quantite: BigDecimal?,
+        val prixUnitaireHt: BigDecimal?,
+        val montantHt: BigDecimal?
+    )
 
     private fun parseBcLignes(doc: Document?): List<BcLigne> {
         val raw = doc?.donneesExtraites?.get("lignes") as? List<*> ?: return emptyList()
@@ -1317,12 +1484,58 @@ class ValidationEngine(
             @Suppress("UNCHECKED_CAST")
             val m = row as? Map<String, Any?> ?: return@mapNotNull null
             BcLigne(
+                codeArticle = (m["codeArticle"] as? String)?.trim()?.takeIf { it.isNotBlank() },
                 designation = (m["designation"] as? String)?.trim(),
                 quantite = toBd(m["quantite"]),
                 prixUnitaireHt = toBd(m["prixUnitaireHT"] ?: m["prixUnitaireHt"]),
                 montantHt = toBd(m["montantLigneHT"] ?: m["montantLigneHt"] ?: m["montantTotalHt"] ?: m["montantHT"])
             )
         }
+    }
+
+    private fun normalizeLabel(s: String?): String {
+        if (s.isNullOrBlank()) return ""
+        val nfd = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
+        return nfd
+            .replace(Regex("\\p{Mn}+"), "")
+            .replace(Regex("[^a-z0-9 ]+"), " ")
+            .replace(Regex("\\s+"), " ")
+            .trim()
+    }
+
+    private fun labelSimilarity(a: String?, b: String?): Double {
+        val na = normalizeLabel(a); val nb = normalizeLabel(b)
+        if (na.isBlank() || nb.isBlank()) return 0.0
+        if (na == nb) return 1.0
+        val ta = na.split(" ").filter { it.length > 1 }.toSet()
+        val tb = nb.split(" ").filter { it.length > 1 }.toSet()
+        if (ta.isEmpty() || tb.isEmpty()) return 0.0
+        val inter = ta.intersect(tb).size.toDouble()
+        val union = ta.union(tb).size.toDouble()
+        return inter / union
+    }
+
+    private fun findBestRefMatch(
+        fl: LigneFacture, refs: List<BcLigne>, used: Set<Int>
+    ): Pair<Int, BcLigne>? {
+        val flCode = fl.codeArticle?.trim()?.takeIf { it.isNotBlank() }
+        if (flCode != null) {
+            val exact = refs.withIndex().firstOrNull { (i, r) ->
+                i !in used && r.codeArticle != null && r.codeArticle.equals(flCode, ignoreCase = true)
+            }
+            if (exact != null) return exact.index to exact.value
+        }
+        var best: Pair<Int, BcLigne>? = null
+        var bestScore = 0.60
+        for ((i, r) in refs.withIndex()) {
+            if (i in used) continue
+            val score = labelSimilarity(fl.designation, r.designation)
+            if (score > bestScore) {
+                bestScore = score
+                best = i to r
+            }
+        }
+        return best
     }
 
     private fun toBd(v: Any?): BigDecimal? = when (v) {

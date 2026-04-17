@@ -1,8 +1,11 @@
 package com.madaef.recondoc.controller
 
 import com.madaef.recondoc.repository.ClaudeUsageRepository
+import com.madaef.recondoc.service.AppSettingsService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
+import org.springframework.web.bind.annotation.PutMapping
+import org.springframework.web.bind.annotation.RequestBody
 import org.springframework.web.bind.annotation.RequestMapping
 import org.springframework.web.bind.annotation.RequestParam
 import org.springframework.web.bind.annotation.RestController
@@ -17,19 +20,24 @@ import java.util.UUID
 @RestController
 @RequestMapping("/api/admin")
 class AdminController(
-    private val claudeUsageRepository: ClaudeUsageRepository
+    private val claudeUsageRepository: ClaudeUsageRepository,
+    private val appSettings: AppSettingsService
 ) {
 
     @GetMapping("/claude-usage/dossier/{dossierId}")
     fun usageForDossier(@PathVariable dossierId: UUID): Map<String, Any> {
         val raw = claudeUsageRepository.aggregateByDossier(dossierId)
         val row = if (raw.isNotEmpty() && raw[0] is Array<*>) raw[0] as Array<*> else raw
+        val inTok = (row[0] as? Number ?: 0).toLong()
+        val outTok = (row[1] as? Number ?: 0).toLong()
+        val calls = (row[2] as? Number ?: 0).toLong()
         return mapOf(
             "dossierId" to dossierId,
-            "inputTokens" to (row[0] as? Number ?: 0).toLong(),
-            "outputTokens" to (row[1] as? Number ?: 0).toLong(),
-            "calls" to (row[2] as? Number ?: 0).toLong(),
-            "avgDurationMs" to (row[3] as? Number ?: 0).toDouble()
+            "inputTokens" to inTok,
+            "outputTokens" to outTok,
+            "calls" to calls,
+            "avgDurationMs" to (row[3] as? Number ?: 0).toDouble(),
+            "estimatedCostUsd" to appSettings.estimateCostUsd(appSettings.getAiModel(), inTok, outTok)
         )
     }
 
@@ -46,6 +54,24 @@ class AdminController(
             "calls" to (s[2] as? Number ?: 0).toLong(),
             "errors" to (s[3] as? Number ?: 0).toLong()
         )
+    }
+
+    @GetMapping("/claude-usage/pricing")
+    fun pricing(): Map<String, Map<String, Double>> {
+        return appSettings.getAllPricing().mapValues { (_, p) ->
+            mapOf("input" to p.first, "output" to p.second)
+        }
+    }
+
+    data class PricingPayload(val model: String, val input: Double, val output: Double)
+
+    @PutMapping("/claude-usage/pricing")
+    fun updatePricing(@RequestBody payload: PricingPayload): Map<String, Any> {
+        require(payload.model.isNotBlank()) { "model required" }
+        require(payload.input >= 0 && payload.output >= 0) { "prices must be positive" }
+        appSettings.set("ai.price.${payload.model}.in", payload.input.toString())
+        appSettings.set("ai.price.${payload.model}.out", payload.output.toString())
+        return mapOf("model" to payload.model, "input" to payload.input, "output" to payload.output)
     }
 
     @GetMapping("/claude-usage/daily")

@@ -73,6 +73,15 @@ dependencies {
     implementation("com.google.zxing:core:3.5.3")
     implementation("com.google.zxing:javase:3.5.3")
 
+    // S3-compatible object storage (AWS, Wasabi, Backblaze B2, MinIO, Scaleway).
+    // Used only when storage.type=s3 — otherwise inert. BOM pins consistent versions.
+    implementation(platform("software.amazon.awssdk:bom:2.28.16"))
+    implementation("software.amazon.awssdk:s3")
+    implementation("software.amazon.awssdk:s3-transfer-manager")
+    implementation("software.amazon.awssdk:sts") {
+        because("required when using IAM role-based credentials (Railway envs fall back to static keys)")
+    }
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

@@ -288,6 +288,24 @@ export function getDocumentFileUrl(dossierId: string, docId: string): string {
   return `${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file`
 }
 
+/**
+ * If S3 storage is enabled on the backend, resolves to a short-lived presigned
+ * URL that the browser can hit directly against the bucket (no backend
+ * bandwidth). For filesystem storage, the /file-url endpoint returns 204 and
+ * we fall back to the byte-stream endpoint.
+ */
+export async function resolveDocumentUrl(dossierId: string, docId: string): Promise<string> {
+  try {
+    const res = await apiFetch(`${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file-url`)
+    if (res.status === 204) return getDocumentFileUrl(dossierId, docId)
+    if (!res.ok) return getDocumentFileUrl(dossierId, docId)
+    const data = (await res.json()) as { url?: string }
+    return data.url ?? getDocumentFileUrl(dossierId, docId)
+  } catch {
+    return getDocumentFileUrl(dossierId, docId)
+  }
+}
+
 export async function searchDossiers(params: {
   page?: number, size?: number, statut?: string, type?: string, fournisseur?: string, signal?: AbortSignal
 }): Promise<PageResponse<DossierListItem>> {

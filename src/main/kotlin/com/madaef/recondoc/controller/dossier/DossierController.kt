@@ -223,6 +223,19 @@ class DossierController(
             .body(resource)
     }
 
+    /**
+     * When S3 storage is enabled, returns a short-lived presigned URL the browser
+     * can GET directly against the bucket — no backend bandwidth consumed. For
+     * filesystem storage the response is 204 No Content, meaning "fall back to
+     * the byte-streaming endpoint above".
+     */
+    @GetMapping("/{id}/documents/{docId}/file-url")
+    fun documentPresignedUrl(@PathVariable id: UUID, @PathVariable docId: UUID): ResponseEntity<Map<String, String>> {
+        val url = dossierService.getDocumentPresignedUrl(id, docId)
+            ?: return ResponseEntity.noContent().build()
+        return ResponseEntity.ok(mapOf("url" to url))
+    }
+
     @GetMapping("/search")
     fun search(
         @RequestParam(required = false) statut: StatutDossier?,

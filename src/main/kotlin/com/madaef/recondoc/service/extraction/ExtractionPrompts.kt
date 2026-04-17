@@ -92,6 +92,7 @@ object ExtractionPrompts {
           "lignes": [
             {
               "numero": number,
+              "codeArticle": "string ou null (reference/code article imprime a gauche du libelle si present)",
               "designation": "string (description de l'article ou prestation)",
               "quantite": number,
               "unite": "string ou null (ex: unite, forfait, m2, jour, mois)",

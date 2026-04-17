@@ -6,7 +6,7 @@ import {
 } from 'lucide-react'
 import {
   getClaudeSummary, getClaudeDaily, getClaudeTopDossiers, getClaudeByModel,
-  estimateCostUsd, CLAUDE_PRICING,
+  estimateCostUsd, loadPricing, CLAUDE_PRICING,
   type ClaudeUsageSummary, type ClaudeUsageDay,
   type ClaudeUsageTopDossier, type ClaudeUsageByModel,
 } from '../api/adminApi'
@@ -66,6 +66,7 @@ export default function ClaudeUsagePage() {
       getClaudeDaily(days),
       getClaudeTopDossiers(days, 10),
       getClaudeByModel(days),
+      loadPricing(),
     ]).then(([s, d, t, m]) => {
       if (cancelled) return
       setSummary(s); setDaily(d); setTop(t); setByModel(m)

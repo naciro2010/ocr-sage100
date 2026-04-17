@@ -91,4 +91,42 @@ class AppSettingsService(
     fun hasValidAiConfig(): Boolean {
         return isAiEnabled() && getAiApiKey().isNotBlank()
     }
+
+    // --- Claude pricing ($ per 1M tokens). Defaults match Anthropic public pricing
+    // at the time of writing. Override per-model via keys ai.price.<model>.in / .out
+    // so finance can update rates when the contract changes, without a redeploy.
+
+    private val defaultPricing: Map<String, Pair<Double, Double>> = mapOf(
+        "claude-opus-4-7" to (15.0 to 75.0),
+        "claude-sonnet-4-6" to (3.0 to 15.0),
+        "claude-sonnet-4-5" to (3.0 to 15.0),
+        "claude-haiku-4-5-20251001" to (0.80 to 4.0)
+    )
+
+    private val fallbackPricing: Pair<Double, Double> = 3.0 to 15.0
+
+    fun getPricingForModel(model: String): Pair<Double, Double> {
+        val inKey = "ai.price.${model}.in"
+        val outKey = "ai.price.${model}.out"
+        val inPrice = get(inKey)?.toDoubleOrNull()
+            ?: defaultPricing[model]?.first
+            ?: fallbackPricing.first
+        val outPrice = get(outKey)?.toDoubleOrNull()
+            ?: defaultPricing[model]?.second
+            ?: fallbackPricing.second
+        return inPrice to outPrice
+    }
+
+    fun getAllPricing(): Map<String, Pair<Double, Double>> {
+        val configured = getByPrefix("ai.price.")
+        val models = (defaultPricing.keys + configured.keys
+            .mapNotNull { k -> k.removePrefix("ai.price.").substringBeforeLast(".").takeIf { it.isNotBlank() } })
+            .toSet()
+        return models.associateWith { getPricingForModel(it) }
+    }
+
+    fun estimateCostUsd(model: String, inputTokens: Long, outputTokens: Long): Double {
+        val (inPrice, outPrice) = getPricingForModel(model)
+        return (inputTokens / 1_000_000.0) * inPrice + (outputTokens / 1_000_000.0) * outPrice
+    }
 }

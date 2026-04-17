@@ -68,10 +68,22 @@ ocr:
     scale-dpi: ${OCR_SCALE_DPI:300}
   confidence-threshold: ${OCR_CONFIDENCE_THRESHOLD:30}
 
-# File storage
+# File storage. Default is "filesystem" (writes under ${STORAGE_DIR}).
+# Switch to "s3" on Railway to persist uploaded PDFs / images in an
+# S3-compatible bucket (AWS S3, Wasabi, Backblaze B2, Scaleway, MinIO).
+# The bucket becomes the source of truth; the local filesystem is used
+# only as a read-through cache to keep the OCR pipeline fast.
 storage:
+  type: ${STORAGE_TYPE:filesystem}
   upload-dir: ${STORAGE_DIR:uploads}
   extracts-subdir: ${STORAGE_EXTRACTS_SUBDIR:extracts}
+  s3:
+    bucket: ${S3_BUCKET:}
+    region: ${S3_REGION:eu-west-1}
+    endpoint: ${S3_ENDPOINT:}
+    access-key: ${S3_ACCESS_KEY:}
+    secret-key: ${S3_SECRET_KEY:}
+    force-path-style: ${S3_FORCE_PATH_STYLE:false}
 
 # Resilience4j — protect the app from Claude API failures & bursts.
 # Tuned for Sonnet 4.x Tier 1 limits; adjust via env if your plan differs.

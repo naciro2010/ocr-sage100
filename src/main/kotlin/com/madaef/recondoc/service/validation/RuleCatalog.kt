@@ -31,6 +31,8 @@ object RuleCatalog {
         Def("R10", "Coherence IF", "Verifie que l'identifiant fiscal est identique entre documents", "identifiants"),
         Def("R11", "Coherence RIB", "Verifie que le RIB de la facture correspond a celui de l'OP", "identifiants"),
         Def("R14", "Coherence fournisseur", "Verifie que le nom du fournisseur est coherent entre tous les documents", "identifiants"),
+        Def("R14b", "Attestation fiscale = fournisseur facture", "Non conforme si la raison sociale, l'ICE ou l'IF de l'attestation ne correspondent pas a la facture", "identifiants"),
+        Def("R01g", "Matching ligne par ligne facture ↔ BC/contrat", "Apparie chaque ligne de facture avec une ligne du BC (ou grille tarifaire du contrat) et compare quantite, PU HT et montant", "montants"),
         Def("R12", "Checklist autocontrole", "Agregat des 10 points CCF-EN-04", "documents"),
         Def("R13", "Tableau de controle", "Verifie que tous les points du TC sont Conforme ou NA", "documents"),
         Def("R17a", "Chronologie BC/Contrat → Facture", "Verifie que date BC/Contrat <= date facture", "dates"),

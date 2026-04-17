@@ -1,7 +1,8 @@
 import { apiFetch, handleResponse, API_URL } from './http'
 
-// Pricing ($ per 1M tokens). Estimates — the truth lives on Anthropic's
-// pricing page. Override via Settings if your contract differs.
+// Pricing ($ per 1M tokens). Fallback used when backend pricing endpoint is
+// unavailable. The backend (AppSettingsService) is the source of truth and
+// can be overridden via ai.price.<model>.in / .out in AppSetting.
 export const CLAUDE_PRICING: Record<string, { input: number; output: number }> = {
   'claude-opus-4-7':  { input: 15.0, output: 75.0 },
   'claude-sonnet-4-6': { input: 3.0,  output: 15.0 },
@@ -10,8 +11,33 @@ export const CLAUDE_PRICING: Record<string, { input: number; output: number }> =
   'default':          { input: 3.0,  output: 15.0 },
 }
 
+let pricingCache: Record<string, { input: number; output: number }> | null = null
+
+export async function loadPricing(force = false): Promise<Record<string, { input: number; output: number }>> {
+  if (pricingCache && !force) return pricingCache
+  try {
+    const res = await apiFetch(`${API_URL}/api/admin/claude-usage/pricing`)
+    const data = (await handleResponse(res)) as Record<string, { input: number; output: number }>
+    pricingCache = { ...CLAUDE_PRICING, ...data }
+  } catch {
+    pricingCache = { ...CLAUDE_PRICING }
+  }
+  return pricingCache
+}
+
+export async function savePricing(model: string, input: number, output: number): Promise<void> {
+  const res = await apiFetch(`${API_URL}/api/admin/claude-usage/pricing`, {
+    method: 'PUT',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ model, input, output }),
+  })
+  await handleResponse(res)
+  pricingCache = null
+}
+
 export function estimateCostUsd(model: string, inputTokens: number, outputTokens: number): number {
-  const p = CLAUDE_PRICING[model] ?? CLAUDE_PRICING.default
+  const table = pricingCache ?? CLAUDE_PRICING
+  const p = table[model] ?? table.default ?? CLAUDE_PRICING.default
   return (inputTokens / 1_000_000) * p.input + (outputTokens / 1_000_000) * p.output
 }
 
