@@ -32,17 +32,69 @@ class AdminController(
         )
     }
 
+    @GetMapping("/claude-usage/summary")
+    fun summary(@RequestParam(defaultValue = "30") days: Long): Map<String, Any> {
+        val since = LocalDateTime.now().minusDays(days)
+        val s = claudeUsageRepository.summarySince(since)
+        return mapOf(
+            "days" to days,
+            "since" to since.toLocalDate(),
+            "inputTokens" to (s[0] as Number).toLong(),
+            "outputTokens" to (s[1] as Number).toLong(),
+            "calls" to (s[2] as Number).toLong(),
+            "errors" to (s[3] as Number).toLong()
+        )
+    }
+
     @GetMapping("/claude-usage/daily")
     fun dailyUsage(@RequestParam(defaultValue = "30") days: Long): List<Map<String, Any>> {
         val since = LocalDateTime.now().minusDays(days)
         return claudeUsageRepository.dailyUsageSince(since).map { row ->
             mapOf(
-                "day" to (row[0] as java.sql.Date).toLocalDate(),
+                "day" to toLocalDate(row[0]),
                 "inputTokens" to (row[1] as Number).toLong(),
                 "outputTokens" to (row[2] as Number).toLong(),
                 "calls" to (row[3] as Number).toLong(),
                 "errors" to (row[4] as Number).toLong()
             )
         }
+    }
+
+    @GetMapping("/claude-usage/top-dossiers")
+    fun topDossiers(
+        @RequestParam(defaultValue = "30") days: Long,
+        @RequestParam(defaultValue = "10") limit: Int
+    ): List<Map<String, Any?>> {
+        val since = LocalDateTime.now().minusDays(days)
+        return claudeUsageRepository.topDossiersSince(since).take(limit.coerceIn(1, 100)).map { row ->
+            mapOf(
+                "dossierId" to row[0],
+                "reference" to row[1],
+                "fournisseur" to row[2],
+                "inputTokens" to (row[3] as Number).toLong(),
+                "outputTokens" to (row[4] as Number).toLong(),
+                "calls" to (row[5] as Number).toLong()
+            )
+        }
+    }
+
+    @GetMapping("/claude-usage/by-model")
+    fun byModel(@RequestParam(defaultValue = "30") days: Long): List<Map<String, Any?>> {
+        val since = LocalDateTime.now().minusDays(days)
+        return claudeUsageRepository.byModelSince(since).map { row ->
+            mapOf(
+                "model" to row[0],
+                "inputTokens" to (row[1] as Number).toLong(),
+                "outputTokens" to (row[2] as Number).toLong(),
+                "calls" to (row[3] as Number).toLong()
+            )
+        }
+    }
+
+    private fun toLocalDate(raw: Any?): java.time.LocalDate = when (raw) {
+        is java.sql.Date -> raw.toLocalDate()
+        is java.time.LocalDate -> raw
+        is java.time.LocalDateTime -> raw.toLocalDate()
+        else -> LocalDate.parse(raw.toString())
     }
 }

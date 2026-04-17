@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle, Users } from 'lucide-react'
+import { Activity, BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle, Users } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
 interface Props {
@@ -68,6 +68,11 @@ export default function Layout({ user, onLogout }: Props) {
           <li>
             <NavLink to="/fournisseurs">
               <Users size={16} /> <span>Fournisseurs</span>
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/admin/claude-usage">
+              <Activity size={16} /> <span>Consommation IA</span>
             </NavLink>
           </li>
           <li>
