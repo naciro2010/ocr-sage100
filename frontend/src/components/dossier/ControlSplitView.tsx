@@ -461,12 +461,13 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 }
 
 /* ===== RIGHT PANEL (inline PDF viewer) ===== */
-function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc }: {
+function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc, onClose }: {
   dossierId: string
   docId: string | null
   documents: DocumentInfo[]
   highlightField: string | null
   onChangeDoc: (id: string) => void
+  onClose: () => void
 }) {
   const activeDoc = docId ? documents.find(d => d.id === docId) : null
   const apiUrl = useMemo(() => activeDoc ? getDocumentFileUrl(dossierId, activeDoc.id) : null, [dossierId, activeDoc])
@@ -515,6 +516,10 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc }
         <button className="btn btn-secondary btn-sm" title="Telecharger"
           onClick={() => downloadWithAuth(getDocumentFileUrl(dossierId, activeDoc.id), activeDoc.nomFichier)}>
           <Download size={12} />
+        </button>
+        <button className="btn btn-secondary btn-sm" title="Fermer le document"
+          onClick={onClose} aria-label="Fermer le document">
+          <X size={12} />
         </button>
       </div>
       <div className="preview-body">
@@ -691,30 +696,29 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
 
   return (
     <div className="ctrl-view">
-      {/* Hero */}
+      {/* Compact hero — single band */}
       <section className="ctrl-hero">
-        <div className="ctrl-hero-top">
-          <div className="ctrl-hero-id">
-            <span className="ctrl-hero-eyebrow">Verification du dossier</span>
+        <div className="ctrl-hero-main">
+          <div className="ctrl-hero-text">
             <h2 className="ctrl-hero-title">{headline}</h2>
-            {hasResults && (
-              <div className="ctrl-hero-sub">
-                <span><strong>{pctOk}%</strong> conformes</span>
-                <span className="ctrl-hero-dot" aria-hidden="true" />
-                <span>{counts.total} controles</span>
-                {lastRunLabel && (
-                  <>
-                    <span className="ctrl-hero-dot" aria-hidden="true" />
-                    <span>Derniere verification {lastRunLabel}</span>
-                  </>
-                )}
+            {hasResults ? (
+              <div className="ctrl-hero-stats-inline">
+                <span><strong>{counts.ok}</strong>/<span className="ctrl-hero-total">{counts.total}</span> conformes</span>
+                {counts.ko > 0 && <span className="ctrl-hero-pill pill-ko">{counts.ko} KO</span>}
+                {counts.warn > 0 && <span className="ctrl-hero-pill pill-warn">{counts.warn} avertissements</span>}
+                {counts.pending > 0 && <span className="ctrl-hero-muted">{counts.pending} en attente</span>}
+                {lastRunLabel && <span className="ctrl-hero-muted">Derniere verification {lastRunLabel}</span>}
+              </div>
+            ) : (
+              <div className="ctrl-hero-stats-inline ctrl-hero-muted">
+                Lancez la verification pour executer les controles systeme et la checklist autocontrole.
               </div>
             )}
           </div>
           <div className="ctrl-hero-actions-top">
             {counts.ko + counts.warn > 0 && (
               <button className="ctrl-btn-ghost" onClick={jumpToFirstProblem}>
-                Aller au 1er probleme →
+                Aller au probleme →
               </button>
             )}
             <button className="ctrl-btn-primary" onClick={onValidate} disabled={validating}>
@@ -723,28 +727,6 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
             </button>
           </div>
         </div>
-
-        <dl className="ctrl-hero-stats">
-          <div className="ctrl-stat">
-            <dt>Conformes</dt>
-            <dd>
-              <span className="ctrl-stat-num">{counts.ok}</span>
-              <span className="ctrl-stat-total">/ {counts.total}</span>
-            </dd>
-          </div>
-          <div className="ctrl-stat ctrl-stat-ko">
-            <dt>Non conformes</dt>
-            <dd><span className="ctrl-stat-num">{counts.ko}</span></dd>
-          </div>
-          <div className="ctrl-stat ctrl-stat-warn">
-            <dt>Avertissements</dt>
-            <dd><span className="ctrl-stat-num">{counts.warn}</span></dd>
-          </div>
-          <div className="ctrl-stat">
-            <dt>En attente</dt>
-            <dd><span className="ctrl-stat-num">{counts.pending}</span></dd>
-          </div>
-        </dl>
 
         {counts.total > 0 && (
           <div className="ctrl-hero-bar" role="img" aria-label={`${counts.ok} conformes, ${counts.ko} non conformes, ${counts.warn} avertissements sur ${counts.total}`}>
@@ -755,8 +737,8 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         )}
       </section>
 
-      {/* 3-column split */}
-      <div className="ctrl-split">
+      {/* Split: 2 columns by default, 3 when a doc preview is open */}
+      <div className={`ctrl-split ${previewDocId ? 'with-preview' : ''}`}>
         <LeftPanel items={items} selectedKey={selectedKey} onSelect={setSelectedKey}
           filterMode={filterMode} onFilterChange={setFilterMode} counts={counts}
           search={search} onSearchChange={setSearch} />
@@ -766,9 +748,12 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
           onRerunRule={handleRerunRule} onOptimisticUpdate={onOptimisticUpdate}
           onOpenDoc={handleOpenDoc} cascadeScope={cascadeScope} rerunning={rerunning} />
 
-        <RightPanel dossierId={dossierId} docId={previewDocId}
-          documents={dossier.documents} highlightField={highlightField}
-          onChangeDoc={(id) => { setPreviewDocId(id); setHighlightField(null) }} />
+        {previewDocId && (
+          <RightPanel dossierId={dossierId} docId={previewDocId}
+            documents={dossier.documents} highlightField={highlightField}
+            onChangeDoc={(id) => { setPreviewDocId(id); setHighlightField(null) }}
+            onClose={() => { setPreviewDocId(null); setHighlightField(null) }} />
+        )}
       </div>
     </div>
   )
