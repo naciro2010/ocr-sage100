@@ -1,7 +1,7 @@
 import { memo, useRef, useState, useCallback, useEffect } from 'react'
 import type { DossierDetail, DocumentInfo, TypeDocument } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
-import { uploadDocuments, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
+import { uploadDocuments, uploadZip, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
 import { useToast } from '../Toast'
 import DocumentPipeline from '../DocumentPipeline'
 import ExtractedDataView from './ExtractedDataView'
@@ -21,6 +21,7 @@ interface Props {
 export default memo(function DocumentManager({ dossier, id, liveProgress, onReload, onReloadAudit }: Props) {
   const { toast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
+  const zipInputRef = useRef<HTMLInputElement>(null)
   const [uploading, setUploading] = useState(false)
   const [dragging, setDragging] = useState(false)
   const [selectedDoc, setSelectedDoc] = useState<DocumentInfo | null>(null)
@@ -55,6 +56,21 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
     if (files.length > 0) handleUpload(files)
     else toast('warning', 'Seuls les fichiers PDF sont acceptes')
   }, [handleUpload, toast])
+
+  const handleZipUpload = useCallback(async (file: File | null) => {
+    if (!file) return
+    setUploading(true)
+    try {
+      const res = await uploadZip(id, file)
+      const { accepted, deduped, skipped } = res.stats
+      const dedupeSuffix = deduped > 0 ? `, ${deduped} doublon(s)` : ''
+      const skipSuffix = skipped > 0 ? `, ${skipped} ignore(s)` : ''
+      toast('success', `${accepted - deduped} document(s) ajoute(s)${dedupeSuffix}${skipSuffix}`)
+      onReload()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Upload ZIP failed')
+    } finally { setUploading(false) }
+  }, [id, onReload, toast])
 
   const handleReprocess = useCallback(async (docId: string) => {
     try {
@@ -251,6 +267,18 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             <input ref={inputRef} type="file" accept=".pdf" multiple hidden onChange={e => handleUpload(e.target.files)} />
             {uploading ? <Loader2 size={22} className="spin" style={{ color: 'var(--teal-600)' }} /> : <Upload size={22} style={{ color: 'var(--slate-400)' }} />}
             <span style={{ fontSize: 12, color: 'var(--slate-500)', marginTop: 6 }}>{uploading ? 'Upload...' : 'Ajouter des PDFs'}</span>
+            <button
+              type="button"
+              className="btn btn-secondary btn-sm"
+              style={{ marginTop: 8 }}
+              disabled={uploading}
+              onClick={e => { e.stopPropagation(); zipInputRef.current?.click() }}
+              title="Importer un ZIP : tous les PDF/images dedans deviennent des documents du dossier"
+            >
+              <Upload size={12} /> ou un ZIP
+            </button>
+            <input ref={zipInputRef} type="file" accept=".zip" hidden
+              onChange={e => { const f = e.target.files?.[0] ?? null; handleZipUpload(f); e.target.value = '' }} />
           </div>
         </div>
       </div>

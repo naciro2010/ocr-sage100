@@ -30,6 +30,13 @@ data class ChangeStatutRequest(
     val validePar: String? = null
 )
 
+data class BulkStatutRequest(
+    @field:NotNull val ids: List<UUID>,
+    @field:NotNull val statut: StatutDossier,
+    val motifRejet: String? = null,
+    val validePar: String? = null
+)
+
 data class DashboardStatsResponse(
     val total: Long,
     val brouillons: Long,
@@ -181,10 +188,11 @@ fun DossierPaiement.toListResponse(): DossierListResponse {
     )
 }
 
-fun Document.toResponse(): DocumentResponse = DocumentResponse(
+fun Document.toResponse(includeExtractedData: Boolean = true): DocumentResponse = DocumentResponse(
     id = id!!, typeDocument = typeDocument, nomFichier = nomFichier,
     statutExtraction = statutExtraction, erreurExtraction = erreurExtraction,
-    dateUpload = dateUpload, donneesExtraites = donneesExtraites,
+    dateUpload = dateUpload,
+    donneesExtraites = if (includeExtractedData) donneesExtraites else null,
     ocrEngine = ocrEngine, ocrConfidence = ocrConfidence,
     extractionConfidence = extractionConfidence,
     extractionWarnings = extractionWarnings?.split("||")?.filter { it.isNotBlank() } ?: emptyList()

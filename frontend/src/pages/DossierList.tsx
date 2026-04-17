@@ -1,13 +1,14 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, openWithAuth, getDossierSummary, getDocumentsWithData } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, getExportExcelUrl, openWithAuth, downloadWithAuth, getDossierSummary, getDocumentsWithData, bulkChangeStatut } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
+import DocumentSearchModal from '../components/dossier/DocumentSearchModal'
 import {
   FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2,
-  X, Trash2, Upload, Download, FileText, Search, Filter
+  X, Trash2, Upload, Download, FileText, Search, Filter, CheckCircle2, XCircle
 } from 'lucide-react'
 
 const STATUT_CHIPS = [
@@ -49,6 +50,9 @@ export default function DossierList() {
   const [dragging, setDragging] = useState(false)
   const [quickUploading, setQuickUploading] = useState(false)
   const [showFilters, setShowFilters] = useState(false)
+  const [showDocSearch, setShowDocSearch] = useState(false)
+  const [selected, setSelected] = useState<Set<string>>(new Set())
+  const [bulkBusy, setBulkBusy] = useState(false)
   const dropInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const navigate = useNavigate()
@@ -120,6 +124,31 @@ export default function DossierList() {
       toast('error', e instanceof Error ? e.message : 'Erreur de suppression')
     }
   }
+
+  const toggleSelected = useCallback((id: string) => {
+    setSelected(prev => {
+      const next = new Set(prev)
+      if (next.has(id)) next.delete(id); else next.add(id)
+      return next
+    })
+  }, [])
+
+  const handleBulkStatut = useCallback(async (statut: 'VALIDE' | 'REJETE') => {
+    if (selected.size === 0) return
+    setBulkBusy(true)
+    try {
+      const ids = Array.from(selected)
+      const motifRejet = statut === 'REJETE' ? 'Rejet en lot' : undefined
+      const results = await bulkChangeStatut(ids, statut, motifRejet)
+      const ok = results.filter(r => r.ok).length
+      const ko = results.length - ok
+      toast(ko === 0 ? 'success' : 'warning', `${ok} OK · ${ko} en erreur`)
+      setSelected(new Set())
+      load()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur bulk')
+    } finally { setBulkBusy(false) }
+  }, [selected, toast, load])
 
   const prefetchedRef = useRef(new Set<string>())
   const handlePrefetch = useCallback((dossierId: string) => {
@@ -276,8 +305,30 @@ export default function DossierList() {
             onClick={() => setShowFilters(!showFilters)} aria-label="Plus de filtres">
             <Filter size={14} />
           </button>
+          <button className="btn btn-secondary btn-sm" title="Recherche full-text dans les documents"
+            onClick={() => setShowDocSearch(true)} aria-label="Rechercher dans les documents">
+            <Search size={14} /> Documents
+          </button>
         </div>
       </div>
+
+      {selected.size > 0 && (
+        <div className="card mb-3" style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '8px 12px' }}>
+          <span style={{ fontSize: 13 }}>{selected.size} dossier(s) selectionne(s)</span>
+          <div style={{ flex: 1 }} />
+          <button className="btn btn-secondary btn-sm" disabled={bulkBusy}
+            onClick={() => handleBulkStatut('VALIDE')}>
+            <CheckCircle2 size={14} /> Valider
+          </button>
+          <button className="btn btn-secondary btn-sm" disabled={bulkBusy}
+            onClick={() => handleBulkStatut('REJETE')}>
+            <XCircle size={14} /> Rejeter
+          </button>
+          <button className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())}>
+            <X size={14} />
+          </button>
+        </div>
+      )}
 
       {/* Extended filters */}
       {showFilters && (
@@ -317,6 +368,22 @@ export default function DossierList() {
           <table className="data-table">
             <thead>
               <tr>
+                <th style={{ width: 28 }}>
+                  <input
+                    type="checkbox"
+                    aria-label="Tout selectionner"
+                    checked={!!sorted?.length && sorted.every(d => selected.has(d.id))}
+                    onChange={e => {
+                      if (!sorted) return
+                      setSelected(prev => {
+                        const next = new Set(prev)
+                        if (e.target.checked) sorted.forEach(d => next.add(d.id))
+                        else sorted.forEach(d => next.delete(d.id))
+                        return next
+                      })
+                    }}
+                  />
+                </th>
                 {TABLE_COLUMNS.map(col => (
                   <th key={col.key} style={{ cursor: 'pointer', userSelect: 'none' }}
                     onClick={() => { setSortKey(col.key); setSortDir(prev => sortKey === col.key ? (prev === 'asc' ? 'desc' : 'asc') : 'desc') }}>
@@ -332,6 +399,11 @@ export default function DossierList() {
                 const isFinalized = d.statut === 'VALIDE'
                 return (
                   <tr key={d.id} onMouseEnter={() => handlePrefetch(d.id)}>
+                    <td onClick={e => e.stopPropagation()}>
+                      <input type="checkbox" aria-label={`Selectionner ${d.reference}`}
+                        checked={selected.has(d.id)}
+                        onChange={() => toggleSelected(d.id)} />
+                    </td>
                     <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
                     <td>{d.fournisseur || '\u2014'}</td>
                     <td><span className="tag">{d.type}</span></td>
@@ -351,6 +423,10 @@ export default function DossierList() {
                               onClick={e => { e.preventDefault(); openWithAuth(getExportOPUrl(d.id)) }} aria-label="Telecharger OP">
                               <Download size={12} />
                             </button>
+                            <button className="btn btn-secondary btn-sm" title="Excel reporting"
+                              onClick={e => { e.preventDefault(); downloadWithAuth(getExportExcelUrl(d.id), `${d.reference}.xlsx`) }} aria-label="Telecharger Excel">
+                              <Download size={12} />
+                            </button>
                           </>
                         )}
                         <button
@@ -366,7 +442,7 @@ export default function DossierList() {
                 )
               })}
               {data?.content.length === 0 && (
-                <tr><td colSpan={8} className="empty-text">
+                <tr><td colSpan={9} className="empty-text">
                   {hasFilters ? 'Aucun dossier ne correspond aux filtres' : 'Aucun dossier'}
                 </td></tr>
               )}
@@ -382,6 +458,8 @@ export default function DossierList() {
           )}
         </div>
       )}
+
+      <DocumentSearchModal open={showDocSearch} onClose={() => setShowDocSearch(false)} />
     </div>
   )
 }

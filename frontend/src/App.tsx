@@ -12,6 +12,7 @@ const FournisseurList = lazy(() => import('./pages/FournisseurList'))
 const FournisseurDetail = lazy(() => import('./pages/FournisseurDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
 const Finalize = lazy(() => import('./pages/Finalize'))
+const ClaudeUsage = lazy(() => import('./pages/ClaudeUsage'))
 const NotFound = lazy(() => import('./pages/NotFound'))
 
 interface User { id: number; email: string; nom: string; role: string }
@@ -49,6 +50,7 @@ export default function App() {
                 <Route path="/dossiers/:id/finalize" element={<Finalize />} />
                 <Route path="/fournisseurs" element={<FournisseurList />} />
                 <Route path="/fournisseurs/:nom" element={<FournisseurDetail />} />
+                <Route path="/admin/claude-usage" element={<ClaudeUsage />} />
                 <Route path="/settings" element={<Settings />} />
                 <Route path="*" element={<NotFound />} />
               </Route>

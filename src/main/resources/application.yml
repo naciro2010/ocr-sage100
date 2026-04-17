@@ -71,16 +71,53 @@ ocr:
 # File storage
 storage:
   upload-dir: ${STORAGE_DIR:uploads}
+  extracts-subdir: ${STORAGE_EXTRACTS_SUBDIR:extracts}
+
+# Resilience4j — protect the app from Claude API failures & bursts.
+# Tuned for Sonnet 4.x Tier 1 limits; adjust via env if your plan differs.
+resilience4j:
+  circuitbreaker:
+    instances:
+      claude:
+        registerHealthIndicator: true
+        slidingWindowType: COUNT_BASED
+        slidingWindowSize: 20
+        minimumNumberOfCalls: 10
+        failureRateThreshold: 50
+        slowCallRateThreshold: 80
+        slowCallDurationThreshold: 60s
+        waitDurationInOpenState: 30s
+        permittedNumberOfCallsInHalfOpenState: 3
+        automaticTransitionFromOpenToHalfOpenEnabled: true
+  ratelimiter:
+    instances:
+      claude:
+        limitForPeriod: ${CLAUDE_RATE_LIMIT:30}
+        limitRefreshPeriod: 60s
+        timeoutDuration: 5s
+  bulkhead:
+    instances:
+      claude:
+        maxConcurrentCalls: ${CLAUDE_MAX_CONCURRENT:10}
+        maxWaitDuration: 2s
 
 # Actuator
 management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,metrics,prometheus
   endpoint:
     health:
-      show-details: never
+      show-details: when-authorized
+      show-components: always
+      probes:
+        enabled: true
+  health:
+    db:
+      enabled: true
+    diskspace:
+      enabled: true
 
   jackson:
     default-property-inclusion: non_null

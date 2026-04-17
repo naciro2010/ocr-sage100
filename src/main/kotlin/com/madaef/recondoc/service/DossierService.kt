@@ -7,6 +7,8 @@ import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.storage.ExtractStorage
+import com.madaef.recondoc.service.validation.RuleConfigCache
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.slf4j.LoggerFactory
 import org.springframework.beans.factory.annotation.Value
@@ -50,6 +52,8 @@ class DossierService(
     private val auditLogRepo: AuditLogRepository,
     private val ruleConfigRepo: RuleConfigRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
+    private val ruleConfigCache: RuleConfigCache,
+    private val extractStorage: ExtractStorage,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -82,7 +86,7 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
-    fun getDossierResponse(id: UUID): DossierResponse {
+    fun getDossierResponse(id: UUID, light: Boolean = false): DossierResponse {
         val dossier = getDossier(id)
         // Load only what we need: documents, factures, validation results
         val documents = documentRepo.findByDossierId(id)
@@ -92,7 +96,9 @@ class DossierService(
         // Build donneesExtraites map by type from documents (avoids loading 7 entity tables)
         val byType = documents.groupBy { it.typeDocument }
         fun extractedFor(type: TypeDocument): Map<String, Any?>? =
-            byType[type]?.firstOrNull()?.donneesExtraites
+            if (light) null else byType[type]?.firstOrNull()?.donneesExtraites
+
+        val factureMaps = if (light) emptyList() else factures.map { factureToMap(it) }
 
         return DossierResponse(
             id = dossier.id!!, reference = dossier.reference,
@@ -102,9 +108,9 @@ class DossierService(
             montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
             dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
             validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            documents = documents.map { it.toResponse() },
-            facture = factures.firstOrNull()?.let { factureToMap(it) },
-            factures = factures.map { factureToMap(it) },
+            documents = documents.map { it.toResponse(includeExtractedData = !light) },
+            facture = factureMaps.firstOrNull(),
+            factures = factureMaps,
             bonCommande = extractedFor(TypeDocument.BON_COMMANDE),
             contratAvenant = extractedFor(TypeDocument.CONTRAT_AVENANT),
             ordrePaiement = extractedFor(TypeDocument.ORDRE_PAIEMENT),
@@ -114,6 +120,20 @@ class DossierService(
             attestationFiscale = extractedFor(TypeDocument.ATTESTATION_FISCALE),
             resultatsValidation = resultats.map { it.toResponse() }
         )
+    }
+
+    @Transactional(readOnly = true)
+    fun getDocumentExtractedData(dossierId: UUID, documentId: UUID): Map<String, Any?>? {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
+        return doc.donneesExtraites
+    }
+
+    @Transactional(readOnly = true)
+    fun getDocumentOcrText(dossierId: UUID, documentId: UUID): String? {
+        val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
+        require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
+        return loadStoredText(doc)
     }
 
     @Transactional(readOnly = true)
@@ -300,16 +320,30 @@ class DossierService(
         val uploadPath = Path.of(uploadDir, dossierId.toString())
         Files.createDirectories(uploadPath)
 
-        return files.map { file ->
+        var dedupedCount = 0
+        val responses = files.map { file ->
+            val bytes = file.bytes
+            val hash = sha256(bytes)
+
+            // Same file already uploaded in this dossier? Reuse the existing document
+            // and skip the OCR + Claude pipeline. Saves cost and avoids duplicate rows.
+            val existing = documentRepo.findFirstByDossierIdAndFileHash(dossierId, hash)
+            if (existing != null) {
+                dedupedCount++
+                log.info("Duplicate upload detected (hash={}, doc={}), reusing existing", hash.take(8), existing.id)
+                return@map existing.toResponse()
+            }
+
             val fileName = "${System.currentTimeMillis()}_${file.originalFilename}"
             val filePath = uploadPath.resolve(fileName)
-            file.transferTo(filePath)
+            Files.write(filePath, bytes)
 
             val doc = Document(
                 dossier = dossier,
                 typeDocument = typeDocument ?: TypeDocument.INCONNU,
                 nomFichier = file.originalFilename ?: "unknown",
-                cheminFichier = filePath.toString()
+                cheminFichier = filePath.toString(),
+                fileHash = hash
             )
             documentRepo.save(doc)
 
@@ -317,9 +351,162 @@ class DossierService(
             eventPublisher.publishEvent(DocumentUploadedEvent(doc.id!!, dossierId))
 
             doc.toResponse()
-        }.also {
-            audit(dossierId, "UPLOAD_DOCUMENTS", "${files.size} document(s)")
         }
+        val newCount = files.size - dedupedCount
+        audit(dossierId, "UPLOAD_DOCUMENTS",
+            if (dedupedCount > 0) "${newCount} nouveau(x), ${dedupedCount} doublon(s) ignore(s)"
+            else "$newCount document(s)")
+        return responses
+    }
+
+    private fun sha256(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Accept a ZIP archive and ingest each contained PDF/image as a document of
+     * the dossier. Skips manifests, hidden files, and anything bigger than 50 MB
+     * (same limit as direct upload). Returns one DocumentResponse per file.
+     */
+    @Transactional
+    fun uploadZip(dossierId: UUID, zipFile: MultipartFile, typeDocument: TypeDocument?): Map<String, Any> {
+        val dossier = getDossier(dossierId)
+        val uploadPath = Path.of(uploadDir, dossierId.toString())
+        Files.createDirectories(uploadPath)
+
+        val accepted = mutableListOf<DocumentResponse>()
+        var skipped = 0
+        var deduped = 0
+        val maxBytes = 50L * 1024 * 1024
+
+        java.util.zip.ZipInputStream(zipFile.inputStream).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                val basename = name.substringAfterLast('/')
+                val isAcceptable = !entry.isDirectory &&
+                    !basename.startsWith(".") &&
+                    !basename.startsWith("__MACOSX") &&
+                    basename.lowercase().let { it.endsWith(".pdf") || it.endsWith(".png") ||
+                        it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".tif") || it.endsWith(".tiff") }
+                if (!isAcceptable) {
+                    skipped++
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val bytes = zis.readNBytes(maxBytes.toInt() + 1)
+                if (bytes.size > maxBytes) {
+                    log.warn("Skipping {} from ZIP: too large ({} bytes)", name, bytes.size)
+                    skipped++
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val hash = sha256(bytes)
+                val existing = documentRepo.findFirstByDossierIdAndFileHash(dossierId, hash)
+                if (existing != null) {
+                    deduped++
+                    accepted.add(existing.toResponse())
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val storedName = "${System.currentTimeMillis()}_$basename"
+                val filePath = uploadPath.resolve(storedName)
+                Files.write(filePath, bytes)
+                val doc = Document(
+                    dossier = dossier,
+                    typeDocument = typeDocument ?: TypeDocument.INCONNU,
+                    nomFichier = basename,
+                    cheminFichier = filePath.toString(),
+                    fileHash = hash
+                )
+                documentRepo.save(doc)
+                eventPublisher.publishEvent(DocumentUploadedEvent(doc.id!!, dossierId))
+                accepted.add(doc.toResponse())
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+
+        audit(dossierId, "UPLOAD_ZIP",
+            "${accepted.size - deduped} nouveau(x), $deduped doublon(s), $skipped ignore(s)")
+        return mapOf(
+            "documents" to accepted,
+            "stats" to mapOf("accepted" to accepted.size, "deduped" to deduped, "skipped" to skipped)
+        )
+    }
+
+    /**
+     * Apply the same status transition to several dossiers at once. Returns a
+     * per-dossier outcome so the UI can show a summary (X validated, Y errors).
+     */
+    @Transactional
+    fun bulkChangeStatut(ids: List<UUID>, request: ChangeStatutRequest): List<Map<String, Any?>> {
+        return ids.map { id ->
+            try {
+                changeStatut(id, request)
+                mapOf<String, Any?>("id" to id, "ok" to true)
+            } catch (e: Exception) {
+                mapOf<String, Any?>("id" to id, "ok" to false, "error" to (e.message ?: e.javaClass.simpleName))
+            }
+        }
+    }
+
+    /**
+     * Compare key fields across the documents of a dossier (Facture, BC, Contrat,
+     * OP) to spot inconsistencies at a glance. Returns one row per logical field
+     * (montantTTC, ICE, RIB, etc.) with the value from each source and a
+     * conflict flag.
+     */
+    @Transactional(readOnly = true)
+    fun compareDocuments(dossierId: UUID): Map<String, Any> {
+        val docs = documentRepo.findByDossierId(dossierId)
+        fun extracted(type: TypeDocument): Map<String, Any?> =
+            docs.firstOrNull { it.typeDocument == type }?.donneesExtraites ?: emptyMap()
+
+        val facture = extracted(TypeDocument.FACTURE)
+        val bc = extracted(TypeDocument.BON_COMMANDE)
+        val contrat = extracted(TypeDocument.CONTRAT_AVENANT)
+        val op = extracted(TypeDocument.ORDRE_PAIEMENT)
+
+        // (display label, key in each source map). Use lookup-with-aliases to
+        // tolerate slight naming drift between extracted JSON shapes.
+        val rows = listOf(
+            "Fournisseur" to listOf("fournisseur", "beneficiaire", "raisonSociale"),
+            "ICE" to listOf("ice"),
+            "Identifiant fiscal" to listOf("identifiantFiscal", "if"),
+            "RIB" to listOf("rib"),
+            "Reference facture" to listOf("numeroFacture", "referenceFacture"),
+            "Reference BC / contrat" to listOf("reference", "referenceContrat", "referenceBcOuContrat"),
+            "Montant HT" to listOf("montantHT"),
+            "Montant TVA" to listOf("montantTVA"),
+            "Taux TVA" to listOf("tauxTVA"),
+            "Montant TTC" to listOf("montantTTC", "montantOperation")
+        )
+
+        val sources = mapOf(
+            "FACTURE" to facture, "BON_COMMANDE" to bc,
+            "CONTRAT_AVENANT" to contrat, "ORDRE_PAIEMENT" to op
+        )
+
+        val out = rows.map { (label, keys) ->
+            val perSource = sources.mapValues { (_, data) ->
+                keys.firstNotNullOfOrNull { k -> data[k]?.takeIf { it.toString().isNotBlank() }?.toString() }
+            }
+            val distinctNonNull = perSource.values.filterNotNull().map { it.lowercase().trim() }.toSet()
+            mapOf(
+                "label" to label,
+                "values" to perSource,
+                "conflict" to (distinctNonNull.size > 1)
+            )
+        }
+        return mapOf(
+            "dossierId" to dossierId,
+            "rows" to out
+        )
     }
 
     @Transactional
@@ -329,6 +516,7 @@ class DossierService(
         log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
         // Delete file on disk if exists
         try { val path = Path.of(doc.cheminFichier); if (Files.exists(path)) Files.delete(path) } catch (_: Exception) {}
+        doc.texteExtraitKey?.let { extractStorage.delete(it) }
         documentRepo.delete(doc)
         audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
     }
@@ -355,14 +543,17 @@ class DossierService(
             val result = ocrService.extractWithDetails(Files.newInputStream(path), doc.nomFichier, path)
             log.info("Re-extracted {} chars from {} via {}", result.text.length, doc.nomFichier, result.engine)
             result
-        } else if (!doc.texteExtrait.isNullOrBlank()) {
-            log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, doc.texteExtrait!!.length)
-            OcrService.OcrResult(text = doc.texteExtrait!!, engine = OcrService.OcrEngine.TIKA)
         } else {
-            log.error("No file and no stored text for {}", doc.nomFichier)
-            doc.statutExtraction = StatutExtraction.ERREUR
-            doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
-            return
+            val fallback = loadStoredText(doc)
+            if (!fallback.isNullOrBlank()) {
+                log.info("File gone, using stored text for {} ({} chars)", doc.nomFichier, fallback.length)
+                OcrService.OcrResult(text = fallback, engine = OcrService.OcrEngine.TIKA)
+            } else {
+                log.error("No file and no stored text for {}", doc.nomFichier)
+                doc.statutExtraction = StatutExtraction.ERREUR
+                doc.erreurExtraction = "Fichier introuvable et aucun texte stocke"
+                return
+            }
         }
 
         // Persist OCR metadata
@@ -371,6 +562,32 @@ class DossierService(
         doc.ocrPageCount = ocrResult.pageCount
 
         processDocumentWithText(doc, ocrResult, skipClassification)
+    }
+
+    private fun persistExtract(doc: Document, rawText: String) {
+        val dossierId = doc.dossier.id!!
+        val documentId = doc.id ?: run {
+            // Should never happen: processDocument loads a saved Document. Keep the
+            // inline fallback to avoid losing data if it does.
+            doc.texteExtrait = rawText
+            return
+        }
+        try {
+            doc.texteExtraitKey = extractStorage.write(dossierId, documentId, rawText)
+            doc.texteExtrait = null
+        } catch (e: Exception) {
+            log.warn("Failed to offload extract for {}, keeping inline: {}", doc.nomFichier, e.message)
+            doc.texteExtrait = rawText
+        }
+    }
+
+    private fun loadStoredText(doc: Document): String? {
+        doc.texteExtraitKey?.let { key ->
+            val text = extractStorage.read(key)
+            if (!text.isNullOrBlank()) return text
+            log.warn("texte_extrait_key {} set on {} but extract missing on storage", key, doc.nomFichier)
+        }
+        return doc.texteExtrait
     }
 
     private fun emitProgress(doc: Document, step: String, statut: String, detail: String? = null) {
@@ -388,6 +605,11 @@ class DossierService(
         doc.statutExtraction = StatutExtraction.EN_COURS
         emitProgress(doc, "ocr", "active", "Extraction du texte...")
 
+        // Populate MDC so JSON logs and ClaudeUsage can correlate calls back
+        // to the dossier/document without threading context through every API.
+        org.slf4j.MDC.put("dossierId", doc.dossier.id.toString())
+        org.slf4j.MDC.put("documentId", doc.id.toString())
+
         try {
             if (rawText.isBlank()) {
                 doc.statutExtraction = StatutExtraction.ERREUR
@@ -396,7 +618,7 @@ class DossierService(
                 return
             }
 
-            doc.texteExtrait = rawText
+            persistExtract(doc, rawText)
             emitProgress(doc, "ocr", "done", "${rawText.length} caracteres")
 
             emitProgress(doc, "classify", "active", "Classification...")
@@ -479,6 +701,9 @@ class DossierService(
             log.error("Extraction failed for document {}: {}", doc.nomFichier, e.message, e)
             doc.statutExtraction = StatutExtraction.ERREUR
             doc.erreurExtraction = e.message
+        } finally {
+            org.slf4j.MDC.remove("dossierId")
+            org.slf4j.MDC.remove("documentId")
         }
     }
 
@@ -501,8 +726,8 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getRuleConfig(dossierId: UUID): Map<String, Any> {
-        val globals = ruleConfigRepo.findAll().associate { it.regle to it.enabled }
-        val overrides = overrideRepo.findByDossierId(dossierId).associate { it.regle to it.enabled }
+        val globals = ruleConfigCache.listGlobal().associate { it.regle to it.enabled }
+        val overrides = ruleConfigCache.listOverrides(dossierId).associate { it.regle to it.enabled }
         return mapOf("global" to globals, "overrides" to overrides)
     }
 
@@ -512,8 +737,9 @@ class DossierService(
             val existing = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
             if (existing != null) {
                 existing.enabled = enabled
+                ruleConfigCache.saveOverride(existing)
             } else {
-                overrideRepo.save(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
+                ruleConfigCache.saveOverride(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
             }
         }
         audit(dossierId, "RULE_CONFIG", "Config regles modifiee: $rules")
@@ -521,7 +747,7 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getGlobalRuleConfig(): List<Map<String, Any>> {
-        return ruleConfigRepo.findAll().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
+        return ruleConfigCache.listGlobal().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
     }
 
     @Transactional
@@ -531,8 +757,9 @@ class DossierService(
             if (existing != null) {
                 existing.enabled = enabled
                 existing.updatedAt = java.time.LocalDateTime.now()
+                ruleConfigCache.saveGlobal(existing)
             } else {
-                ruleConfigRepo.save(RuleConfig(regle = regle, enabled = enabled))
+                ruleConfigCache.saveGlobal(RuleConfig(regle = regle, enabled = enabled))
             }
         }
     }

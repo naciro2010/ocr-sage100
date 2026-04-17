@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { useParams, Link } from 'react-router-dom'
-import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl, openWithAuth, getDocumentFileUrl } from '../api/dossierApi'
+import { getDossier, finalizeDossier, getExportTCUrl, getExportOPUrl, getExportExcelUrl, openWithAuth, downloadWithAuth, getDocumentFileUrl } from '../api/dossierApi'
 import type { DossierDetail, DocumentInfo } from '../api/dossierTypes'
 import { parseChecklistPoints } from '../config/checklistUtils'
 import { useToast } from '../components/Toast'
@@ -428,6 +428,9 @@ export default function Finalize() {
             </button>
             <button className="btn btn-secondary" onClick={() => openWithAuth(getExportOPUrl(id))}>
               <Download size={14} /> Ordre de Paiement
+            </button>
+            <button className="btn btn-secondary" onClick={() => downloadWithAuth(getExportExcelUrl(id), `${id}.xlsx`)}>
+              <Download size={14} /> Excel reporting
             </button>
             <Link to={`/dossiers/${id}`} className="btn btn-primary" style={{ textDecoration: 'none' }}>
               Retour au dossier

@@ -24,7 +24,14 @@ class Document(
     @Column(name = "nom_fichier", nullable = false) var nomFichier: String,
     @Column(name = "chemin_fichier", nullable = false) var cheminFichier: String,
 
+    // Legacy inline OCR text. Kept nullable for backward compatibility with rows
+    // written before V14. New documents store the text in external storage and
+    // reference it via texteExtraitKey; this column is left null.
     @Column(name = "texte_extrait", columnDefinition = "TEXT") var texteExtrait: String? = null,
+
+    // Pointer into ExtractStorage (filesystem key or S3 object key). Resolved on
+    // demand, never serialized back to clients.
+    @Column(name = "texte_extrait_key", length = 500) var texteExtraitKey: String? = null,
 
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "donnees_extraites", columnDefinition = "jsonb")
@@ -42,5 +49,9 @@ class Document(
     @Column(name = "ocr_confidence") var ocrConfidence: Double = -1.0,
     @Column(name = "ocr_page_count") var ocrPageCount: Int = 1,
     @Column(name = "extraction_confidence") var extractionConfidence: Double = -1.0,
-    @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null
+    @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null,
+
+    // SHA-256 of the original uploaded file. Used to skip re-processing identical
+    // PDFs (same hash, same dossier).
+    @Column(name = "file_hash", length = 64) var fileHash: String? = null
 )

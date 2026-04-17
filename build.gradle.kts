@@ -51,6 +51,24 @@ dependencies {
     // HTTP client for Claude API & Sage 1000
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
+    // Resilience (circuit breaker / rate limiter / bulkhead) around Claude API
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
+    implementation("org.springframework.boot:spring-boot-starter-aop")
+
+    // In-process cache for hot config lookups (rule config) — avoids Redis on Railway
+    implementation("org.springframework.boot:spring-boot-starter-cache")
+    implementation("com.github.ben-manes.caffeine:caffeine")
+
+    // Structured JSON logs for Railway aggregation
+    implementation("net.logstash.logback:logstash-logback-encoder:8.0")
+
+    // Prometheus metrics endpoint (/actuator/prometheus)
+    implementation("io.micrometer:micrometer-registry-prometheus")
+
+    // Excel export
+    implementation("org.apache.poi:poi-ooxml:5.2.5")
+
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
     testImplementation("org.springframework.security:spring-security-test")

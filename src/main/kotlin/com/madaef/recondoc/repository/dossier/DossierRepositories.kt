@@ -132,6 +132,7 @@ interface DocumentRepository : JpaRepository<Document, UUID> {
     fun findByDossierId(dossierId: UUID): List<Document>
     fun findByDossierIdAndTypeDocument(dossierId: UUID, type: TypeDocument): Document?
     fun countByDossierId(dossierId: UUID): Long
+    fun findFirstByDossierIdAndFileHash(dossierId: UUID, fileHash: String): Document?
 }
 
 interface FactureRepository : JpaRepository<Facture, UUID> {

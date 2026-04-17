@@ -15,6 +15,7 @@ const DossierHeader = lazy(() => import('../components/dossier/DossierHeader'))
 const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm'))
 const MetricsBar = lazy(() => import('../components/dossier/MetricsBar'))
 const CompareView = lazy(() => import('../components/dossier/CompareView'))
+const FieldDiffMatrix = lazy(() => import('../components/dossier/FieldDiffMatrix'))
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
 const ControlSplitView = lazy(() => import('../components/dossier/ControlSplitView'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
@@ -399,7 +400,10 @@ export default function DossierDetail() {
 
         {/* Block 3: Compare */}
         {showCompare && (docsData && dossierCompat ? (
-          <div className="block-loaded"><CompareView dossier={dossierCompat} /></div>
+          <>
+            <div className="block-loaded"><FieldDiffMatrix dossierId={id!} /></div>
+            <div className="block-loaded"><CompareView dossier={dossierCompat} /></div>
+          </>
         ) : <DocsSkeleton />)}
 
         {/* Block 4: Documents — independent load */}
