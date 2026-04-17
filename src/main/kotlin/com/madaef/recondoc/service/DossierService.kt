@@ -985,6 +985,26 @@ class DossierService(
         facture.montantTtc = toBigDecimal(data["montantTTC"])
         facture.referenceContrat = data["referenceContrat"] as? String
         facture.periode = data["periode"] as? String
+
+        @Suppress("UNCHECKED_CAST")
+        val rawLignes = data["lignes"] as? List<Map<String, Any?>>
+        if (rawLignes != null) {
+            facture.lignes.clear()
+            for (row in rawLignes) {
+                val designation = (row["designation"] as? String)?.trim()
+                if (designation.isNullOrBlank()) continue
+                facture.lignes.add(LigneFacture(
+                    facture = facture,
+                    codeArticle = (row["codeArticle"] as? String)?.takeIf { it.isNotBlank() },
+                    designation = designation,
+                    quantite = toBigDecimal(row["quantite"]),
+                    unite = (row["unite"] as? String)?.takeIf { it.isNotBlank() },
+                    prixUnitaireHt = toBigDecimal(row["prixUnitaireHT"] ?: row["prixUnitaireHt"]),
+                    montantTotalHt = toBigDecimal(row["montantTotalHt"] ?: row["montantTotalHT"] ?: row["montantLigneHT"])
+                ))
+            }
+        }
+
         factureRepo.save(facture)
     }
 

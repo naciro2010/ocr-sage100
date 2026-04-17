@@ -89,7 +89,10 @@ class ValidationEngine(
             "R11" to setOf("R14"),
             "R14" to setOf("R11"),
             "R15" to setOf("R16", "R04"),
-            "R16" to setOf("R04", "R05", "R15"),
+            "R16" to setOf("R04", "R05", "R15", "R16b", "R16c"),
+            "R16b" to setOf("R16", "R16c"),
+            "R16c" to setOf("R16", "R16b", "R01f"),
+            "R01f" to setOf("R01", "R02", "R16c"),
             "R17a" to setOf("R17b"),
             "R17b" to setOf("R17a"),
             "R18" to emptySet(),
@@ -679,6 +682,79 @@ class ValidationEngine(
                 ))
         }
 
+        // R16b: arithmetic per invoice line (quantite * prixUnitaireHT == montantTotalHT)
+        if (isEnabled("R16b") && facture != null && facture.lignes.isNotEmpty()) {
+            val badLines = mutableListOf<String>()
+            val r16bEvidences = mutableListOf<ValidationEvidence>()
+            for ((idx, ligne) in facture.lignes.withIndex()) {
+                val q = ligne.quantite
+                val pu = ligne.prixUnitaireHt
+                val mt = ligne.montantTotalHt
+                if (q == null || pu == null || mt == null) continue
+                val expected = q.multiply(pu).setScale(2, RoundingMode.HALF_UP)
+                val diff = expected.subtract(mt).abs()
+                val base = expected.abs().max(mt.abs()).max(BigDecimal.ONE)
+                if (diff.divide(base, 6, RoundingMode.HALF_UP) > tol) {
+                    val label = ligne.designation.take(60)
+                    badLines += "Ligne ${idx + 1} \"$label\" : ${q} x ${pu} = ${expected}, trouve ${mt}"
+                    r16bEvidences += evidence("trouve", "ligne${idx + 1}", "Ligne ${idx + 1}: $label",
+                        fDoc, "qte=${q}, pu=${pu}, total=${mt} (attendu ${expected})")
+                }
+            }
+            if (badLines.isNotEmpty()) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R16b",
+                    libelle = "Arithmetique des lignes (quantite x prix unitaire)",
+                    statut = StatutCheck.NON_CONFORME,
+                    detail = "${badLines.size} ligne(s) incoherente(s). " + badLines.joinToString(" | "),
+                    evidences = r16bEvidences.ifEmpty { null }
+                )
+            } else {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R16b",
+                    libelle = "Arithmetique des lignes (quantite x prix unitaire)",
+                    statut = StatutCheck.CONFORME,
+                    detail = "${facture.lignes.size} ligne(s) arithmetiquement coherente(s)"
+                )
+            }
+        }
+
+        // R16c: sum of line amounts equals facture HT
+        if (isEnabled("R16c") && facture != null && facture.lignes.isNotEmpty() && fHt != null) {
+            val sum = facture.lignes.mapNotNull { it.montantTotalHt }
+                .fold(BigDecimal.ZERO) { acc, v -> acc.add(v) }
+                .setScale(2, RoundingMode.HALF_UP)
+            results += checkMontant("R16c", "Somme des lignes = montant HT facture",
+                sum, fHt, tol, dossier,
+                listOf(
+                    evidence("calcule", "sommeLignes",
+                        "Somme des ${facture.lignes.size} ligne(s) de la facture", fDoc, sum),
+                    evidence("attendu", "montantHT", "Montant HT de la facture", fDoc, fHt)
+                ))
+        }
+
+        // R01f: total of invoice items matches total of BC items
+        if (isEnabled("R01f") && dossier.type == DossierType.BC && facture != null && bcDoc != null
+            && facture.lignes.isNotEmpty()) {
+            val factureSum = facture.lignes.mapNotNull { it.montantTotalHt }
+                .fold(BigDecimal.ZERO) { acc, v -> acc.add(v) }
+                .setScale(2, RoundingMode.HALF_UP)
+            val bcLignes = parseBcLignes(bcDoc)
+            val bcSum = bcLignes.mapNotNull { it.montantHt }
+                .fold(BigDecimal.ZERO) { acc, v -> acc.add(v) }
+                .setScale(2, RoundingMode.HALF_UP)
+            if (bcLignes.isNotEmpty()) {
+                results += checkMontant("R01f", "Somme des lignes facture = somme des lignes BC",
+                    factureSum, bcSum, tol, dossier,
+                    listOf(
+                        evidence("calcule", "sommeFactureLignes",
+                            "Somme des ${facture.lignes.size} ligne(s) facture", fDoc, factureSum),
+                        evidence("calcule", "sommeBcLignes",
+                            "Somme des ${bcLignes.size} ligne(s) du BC", bcDoc, bcSum)
+                    ))
+            }
+        }
+
         if (isEnabled("R15") && dossier.type == DossierType.CONTRACTUEL && contrat != null && facture != null) {
             val grilles = contrat.grillesTarifaires
             if (grilles.isNotEmpty()) {
@@ -722,9 +798,12 @@ class ValidationEngine(
             "R08" to listOf(TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT, TypeDocument.ORDRE_PAIEMENT),
             "R09" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
             "R10" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
-            "R14" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
             "R15" to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT, TypeDocument.PV_RECEPTION),
             "R16" to listOf(TypeDocument.FACTURE),
+            "R16b" to listOf(TypeDocument.FACTURE),
+            "R16c" to listOf(TypeDocument.FACTURE),
+            "R01f" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE),
+            "R14" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT, TypeDocument.ATTESTATION_FISCALE),
             "R17" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
             "R18" to listOf(TypeDocument.ATTESTATION_FISCALE),
             "R19" to listOf(TypeDocument.ATTESTATION_FISCALE),
@@ -1229,6 +1308,34 @@ class ValidationEngine(
 
     private fun normalizeCode(code: String): String =
         code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
+
+    private data class BcLigne(val designation: String?, val quantite: BigDecimal?, val prixUnitaireHt: BigDecimal?, val montantHt: BigDecimal?)
+
+    private fun parseBcLignes(doc: Document?): List<BcLigne> {
+        val raw = doc?.donneesExtraites?.get("lignes") as? List<*> ?: return emptyList()
+        return raw.mapNotNull { row ->
+            @Suppress("UNCHECKED_CAST")
+            val m = row as? Map<String, Any?> ?: return@mapNotNull null
+            BcLigne(
+                designation = (m["designation"] as? String)?.trim(),
+                quantite = toBd(m["quantite"]),
+                prixUnitaireHt = toBd(m["prixUnitaireHT"] ?: m["prixUnitaireHt"]),
+                montantHt = toBd(m["montantLigneHT"] ?: m["montantLigneHt"] ?: m["montantTotalHt"] ?: m["montantHT"])
+            )
+        }
+    }
+
+    private fun toBd(v: Any?): BigDecimal? = when (v) {
+        null -> null
+        is Number -> BigDecimal(v.toString())
+        is String -> v.replace(Regex("[^0-9.,\\-]"), "").let { s ->
+            if (s.isEmpty()) return@let null
+            val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
+            if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
+            else s.replace(",", "").toBigDecimalOrNull()
+        }
+        else -> null
+    }
 
     private fun matchReference(ref1: String?, ref2: String?): Boolean {
         if (ref1 == null || ref2 == null) return false

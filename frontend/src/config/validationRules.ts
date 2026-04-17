@@ -24,9 +24,12 @@ export const ALL_RULES: (ValidationRule & { group?: RuleGroup })[] = [
 
   // 2. Montants
   { code: 'R16', label: 'Verification arithmetique HT+TVA=TTC', desc: 'Verifie que HT + TVA = TTC sur la facture', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'montants' },
+  { code: 'R16b', label: 'Arithmetique des lignes facture', desc: 'Pour chaque ligne de la facture, verifie que quantite x prix unitaire HT = montant total HT de la ligne (tolerance parametrable, par defaut 5 %).', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'montants' },
+  { code: 'R16c', label: 'Somme des lignes = HT facture', desc: 'Additionne les montants HT de toutes les lignes de la facture et verifie que le total est egal au montant HT imprime en pied de facture.', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'montants' },
   { code: 'R01', label: 'Concordance montant TTC', desc: 'Compare le TTC de la facture avec le BC', category: 'system', appliesToBC: true, appliesToContractuel: false, group: 'montants' },
   { code: 'R02', label: 'Concordance montant HT', desc: 'Compare le HT de la facture avec le BC', category: 'system', appliesToBC: true, appliesToContractuel: false, group: 'montants' },
   { code: 'R03', label: 'Concordance TVA', desc: 'Compare la TVA de la facture avec le BC', category: 'system', appliesToBC: true, appliesToContractuel: false, group: 'montants' },
+  { code: 'R01f', label: 'Somme lignes facture = somme lignes BC', desc: 'Compare la somme des lignes de la facture avec la somme des lignes du bon de commande. Permet de detecter un ecart de volumetrie (lignes manquantes ou en trop) meme si les totaux de pied restent coherents.', category: 'system', appliesToBC: true, appliesToContractuel: false, group: 'montants' },
   { code: 'R04', label: 'Montant OP = TTC (sans retenues)', desc: 'Verifie que le montant de l\'OP correspond au TTC de la facture', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'montants' },
   { code: 'R05', label: 'Montant OP = TTC - retenues', desc: 'Verifie le montant OP apres deduction des retenues a la source', category: 'system', appliesToBC: true, appliesToContractuel: true, group: 'montants' },
   { code: 'R15', label: 'Grille tarifaire x duree', desc: 'Verifie que la somme des prix mensuels de l\'avenant x nombre de mois = HT facture', category: 'system', appliesToBC: false, appliesToContractuel: true, group: 'montants' },
