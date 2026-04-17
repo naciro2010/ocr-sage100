@@ -106,6 +106,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
                MIN(d.dateCreation) AS premier
         FROM DossierPaiement d
         WHERE LOWER(CAST(d.fournisseur AS string)) = LOWER(CAST(:nom AS string))
+        GROUP BY d.fournisseur
     """)
     fun aggregateOneFournisseur(nom: String): Array<Any?>?
 
