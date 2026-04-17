@@ -4,9 +4,11 @@ import com.madaef.recondoc.dto.dossier.*
 import com.madaef.recondoc.entity.dossier.DossierType
 import com.madaef.recondoc.entity.dossier.StatutDossier
 import com.madaef.recondoc.entity.dossier.TypeDocument
-import com.madaef.recondoc.service.DossierService
-import com.madaef.recondoc.service.FinalizeRequest
 import com.madaef.recondoc.service.DocumentProgressService
+import com.madaef.recondoc.service.DocumentSearchService
+import com.madaef.recondoc.service.DossierService
+import com.madaef.recondoc.service.ExcelExportService
+import com.madaef.recondoc.service.FinalizeRequest
 import com.madaef.recondoc.service.validation.RuleCatalog
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
@@ -28,7 +30,9 @@ import java.util.UUID
 @RequestMapping("/api/dossiers")
 class DossierController(
     private val dossierService: DossierService,
-    private val progressService: DocumentProgressService
+    private val progressService: DocumentProgressService,
+    private val documentSearchService: DocumentSearchService,
+    private val excelExportService: ExcelExportService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -125,6 +129,29 @@ class DossierController(
         return dossierService.listDocumentsWithData(id)
     }
 
+    @PostMapping("/{id}/documents/zip", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
+    @ResponseStatus(HttpStatus.CREATED)
+    fun uploadZip(
+        @PathVariable id: UUID,
+        @RequestParam("file") file: MultipartFile,
+        @RequestParam("type", required = false) type: TypeDocument?
+    ): Map<String, Any> {
+        return dossierService.uploadZip(id, file, type)
+    }
+
+    @GetMapping("/{id}/compare")
+    fun compareDocuments(@PathVariable id: UUID): Map<String, Any> {
+        return dossierService.compareDocuments(id)
+    }
+
+    @PostMapping("/bulk/statut")
+    fun bulkChangeStatut(@RequestBody body: BulkStatutRequest): List<Map<String, Any?>> {
+        return dossierService.bulkChangeStatut(
+            body.ids,
+            ChangeStatutRequest(statut = body.statut, motifRejet = body.motifRejet, validePar = body.validePar)
+        )
+    }
+
     @PostMapping("/{id}/valider")
     fun validate(@PathVariable id: UUID): List<ValidationResultResponse> {
         return dossierService.validateDossier(id).map { it.toResponse() }
@@ -206,6 +233,14 @@ class DossierController(
         return dossierService.searchDossiers(statut, type, fournisseur, pageable)
     }
 
+    @GetMapping("/search-documents")
+    fun searchDocuments(
+        @RequestParam q: String,
+        @RequestParam(required = false, defaultValue = "50") limit: Int
+    ): List<DocumentSearchService.Hit> {
+        return documentSearchService.search(q, limit.coerceIn(1, 200))
+    }
+
     @PostMapping("/{id}/finalize")
     fun finalize(@PathVariable id: UUID, @RequestBody request: FinalizeRequest): Map<String, Any> {
         return dossierService.finalizeDossier(id, request)
@@ -229,6 +264,18 @@ class DossierController(
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"OP_${id}.pdf\"")
             .header(HttpHeaders.CACHE_CONTROL, "public, max-age=3600")
             .body(pdf)
+    }
+
+    @GetMapping(
+        "/{id}/export/excel",
+        produces = ["application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"]
+    )
+    fun exportExcel(@PathVariable id: UUID): ResponseEntity<ByteArray> {
+        val dossier = dossierService.getDossierFull(id)
+        val xlsx = excelExportService.exportDossier(dossier)
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CONTENT_DISPOSITION, "attachment; filename=\"${dossier.reference}.xlsx\"")
+            .body(xlsx)
     }
 
     @PostMapping("/{id}/validation/rerun/{regle}")

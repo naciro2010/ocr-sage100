@@ -49,5 +49,9 @@ class Document(
     @Column(name = "ocr_confidence") var ocrConfidence: Double = -1.0,
     @Column(name = "ocr_page_count") var ocrPageCount: Int = 1,
     @Column(name = "extraction_confidence") var extractionConfidence: Double = -1.0,
-    @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null
+    @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null,
+
+    // SHA-256 of the original uploaded file. Used to skip re-processing identical
+    // PDFs (same hash, same dossier).
+    @Column(name = "file_hash", length = 64) var fileHash: String? = null
 )

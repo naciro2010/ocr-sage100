@@ -320,16 +320,30 @@ class DossierService(
         val uploadPath = Path.of(uploadDir, dossierId.toString())
         Files.createDirectories(uploadPath)
 
-        return files.map { file ->
+        var dedupedCount = 0
+        val responses = files.map { file ->
+            val bytes = file.bytes
+            val hash = sha256(bytes)
+
+            // Same file already uploaded in this dossier? Reuse the existing document
+            // and skip the OCR + Claude pipeline. Saves cost and avoids duplicate rows.
+            val existing = documentRepo.findFirstByDossierIdAndFileHash(dossierId, hash)
+            if (existing != null) {
+                dedupedCount++
+                log.info("Duplicate upload detected (hash={}, doc={}), reusing existing", hash.take(8), existing.id)
+                return@map existing.toResponse()
+            }
+
             val fileName = "${System.currentTimeMillis()}_${file.originalFilename}"
             val filePath = uploadPath.resolve(fileName)
-            file.transferTo(filePath)
+            Files.write(filePath, bytes)
 
             val doc = Document(
                 dossier = dossier,
                 typeDocument = typeDocument ?: TypeDocument.INCONNU,
                 nomFichier = file.originalFilename ?: "unknown",
-                cheminFichier = filePath.toString()
+                cheminFichier = filePath.toString(),
+                fileHash = hash
             )
             documentRepo.save(doc)
 
@@ -337,9 +351,162 @@ class DossierService(
             eventPublisher.publishEvent(DocumentUploadedEvent(doc.id!!, dossierId))
 
             doc.toResponse()
-        }.also {
-            audit(dossierId, "UPLOAD_DOCUMENTS", "${files.size} document(s)")
         }
+        val newCount = files.size - dedupedCount
+        audit(dossierId, "UPLOAD_DOCUMENTS",
+            if (dedupedCount > 0) "${newCount} nouveau(x), ${dedupedCount} doublon(s) ignore(s)"
+            else "$newCount document(s)")
+        return responses
+    }
+
+    private fun sha256(bytes: ByteArray): String {
+        val digest = java.security.MessageDigest.getInstance("SHA-256").digest(bytes)
+        return digest.joinToString("") { "%02x".format(it) }
+    }
+
+    /**
+     * Accept a ZIP archive and ingest each contained PDF/image as a document of
+     * the dossier. Skips manifests, hidden files, and anything bigger than 50 MB
+     * (same limit as direct upload). Returns one DocumentResponse per file.
+     */
+    @Transactional
+    fun uploadZip(dossierId: UUID, zipFile: MultipartFile, typeDocument: TypeDocument?): Map<String, Any> {
+        val dossier = getDossier(dossierId)
+        val uploadPath = Path.of(uploadDir, dossierId.toString())
+        Files.createDirectories(uploadPath)
+
+        val accepted = mutableListOf<DocumentResponse>()
+        var skipped = 0
+        var deduped = 0
+        val maxBytes = 50L * 1024 * 1024
+
+        java.util.zip.ZipInputStream(zipFile.inputStream).use { zis ->
+            var entry = zis.nextEntry
+            while (entry != null) {
+                val name = entry.name
+                val basename = name.substringAfterLast('/')
+                val isAcceptable = !entry.isDirectory &&
+                    !basename.startsWith(".") &&
+                    !basename.startsWith("__MACOSX") &&
+                    basename.lowercase().let { it.endsWith(".pdf") || it.endsWith(".png") ||
+                        it.endsWith(".jpg") || it.endsWith(".jpeg") || it.endsWith(".tif") || it.endsWith(".tiff") }
+                if (!isAcceptable) {
+                    skipped++
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val bytes = zis.readNBytes(maxBytes.toInt() + 1)
+                if (bytes.size > maxBytes) {
+                    log.warn("Skipping {} from ZIP: too large ({} bytes)", name, bytes.size)
+                    skipped++
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val hash = sha256(bytes)
+                val existing = documentRepo.findFirstByDossierIdAndFileHash(dossierId, hash)
+                if (existing != null) {
+                    deduped++
+                    accepted.add(existing.toResponse())
+                    zis.closeEntry()
+                    entry = zis.nextEntry
+                    continue
+                }
+                val storedName = "${System.currentTimeMillis()}_$basename"
+                val filePath = uploadPath.resolve(storedName)
+                Files.write(filePath, bytes)
+                val doc = Document(
+                    dossier = dossier,
+                    typeDocument = typeDocument ?: TypeDocument.INCONNU,
+                    nomFichier = basename,
+                    cheminFichier = filePath.toString(),
+                    fileHash = hash
+                )
+                documentRepo.save(doc)
+                eventPublisher.publishEvent(DocumentUploadedEvent(doc.id!!, dossierId))
+                accepted.add(doc.toResponse())
+                zis.closeEntry()
+                entry = zis.nextEntry
+            }
+        }
+
+        audit(dossierId, "UPLOAD_ZIP",
+            "${accepted.size - deduped} nouveau(x), $deduped doublon(s), $skipped ignore(s)")
+        return mapOf(
+            "documents" to accepted,
+            "stats" to mapOf("accepted" to accepted.size, "deduped" to deduped, "skipped" to skipped)
+        )
+    }
+
+    /**
+     * Apply the same status transition to several dossiers at once. Returns a
+     * per-dossier outcome so the UI can show a summary (X validated, Y errors).
+     */
+    @Transactional
+    fun bulkChangeStatut(ids: List<UUID>, request: ChangeStatutRequest): List<Map<String, Any?>> {
+        return ids.map { id ->
+            try {
+                changeStatut(id, request)
+                mapOf<String, Any?>("id" to id, "ok" to true)
+            } catch (e: Exception) {
+                mapOf<String, Any?>("id" to id, "ok" to false, "error" to (e.message ?: e.javaClass.simpleName))
+            }
+        }
+    }
+
+    /**
+     * Compare key fields across the documents of a dossier (Facture, BC, Contrat,
+     * OP) to spot inconsistencies at a glance. Returns one row per logical field
+     * (montantTTC, ICE, RIB, etc.) with the value from each source and a
+     * conflict flag.
+     */
+    @Transactional(readOnly = true)
+    fun compareDocuments(dossierId: UUID): Map<String, Any> {
+        val docs = documentRepo.findByDossierId(dossierId)
+        fun extracted(type: TypeDocument): Map<String, Any?> =
+            docs.firstOrNull { it.typeDocument == type }?.donneesExtraites ?: emptyMap()
+
+        val facture = extracted(TypeDocument.FACTURE)
+        val bc = extracted(TypeDocument.BON_COMMANDE)
+        val contrat = extracted(TypeDocument.CONTRAT_AVENANT)
+        val op = extracted(TypeDocument.ORDRE_PAIEMENT)
+
+        // (display label, key in each source map). Use lookup-with-aliases to
+        // tolerate slight naming drift between extracted JSON shapes.
+        val rows = listOf(
+            "Fournisseur" to listOf("fournisseur", "beneficiaire", "raisonSociale"),
+            "ICE" to listOf("ice"),
+            "Identifiant fiscal" to listOf("identifiantFiscal", "if"),
+            "RIB" to listOf("rib"),
+            "Reference facture" to listOf("numeroFacture", "referenceFacture"),
+            "Reference BC / contrat" to listOf("reference", "referenceContrat", "referenceBcOuContrat"),
+            "Montant HT" to listOf("montantHT"),
+            "Montant TVA" to listOf("montantTVA"),
+            "Taux TVA" to listOf("tauxTVA"),
+            "Montant TTC" to listOf("montantTTC", "montantOperation")
+        )
+
+        val sources = mapOf(
+            "FACTURE" to facture, "BON_COMMANDE" to bc,
+            "CONTRAT_AVENANT" to contrat, "ORDRE_PAIEMENT" to op
+        )
+
+        val out = rows.map { (label, keys) ->
+            val perSource = sources.mapValues { (_, data) ->
+                keys.firstNotNullOfOrNull { k -> data[k]?.takeIf { it.toString().isNotBlank() }?.toString() }
+            }
+            val distinctNonNull = perSource.values.filterNotNull().map { it.lowercase().trim() }.toSet()
+            mapOf(
+                "label" to label,
+                "values" to perSource,
+                "conflict" to (distinctNonNull.size > 1)
+            )
+        }
+        return mapOf(
+            "dossierId" to dossierId,
+            "rows" to out
+        )
     }
 
     @Transactional
@@ -438,6 +605,11 @@ class DossierService(
         doc.statutExtraction = StatutExtraction.EN_COURS
         emitProgress(doc, "ocr", "active", "Extraction du texte...")
 
+        // Populate MDC so JSON logs and ClaudeUsage can correlate calls back
+        // to the dossier/document without threading context through every API.
+        org.slf4j.MDC.put("dossierId", doc.dossier.id.toString())
+        org.slf4j.MDC.put("documentId", doc.id.toString())
+
         try {
             if (rawText.isBlank()) {
                 doc.statutExtraction = StatutExtraction.ERREUR
@@ -529,6 +701,9 @@ class DossierService(
             log.error("Extraction failed for document {}: {}", doc.nomFichier, e.message, e)
             doc.statutExtraction = StatutExtraction.ERREUR
             doc.erreurExtraction = e.message
+        } finally {
+            org.slf4j.MDC.remove("dossierId")
+            org.slf4j.MDC.remove("documentId")
         }
     }
 

@@ -30,6 +30,13 @@ data class ChangeStatutRequest(
     val validePar: String? = null
 )
 
+data class BulkStatutRequest(
+    @field:NotNull val ids: List<UUID>,
+    @field:NotNull val statut: StatutDossier,
+    val motifRejet: String? = null,
+    val validePar: String? = null
+)
+
 data class DashboardStatsResponse(
     val total: Long,
     val brouillons: Long,
