@@ -11,10 +11,12 @@ import {
   Zap, ShieldCheck, Loader2, AlertTriangle,
   FileText, RefreshCw, Eye, Edit3, Save, X,
   MessageSquare, ChevronLeft, ChevronRight, Download,
-  Zap as ZapIcon, MousePointer
+  Zap as ZapIcon, MousePointer, Search, CheckCircle2,
+  XCircle, AlertCircle, MinusCircle, Clock, ArrowRight,
+  Sparkles, Keyboard
 } from 'lucide-react'
 
-type FilterMode = 'all' | 'problems' | 'conforme'
+type FilterMode = 'all' | 'problems' | 'conforme' | 'pending'
 type RuleConfigShape = { global: Record<string, boolean>; overrides: Record<string, boolean> }
 
 interface Props {
@@ -82,78 +84,152 @@ function useBlobUrl(apiUrl: string | null) {
 }
 
 /* ===== LEFT PANEL ===== */
-function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, counts }: {
+function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, counts, search, onSearchChange }: {
   items: RuleItem[]
   selectedKey: string | null
   onSelect: (key: string) => void
   filterMode: FilterMode
   onFilterChange: (m: FilterMode) => void
-  counts: { ok: number; ko: number; warn: number; total: number }
+  counts: { ok: number; ko: number; warn: number; pending: number; total: number }
+  search: string
+  onSearchChange: (q: string) => void
 }) {
+  const pendingCount = counts.pending
   const filtered = useMemo(() => {
-    if (filterMode === 'all') return items
-    if (filterMode === 'problems') return items.filter(i => i.status === 'ko' || i.status === 'warn')
-    return items.filter(i => i.status === 'ok')
-  }, [items, filterMode])
+    let list = items
+    if (filterMode === 'problems') list = list.filter(i => i.status === 'ko' || i.status === 'warn')
+    else if (filterMode === 'conforme') list = list.filter(i => i.status === 'ok')
+    else if (filterMode === 'pending') list = list.filter(i => i.status === 'pending' || i.status === 'na')
+    if (search.trim()) {
+      const q = search.trim().toLowerCase()
+      list = list.filter(i =>
+        i.code.toLowerCase().includes(q) ||
+        i.label.toLowerCase().includes(q) ||
+        i.desc.toLowerCase().includes(q)
+      )
+    }
+    return list
+  }, [items, filterMode, search])
 
   const grouped = useMemo(() => {
-    const groups: { label: string; items: RuleItem[] }[] = []
+    const groups: { label: string; items: RuleItem[]; okCount: number; koCount: number }[] = []
     let cur: typeof groups[0] | null = null
     for (const item of filtered) {
-      if (!cur || cur.label !== item.group) { cur = { label: item.group, items: [] }; groups.push(cur) }
+      if (!cur || cur.label !== item.group) { cur = { label: item.group, items: [], okCount: 0, koCount: 0 }; groups.push(cur) }
       cur.items.push(item)
+      if (item.status === 'ok') cur.okCount++
+      if (item.status === 'ko' || item.status === 'warn') cur.koCount++
     }
     return groups
   }, [filtered])
 
   return (
     <div className="ctrl-split-left">
-      <div className="ctrl-split-left-header">
-        <h3><ShieldCheck size={10} /> Controles</h3>
-        <button className={`vblock-filter-btn ${filterMode === 'all' ? 'active' : ''}`} onClick={() => onFilterChange('all')}>
-          Tout <span style={{ opacity: 0.6 }}>{counts.total}</span>
-        </button>
-        <button className={`vblock-filter-btn vblock-filter-problems ${filterMode === 'problems' ? 'active' : ''}`} onClick={() => onFilterChange('problems')}>
-          KO <span style={{ opacity: 0.6 }}>{counts.ko + counts.warn}</span>
-        </button>
-        <button className={`vblock-filter-btn vblock-filter-ok ${filterMode === 'conforme' ? 'active' : ''}`} onClick={() => onFilterChange('conforme')}>
-          OK <span style={{ opacity: 0.6 }}>{counts.ok}</span>
-        </button>
-      </div>
-      {/* Progress */}
-      {counts.total > 0 && (
-        <div className="vblock-progress">
-          <span className="vblock-progress-label">{counts.ok}/{counts.total}</span>
-          <div className="vblock-progress-bar">
-            <div className="vblock-progress-segment" style={{ width: `${(counts.ok / counts.total) * 100}%`, background: 'var(--success)' }} />
-            <div className="vblock-progress-segment" style={{ width: `${(counts.ko / counts.total) * 100}%`, background: 'var(--danger)' }} />
-            <div className="vblock-progress-segment" style={{ width: `${(counts.warn / counts.total) * 100}%`, background: 'var(--warning)' }} />
-          </div>
+      <div className="ctrl-left-head">
+        <div className="ctrl-left-head-title">
+          <ShieldCheck size={14} />
+          <span>Controles</span>
+          <span className="ctrl-left-head-count">{counts.total}</span>
         </div>
-      )}
-      <div className="ctrl-split-left-list">
-        {grouped.map(g => (
-          <div key={g.label}>
-            <div className="ctrl-split-group-label">{g.label}</div>
+        <div className="ctrl-left-search">
+          <Search size={13} />
+          <input
+            type="text"
+            value={search}
+            onChange={e => onSearchChange(e.target.value)}
+            placeholder="Rechercher un controle, un code..."
+            aria-label="Rechercher un controle"
+          />
+          {search && (
+            <button className="ctrl-left-search-clear" onClick={() => onSearchChange('')} aria-label="Effacer"><X size={12} /></button>
+          )}
+        </div>
+        <div className="ctrl-left-tabs" role="tablist">
+          <button className={`ctrl-left-tab ${filterMode === 'all' ? 'active' : ''}`} onClick={() => onFilterChange('all')} role="tab" aria-selected={filterMode === 'all'}>
+            <span className="ctrl-left-tab-dot ctrl-dot-all" />
+            Tous <span className="ctrl-left-tab-num">{counts.total}</span>
+          </button>
+          <button className={`ctrl-left-tab tab-problems ${filterMode === 'problems' ? 'active' : ''}`}
+            onClick={() => onFilterChange('problems')} disabled={counts.ko + counts.warn === 0} role="tab" aria-selected={filterMode === 'problems'}>
+            <span className="ctrl-left-tab-dot ctrl-dot-ko" />
+            Problemes <span className="ctrl-left-tab-num">{counts.ko + counts.warn}</span>
+          </button>
+          <button className={`ctrl-left-tab tab-ok ${filterMode === 'conforme' ? 'active' : ''}`}
+            onClick={() => onFilterChange('conforme')} role="tab" aria-selected={filterMode === 'conforme'}>
+            <span className="ctrl-left-tab-dot ctrl-dot-ok" />
+            Conformes <span className="ctrl-left-tab-num">{counts.ok}</span>
+          </button>
+          {pendingCount > 0 && (
+            <button className={`ctrl-left-tab tab-pending ${filterMode === 'pending' ? 'active' : ''}`}
+              onClick={() => onFilterChange('pending')} role="tab" aria-selected={filterMode === 'pending'}>
+              <span className="ctrl-left-tab-dot ctrl-dot-pending" />
+              En attente <span className="ctrl-left-tab-num">{pendingCount}</span>
+            </button>
+          )}
+        </div>
+      </div>
+
+      <div className="ctrl-split-left-list" role="listbox" aria-label="Liste des controles">
+        {grouped.length === 0 ? (
+          <div className="ctrl-left-empty">
+            <Search size={22} />
+            <p>Aucun controle ne correspond {search ? <>a <strong>"{search}"</strong></> : 'a ce filtre'}.</p>
+            {(search || filterMode !== 'all') && (
+              <button className="ctrl-left-reset" onClick={() => { onSearchChange(''); onFilterChange('all') }}>
+                Reinitialiser
+              </button>
+            )}
+          </div>
+        ) : grouped.map(g => (
+          <div key={g.label} className="ctrl-left-group">
+            <div className="ctrl-left-group-head">
+              <span className="ctrl-left-group-label">{g.label}</span>
+              <span className="ctrl-left-group-counts">
+                {g.koCount > 0 && <span className="ctrl-left-group-ko">{g.koCount} KO</span>}
+                <span className="ctrl-left-group-total">{g.items.length}</span>
+              </span>
+            </div>
             {g.items.map(item => {
               const sd = STATUS_DISPLAY[item.status]
+              const isSelected = selectedKey === item.key
               return (
-                <div
+                <button
                   key={item.key}
-                  className={`ctrl-split-rule ${selectedKey === item.key ? 'selected' : ''}`}
+                  type="button"
+                  className={`ctrl-rule-row status-${item.status} ${isSelected ? 'selected' : ''}`}
                   onClick={() => onSelect(item.key)}
+                  role="option"
+                  aria-selected={isSelected}
+                  aria-label={`${item.code} - ${item.label} - ${sd.label}`}
                 >
-                  <span className="ctrl-split-pill" style={{ background: sd.bg, color: sd.color }}>{sd.icon}</span>
-                  <span className="ctrl-split-code">{item.code}</span>
-                  <span className="ctrl-split-label">{item.label}</span>
-                </div>
+                  <span className="ctrl-rule-strip" aria-hidden="true" />
+                  <StatusIcon status={item.status} size={16} />
+                  <span className="ctrl-rule-code">{item.code}</span>
+                  <span className="ctrl-rule-label">{item.label}</span>
+                  {(item.status === 'ko' || item.status === 'warn') && (
+                    <span className="ctrl-rule-flag" title={sd.label}>{sd.label.split(' ')[0]}</span>
+                  )}
+                </button>
               )
             })}
           </div>
         ))}
       </div>
+      <div className="ctrl-left-foot">
+        <Keyboard size={11} />
+        <span>Utiliser <kbd>J</kbd> / <kbd>K</kbd> pour naviguer</span>
+      </div>
     </div>
   )
+}
+
+function StatusIcon({ status, size = 16 }: { status: ItemStatus; size?: number }) {
+  const props = { size, strokeWidth: 2.4 as const, className: `ctrl-status-icon icon-${status}` }
+  if (status === 'ok') return <CheckCircle2 {...props} />
+  if (status === 'ko') return <XCircle {...props} />
+  if (status === 'warn') return <AlertCircle {...props} />
+  if (status === 'na') return <MinusCircle {...props} />
+  return <Clock {...props} />
 }
 
 /* ===== CENTER PANEL ===== */
@@ -225,9 +301,14 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   if (!item) {
     return (
       <div className="ctrl-split-center">
-        <div className="ctrl-split-center-empty">
-          <MousePointer size={32} />
-          <p>Selectionnez un controle dans la liste pour voir le detail, les preuves et le document source</p>
+        <div className="ctrl-empty">
+          <div className="ctrl-empty-illus"><MousePointer size={28} /></div>
+          <h4>Selectionnez un controle</h4>
+          <p>Choisissez une regle dans la liste pour voir son detail, les preuves extraites et le document source associe.</p>
+          <div className="ctrl-empty-hints">
+            <span><kbd>J</kbd> suivant</span>
+            <span><kbd>K</kbd> precedent</span>
+          </div>
         </div>
       </div>
     )
@@ -235,20 +316,48 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 
   const sd = STATUS_DISPLAY[item.status]
 
+  const valsDiffer = r?.statut === 'NON_CONFORME'
+  const valsEqual = r?.statut === 'CONFORME'
+
   return (
-    <div className="ctrl-split-center">
-      <div className="ctrl-split-center-header">
-        <span className="vblock-pill" style={{ background: sd.bg, color: sd.color, width: 28, height: 28, fontSize: 13 }}>{sd.icon}</span>
-        <div style={{ flex: 1, minWidth: 0 }}>
-          <h3 className="ctrl-split-center-header" style={{ padding: 0, background: 'none', border: 'none' }}>
-            {item.code} — {item.label}
-          </h3>
+    <div className={`ctrl-split-center ctrl-detail status-${item.status}`}>
+      {/* Hero */}
+      <div className="ctrl-hero-banner">
+        <div className="ctrl-hero-banner-main">
+          <div className="ctrl-hero-banner-icon" style={{ background: sd.bg, color: sd.color, borderColor: sd.color + '33' }}>
+            <StatusIcon status={item.status} size={22} />
+          </div>
+          <div className="ctrl-hero-banner-text">
+            <div className="ctrl-hero-banner-eyebrow">
+              <span className="ctrl-hero-banner-code">{item.code}</span>
+              <span className="ctrl-hero-banner-group">{item.group}</span>
+              {stale && <span className="ctrl-hero-chip warn"><AlertTriangle size={10} /> Obsolete</span>}
+            </div>
+            <h3 className="ctrl-hero-banner-title">{item.label}</h3>
+          </div>
+          <div className="ctrl-hero-banner-status" style={{ background: sd.bg, color: sd.color }}>
+            {sd.label}
+          </div>
         </div>
-        <span className="status-badge" style={{ background: sd.bg, color: sd.color }}>
-          {r?.statut || 'EN ATTENTE'}
-        </span>
-        {stale && (
-          <span className="vblock-stale-badge"><AlertTriangle size={8} /> Obsolete</span>
+
+        {/* Sticky actions */}
+        {r && !editing && (
+          <div className="ctrl-hero-actions">
+            <select className="ctrl-status-select" value={r.statut}
+              onChange={e => handleCorrect(e.target.value)}
+              onClick={e => e.stopPropagation()}
+              aria-label="Changer le statut">
+              {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <button className="btn btn-secondary btn-sm" onClick={startEdit}>
+              <Edit3 size={12} /> Corriger les valeurs
+            </button>
+            <button className="btn btn-primary btn-sm" onClick={handleRerun} disabled={rerunning === item.code}>
+              {rerunning === item.code ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
+              Relancer
+              {cascadeSize > 1 && <span className="ctrl-hero-cascade">+{cascadeSize - 1}</span>}
+            </button>
+          </div>
         )}
       </div>
 
@@ -256,6 +365,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
         {/* Description */}
         {item.desc && (
           <div className="ctrl-detail-section">
+            <div className="ctrl-detail-section-title"><Sparkles size={11} /> Que verifie cette regle ?</div>
             <div className="ctrl-detail-desc">{item.desc}</div>
           </div>
         )}
@@ -263,71 +373,93 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
         {/* Detail from validation */}
         {r?.detail && (
           <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title"><FileText size={10} /> Detail</div>
-            <div style={{ fontSize: 12.5, color: 'var(--ink-50)', lineHeight: 1.6 }}>{r.detail}</div>
-          </div>
-        )}
-
-        {/* Evidence */}
-        {r?.evidences && r.evidences.length > 0 && (
-          <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title"><Eye size={10} /> Preuves</div>
-            <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenDoc} />
+            <div className="ctrl-detail-section-title"><FileText size={11} /> Resultat du controle</div>
+            <div className="ctrl-detail-note">{r.detail}</div>
           </div>
         )}
 
         {/* Values comparison (when no evidences) */}
         {(!r?.evidences || r.evidences.length === 0) && (r?.valeurAttendue || r?.valeurTrouvee) && (
           <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title">Comparaison</div>
-            <div className="ctrl-detail-values">
-              {r?.valeurAttendue && (
-                <div className="ctrl-detail-val">
-                  <div className="ctrl-detail-val-label">Attendu</div>
-                  <div className="ctrl-detail-val-data">{r.valeurAttendue}</div>
-                </div>
-              )}
-              {r?.valeurTrouvee && (
-                <div className="ctrl-detail-val">
-                  <div className="ctrl-detail-val-label">Trouve</div>
-                  <div className={`ctrl-detail-val-data ${r.statut === 'NON_CONFORME' ? 'danger' : ''}`}>{r.valeurTrouvee}</div>
-                </div>
-              )}
+            <div className="ctrl-detail-section-title">
+              {valsDiffer ? <XCircle size={11} /> : valsEqual ? <CheckCircle2 size={11} /> : <Eye size={11} />}
+              {' '}Comparaison des valeurs
+            </div>
+            <div className={`ctrl-compare ${valsDiffer ? 'differ' : valsEqual ? 'equal' : ''}`}>
+              <div className="ctrl-compare-side">
+                <div className="ctrl-compare-label">Attendu</div>
+                <div className="ctrl-compare-value">{r?.valeurAttendue || '—'}</div>
+              </div>
+              <div className="ctrl-compare-link" aria-hidden="true">
+                {valsEqual ? <CheckCircle2 size={16} /> : valsDiffer ? <XCircle size={16} /> : <ArrowRight size={16} />}
+              </div>
+              <div className="ctrl-compare-side">
+                <div className="ctrl-compare-label">Trouve</div>
+                <div className={`ctrl-compare-value ${valsDiffer ? 'danger' : ''}`}>{r?.valeurTrouvee || '—'}</div>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {/* Evidence */}
+        {r?.evidences && r.evidences.length > 0 && (
+          <div className="ctrl-detail-section">
+            <div className="ctrl-detail-section-title"><Eye size={11} /> Preuves extraites</div>
+            <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenDoc} />
+          </div>
+        )}
+
+        {/* Document links */}
+        {r?.documentIds && r.documentIds.length > 0 && (
+          <div className="ctrl-detail-section">
+            <div className="ctrl-detail-section-title"><FileText size={11} /> Documents source</div>
+            <div className="ctrl-docs-chips">
+              {r.documentIds.map(docId => {
+                const doc = dossier.documents.find(d => d.id === docId)
+                if (!doc) return null
+                return (
+                  <button key={docId} className="ctrl-doc-chip" onClick={() => onOpenDoc(docId)}>
+                    <FileText size={12} />
+                    <span>{TYPE_DOCUMENT_LABELS[doc.typeDocument as TypeDocument] || doc.typeDocument}</span>
+                    <ArrowRight size={11} className="ctrl-doc-chip-arrow" />
+                  </button>
+                )
+              })}
             </div>
           </div>
         )}
 
         {/* Edit panel */}
         {editing && (
-          <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title"><Edit3 size={10} /> Correction</div>
-            <div className="vblock-edit-panel" style={{ margin: 0 }}>
-              <div className="vblock-edit-row">
+          <div className="ctrl-detail-section ctrl-edit-section">
+            <div className="ctrl-detail-section-title"><Edit3 size={11} /> Correction manuelle</div>
+            <div className="ctrl-edit-panel">
+              <div className="ctrl-edit-row">
                 <label>Valeur attendue</label>
                 <input className="form-input" value={editValues.valeurAttendue}
                   onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))} />
               </div>
-              <div className="vblock-edit-row">
+              <div className="ctrl-edit-row">
                 <label>Valeur trouvee</label>
                 <input className="form-input" value={editValues.valeurTrouvee}
                   onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))} />
               </div>
-              <div className="vblock-edit-row">
-                <label><MessageSquare size={10} /> Commentaire</label>
+              <div className="ctrl-edit-row">
+                <label><MessageSquare size={11} /> Commentaire</label>
                 <input className="form-input" value={editValues.commentaire}
                   onChange={e => setEditValues(v => ({ ...v, commentaire: e.target.value }))}
                   placeholder="Raison de la correction..." />
               </div>
-              <div style={{ display: 'flex', gap: 6, marginTop: 8, flexWrap: 'wrap' }}>
+              <div className="ctrl-edit-buttons">
                 <button className="btn btn-primary btn-sm" disabled={saving} onClick={() => saveEdit(true)}>
-                  {saving ? <Loader2 size={11} className="spin" /> : <ZapIcon size={11} />} Sauvegarder + Relancer
-                  {cascadeSize > 1 && <span style={{ marginLeft: 4, background: 'rgba(255,255,255,0.25)', padding: '1px 5px', borderRadius: 8, fontSize: 9, fontWeight: 700 }}>+{cascadeSize - 1}</span>}
+                  {saving ? <Loader2 size={12} className="spin" /> : <ZapIcon size={12} />} Sauvegarder &amp; relancer
+                  {cascadeSize > 1 && <span className="ctrl-hero-cascade">+{cascadeSize - 1}</span>}
                 </button>
                 <button className="btn btn-secondary btn-sm" disabled={saving} onClick={() => saveEdit(false)}>
-                  <Save size={11} /> Sauvegarder
+                  <Save size={12} /> Sauvegarder
                 </button>
                 <button className="btn btn-secondary btn-sm" onClick={() => setEditing(false)} disabled={saving}>
-                  <X size={11} /> Annuler
+                  <X size={12} /> Annuler
                 </button>
               </div>
             </div>
@@ -338,60 +470,26 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
         {r && (
           <div className="ctrl-detail-meta">
             {conf && (
-              <span className="ctrl-detail-meta-item">
-                Confiance : <strong style={{ color: conf.color }}>{conf.pct}%</strong>
-              </span>
+              <div className="ctrl-meta-pill">
+                <span className="ctrl-meta-label">Confiance</span>
+                <span className="ctrl-meta-value" style={{ color: conf.color }}>{conf.pct}%</span>
+                <span className="ctrl-meta-bar"><span style={{ width: `${conf.pct}%`, background: conf.color }} /></span>
+              </div>
             )}
             {r.source && (
-              <span className="ctrl-detail-meta-item">
-                <span className={`vblock-source-tag ${r.source === 'deterministe' || r.source === 'DETERMINISTE' ? 'deterministe' : 'llm'}`}>
-                  {r.source === 'deterministe' || r.source === 'DETERMINISTE' ? 'Verifie' : 'Extrait par IA'}
+              <div className="ctrl-meta-pill">
+                <span className="ctrl-meta-label">Source</span>
+                <span className={`ctrl-source-tag ${r.source === 'deterministe' || r.source === 'DETERMINISTE' ? 'det' : 'ia'}`}>
+                  {r.source === 'deterministe' || r.source === 'DETERMINISTE' ? 'Verifie systeme' : 'Extrait IA'}
                 </span>
-              </span>
+              </div>
             )}
             {r.corrigePar && (
-              <span className="ctrl-detail-meta-item vblock-corrected" style={{ fontSize: 10 }}>
-                Corrige par {r.corrigePar}
-              </span>
+              <div className="ctrl-meta-pill">
+                <span className="ctrl-meta-label">Corrige par</span>
+                <span className="ctrl-meta-value">{r.corrigePar}</span>
+              </div>
             )}
-          </div>
-        )}
-
-        {/* Actions */}
-        <div className="ctrl-detail-actions">
-          {r && !editing && (
-            <>
-              <button className="btn btn-secondary btn-sm" onClick={startEdit}>
-                <Edit3 size={11} /> Corriger
-              </button>
-              <button className="btn btn-secondary btn-sm" onClick={handleRerun} disabled={rerunning === item.code}>
-                {rerunning === item.code ? <Loader2 size={11} className="spin" /> : <RefreshCw size={11} />} Relancer
-                {cascadeSize > 1 && <span style={{ marginLeft: 4, fontSize: 9, opacity: 0.6 }}>+{cascadeSize - 1}</span>}
-              </button>
-              <select className="vblock-select" value={r.statut}
-                onChange={e => handleCorrect(e.target.value)}
-                onClick={e => e.stopPropagation()}>
-                {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-              </select>
-            </>
-          )}
-        </div>
-
-        {/* Document links */}
-        {r?.documentIds && r.documentIds.length > 0 && (
-          <div className="ctrl-detail-section" style={{ marginTop: 12 }}>
-            <div className="ctrl-detail-section-title"><FileText size={10} /> Documents source</div>
-            <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap' }}>
-              {r.documentIds.map(docId => {
-                const doc = dossier.documents.find(d => d.id === docId)
-                if (!doc) return null
-                return (
-                  <button key={docId} className="btn btn-secondary btn-sm" onClick={() => onOpenDoc(docId)}>
-                    <FileText size={10} /> {TYPE_DOCUMENT_LABELS[doc.typeDocument as TypeDocument]?.split(' ')[0] || doc.typeDocument}
-                  </button>
-                )
-              })}
-            </div>
           </div>
         )}
       </div>
@@ -415,9 +513,10 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc }
   if (!activeDoc) {
     return (
       <div className="ctrl-split-right">
-        <div className="ctrl-split-right-empty">
-          <FileText size={32} />
-          <p style={{ fontSize: 13 }}>Cliquez sur "Voir" dans les preuves pour afficher le document source ici</p>
+        <div className="ctrl-empty ctrl-empty-docs">
+          <div className="ctrl-empty-illus"><FileText size={28} /></div>
+          <h4>Aucun document ouvert</h4>
+          <p>Cliquez sur une preuve ou sur un chip "Documents source" pour afficher le PDF/image ici.</p>
         </div>
       </div>
     )
@@ -483,6 +582,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
   const [highlightField, setHighlightField] = useState<string | null>(null)
   const [rerunning, setRerunning] = useState<string | null>(null)
+  const [search, setSearch] = useState('')
 
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
@@ -517,14 +617,23 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
   }, [systemRuleDefs, results, parsedPoints])
 
   const counts = useMemo(() => {
-    let ok = 0, ko = 0, warn = 0
+    let ok = 0, ko = 0, warn = 0, pending = 0
     for (const item of items) {
       if (item.status === 'ok') ok++
       else if (item.status === 'ko') ko++
       else if (item.status === 'warn') warn++
+      else if (item.status === 'pending' || item.status === 'na') pending++
     }
-    return { ok, ko, warn, total: items.length }
+    return { ok, ko, warn, pending, total: items.length }
   }, [items])
+
+  const pctOk = counts.total > 0 ? Math.round((counts.ok / counts.total) * 100) : 0
+  const hasResults = results.length > 0
+  const healthTone: 'ok' | 'warn' | 'ko' | 'pending' =
+    !hasResults ? 'pending' :
+    counts.ko > 0 ? 'ko' :
+    counts.warn > 0 ? 'warn' :
+    'ok'
 
   const selectedItem = useMemo(() => items.find(i => i.key === selectedKey) || null, [items, selectedKey])
 
@@ -585,27 +694,98 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     return () => window.removeEventListener('keydown', handler)
   }, [items])
 
+  // Donut geometry
+  const ringR = 26
+  const ringC = 2 * Math.PI * ringR
+  const dashOk = (counts.ok / Math.max(counts.total, 1)) * ringC
+  const dashKo = (counts.ko / Math.max(counts.total, 1)) * ringC
+  const dashWarn = (counts.warn / Math.max(counts.total, 1)) * ringC
+
   return (
-    <div>
-      {/* Header bar */}
-      <div className="card" style={{ padding: '10px 16px', marginBottom: 10, display: 'flex', alignItems: 'center', gap: 10 }}>
-        <ShieldCheck size={16} style={{ color: 'var(--accent-deep)' }} />
-        <span style={{ fontWeight: 700, fontSize: 14 }}>Verification du dossier</span>
-        <span style={{ fontSize: 11, color: 'var(--ink-40)', fontFamily: 'var(--font-mono)' }}>
-          {counts.ok}/{counts.total} conformes
-          {counts.ko > 0 && <> &middot; <span style={{ color: 'var(--danger)' }}>{counts.ko} KO</span></>}
-        </span>
-        <div style={{ marginLeft: 'auto', display: 'flex', gap: 6 }}>
-          <button className="btn btn-primary btn-sm" onClick={onValidate} disabled={validating}>
-            {validating ? <Loader2 size={12} className="spin" /> : <Zap size={12} />} Lancer verification
-          </button>
+    <div className="ctrl-view">
+      {/* Hero */}
+      <section className={`ctrl-hero tone-${healthTone}`}>
+        <div className="ctrl-hero-left">
+          <div className="ctrl-hero-badge">
+            <ShieldCheck size={13} />
+            <span>Verification du dossier</span>
+          </div>
+          <h2 className="ctrl-hero-title">
+            {!hasResults ? 'Pret a verifier' : healthTone === 'ok' ? 'Dossier conforme' : healthTone === 'warn' ? 'Avertissements a revoir' : 'Anomalies detectees'}
+          </h2>
+          <p className="ctrl-hero-sub">
+            {!hasResults
+              ? 'Lancez la verification pour executer les controles automatiques et la checklist autocontrole sur ce dossier.'
+              : `${counts.ok} controles OK sur ${counts.total}. ${counts.ko > 0 ? `${counts.ko} non-conformite(s) a traiter en priorite.` : counts.warn > 0 ? `${counts.warn} avertissement(s) a verifier.` : 'Tous les controles sont passes.'}`
+            }
+          </p>
         </div>
-      </div>
+
+        <div className="ctrl-hero-ring-wrap" aria-hidden="true">
+          <svg className="ctrl-hero-ring" viewBox="0 0 64 64" width="96" height="96">
+            <circle cx="32" cy="32" r={ringR} className="ctrl-hero-ring-track" />
+            {counts.total > 0 && (
+              <>
+                <circle cx="32" cy="32" r={ringR} className="ctrl-hero-ring-seg seg-ok"
+                  strokeDasharray={`${dashOk} ${ringC}`} strokeDashoffset={0} />
+                <circle cx="32" cy="32" r={ringR} className="ctrl-hero-ring-seg seg-ko"
+                  strokeDasharray={`${dashKo} ${ringC}`} strokeDashoffset={-dashOk} />
+                <circle cx="32" cy="32" r={ringR} className="ctrl-hero-ring-seg seg-warn"
+                  strokeDasharray={`${dashWarn} ${ringC}`} strokeDashoffset={-(dashOk + dashKo)} />
+              </>
+            )}
+          </svg>
+          <div className="ctrl-hero-ring-center">
+            <span className="ctrl-hero-ring-num">{pctOk}<small>%</small></span>
+            <span className="ctrl-hero-ring-label">conforme</span>
+          </div>
+        </div>
+
+        <div className="ctrl-hero-kpis">
+          <div className="ctrl-kpi kpi-ok">
+            <CheckCircle2 size={14} />
+            <span className="ctrl-kpi-num">{counts.ok}</span>
+            <span className="ctrl-kpi-lbl">Conformes</span>
+          </div>
+          <div className="ctrl-kpi kpi-ko">
+            <XCircle size={14} />
+            <span className="ctrl-kpi-num">{counts.ko}</span>
+            <span className="ctrl-kpi-lbl">Non conformes</span>
+          </div>
+          <div className="ctrl-kpi kpi-warn">
+            <AlertCircle size={14} />
+            <span className="ctrl-kpi-num">{counts.warn}</span>
+            <span className="ctrl-kpi-lbl">Avertissements</span>
+          </div>
+          <div className="ctrl-kpi kpi-pending">
+            <Clock size={14} />
+            <span className="ctrl-kpi-num">{counts.pending}</span>
+            <span className="ctrl-kpi-lbl">En attente</span>
+          </div>
+        </div>
+
+        <div className="ctrl-hero-cta">
+          <button className="ctrl-hero-btn primary" onClick={onValidate} disabled={validating}>
+            {validating ? <Loader2 size={14} className="spin" /> : <Zap size={14} />}
+            {hasResults ? 'Relancer la verification' : 'Lancer la verification'}
+          </button>
+          {counts.ko + counts.warn > 0 && (
+            <button className="ctrl-hero-btn ghost" onClick={() => {
+              setFilterMode('problems')
+              const first = items.find(i => i.status === 'ko') || items.find(i => i.status === 'warn')
+              if (first) setSelectedKey(first.key)
+            }}>
+              <AlertTriangle size={13} /> Voir le 1er probleme
+            </button>
+          )}
+        </div>
+      </section>
 
       {/* 3-column split */}
       <div className="ctrl-split">
         <LeftPanel items={items} selectedKey={selectedKey} onSelect={setSelectedKey}
-          filterMode={filterMode} onFilterChange={setFilterMode} counts={counts} />
+          filterMode={filterMode} onFilterChange={setFilterMode} counts={counts}
+          search={search} onSearchChange={setSearch} />
 
         <CenterPanel item={selectedItem} dossier={dossier} dossierId={dossierId}
           onRefreshResults={onRefreshResults} onReplaceResults={onReplaceResults}

@@ -59,6 +59,18 @@ class DossierService(
     private val log = LoggerFactory.getLogger(javaClass)
     private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
 
+    @jakarta.annotation.PostConstruct
+    fun logStorageConfig() {
+        val abs = Path.of(uploadDir).toAbsolutePath().normalize()
+        val ephemeralHints = listOf("/tmp", "/app/uploads", "uploads")
+        val looksEphemeral = ephemeralHints.any { abs.toString() == Path.of(it).toAbsolutePath().normalize().toString() }
+        if (looksEphemeral) {
+            log.warn("Upload directory resolves to {} which is NOT persistent on Railway. Documents will be lost on every redeploy. Mount a Railway Volume and set STORAGE_DIR to a path inside it (e.g. /app/data/uploads).", abs)
+        } else {
+            log.info("Upload directory: {} (persistence is the responsibility of the mounted Volume)", abs)
+        }
+    }
+
     @Transactional
     fun createDossier(request: CreateDossierRequest): DossierPaiement {
         val seq = refCounter.incrementAndGet()
@@ -1207,7 +1219,10 @@ class DossierService(
             .orElseThrow { NoSuchElementException("Document not found: $documentId") }
         if (doc.dossier.id != dossierId) throw NoSuchElementException("Document $documentId does not belong to dossier $dossierId")
         val path = Path.of(doc.cheminFichier)
-        if (!Files.exists(path)) throw NoSuchElementException("File not found on disk: ${doc.cheminFichier}")
+        if (!Files.exists(path)) {
+            log.warn("File missing on disk: {} (storage.upload-dir={}). Likely cause: uploads directory is not a persistent Railway Volume — redeploy wiped the file.", doc.cheminFichier, uploadDir)
+            throw NoSuchElementException("Fichier introuvable (probablement perdu lors d'un redeploiement). Re-uploadez le document ou configurez un Railway Volume sur /app/data.")
+        }
         return Pair(doc.cheminFichier, doc.nomFichier)
     }
 
