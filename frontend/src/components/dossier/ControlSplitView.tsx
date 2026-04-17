@@ -313,50 +313,42 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 
   return (
     <div className={`ctrl-split-center ctrl-detail`}>
-      {/* Header — neutral, Stripe/Ramp style */}
+      {/* Header with inline actions */}
       <div className="ctrl-detail-header">
-        <div className="ctrl-detail-header-top">
+        <div className="ctrl-detail-header-main">
           <div className="ctrl-detail-header-ids">
             <span className="ctrl-detail-code">{item.code}</span>
             <span className="ctrl-detail-group">{item.group}</span>
+            <span className={`ctrl-status-chip status-${item.status}`}>
+              <span className={`ctrl-status-dot status-${item.status}`} aria-hidden="true" />
+              {sd.label}
+            </span>
             {stale && <span className="ctrl-chip-neutral">Obsolete</span>}
           </div>
-          <span className={`ctrl-status-chip status-${item.status}`} aria-label={sd.label}>
-            <span className={`ctrl-status-dot status-${item.status}`} aria-hidden="true" />
-            {sd.label}
-          </span>
+          {r && !editing && (
+            <div className="ctrl-detail-header-actions">
+              <select className="ctrl-status-select" value={r.statut}
+                onChange={e => handleCorrect(e.target.value)}
+                onClick={e => e.stopPropagation()}
+                aria-label="Changer le statut">
+                {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+              </select>
+              <button className="ctrl-btn-secondary" onClick={startEdit}>
+                <Edit3 size={12} /> Corriger
+              </button>
+              <button className="ctrl-btn-secondary" onClick={handleRerun} disabled={rerunning === item.code}>
+                {rerunning === item.code ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
+                Relancer
+                {cascadeSize > 1 && <span className="ctrl-cascade-badge">+{cascadeSize - 1}</span>}
+              </button>
+            </div>
+          )}
         </div>
         <h3 className="ctrl-detail-title">{item.label}</h3>
+        {item.desc && <p className="ctrl-detail-desc">{item.desc}</p>}
       </div>
 
-      {/* Actions toolbar */}
-      {r && !editing && (
-        <div className="ctrl-detail-toolbar">
-          <select className="ctrl-status-select" value={r.statut}
-            onChange={e => handleCorrect(e.target.value)}
-            onClick={e => e.stopPropagation()}
-            aria-label="Changer le statut">
-            {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-          </select>
-          <button className="ctrl-btn-secondary" onClick={startEdit}>
-            <Edit3 size={12} /> Corriger
-          </button>
-          <button className="ctrl-btn-secondary" onClick={handleRerun} disabled={rerunning === item.code}>
-            {rerunning === item.code ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
-            Relancer
-            {cascadeSize > 1 && <span className="ctrl-cascade-badge">+{cascadeSize - 1}</span>}
-          </button>
-        </div>
-      )}
-
       <div className="ctrl-split-center-body">
-        {/* Description */}
-        {item.desc && (
-          <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title">Description</div>
-            <p className="ctrl-detail-desc">{item.desc}</p>
-          </div>
-        )}
 
         {/* Detail from validation */}
         {r?.detail && (
@@ -613,6 +605,29 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     counts.warn > 0 ? 'warn' :
     'ok'
 
+  const lastRunAt = useMemo(() => {
+    let max = 0
+    for (const r of results) {
+      if (r.dateExecution) {
+        const t = new Date(r.dateExecution).getTime()
+        if (t > max) max = t
+      }
+    }
+    return max > 0 ? new Date(max) : null
+  }, [results])
+
+  const lastRunLabel = useMemo(() => {
+    if (!lastRunAt) return null
+    const diffMs = Date.now() - lastRunAt.getTime()
+    const m = Math.floor(diffMs / 60000)
+    if (m < 1) return 'a l\'instant'
+    if (m < 60) return `il y a ${m} min`
+    const h = Math.floor(m / 60)
+    if (h < 24) return `il y a ${h}h`
+    const d = Math.floor(h / 24)
+    return `il y a ${d}j`
+  }, [lastRunAt])
+
   const selectedItem = useMemo(() => items.find(i => i.key === selectedKey) || null, [items, selectedKey])
 
   const handleOpenDoc = useCallback((docId: string, field?: string) => {
@@ -682,23 +697,38 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     : healthTone === 'warn' ? 'Avertissements a revoir'
     : 'Controles en attente'
 
+  const jumpToFirstProblem = () => {
+    setFilterMode('problems')
+    const first = items.find(i => i.status === 'ko') || items.find(i => i.status === 'warn')
+    if (first) setSelectedKey(first.key)
+  }
+
   return (
     <div className="ctrl-view">
-      {/* Hero — finance-grade minimal header */}
+      {/* Hero */}
       <section className="ctrl-hero">
         <div className="ctrl-hero-top">
           <div className="ctrl-hero-id">
             <span className="ctrl-hero-eyebrow">Verification du dossier</span>
             <h2 className="ctrl-hero-title">{headline}</h2>
+            {hasResults && (
+              <div className="ctrl-hero-sub">
+                <span><strong>{pctOk}%</strong> conformes</span>
+                <span className="ctrl-hero-dot" aria-hidden="true" />
+                <span>{counts.total} controles</span>
+                {lastRunLabel && (
+                  <>
+                    <span className="ctrl-hero-dot" aria-hidden="true" />
+                    <span>Derniere verification {lastRunLabel}</span>
+                  </>
+                )}
+              </div>
+            )}
           </div>
           <div className="ctrl-hero-actions-top">
             {counts.ko + counts.warn > 0 && (
-              <button className="ctrl-btn-ghost" onClick={() => {
-                setFilterMode('problems')
-                const first = items.find(i => i.status === 'ko') || items.find(i => i.status === 'warn')
-                if (first) setSelectedKey(first.key)
-              }}>
-                Voir le 1er probleme
+              <button className="ctrl-btn-ghost" onClick={jumpToFirstProblem}>
+                Aller au 1er probleme →
               </button>
             )}
             <button className="ctrl-btn-primary" onClick={onValidate} disabled={validating}>
@@ -711,7 +741,10 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         <dl className="ctrl-hero-stats">
           <div className="ctrl-stat">
             <dt>Conformes</dt>
-            <dd><span className="ctrl-stat-num">{counts.ok}</span><span className="ctrl-stat-total">/{counts.total}</span></dd>
+            <dd>
+              <span className="ctrl-stat-num">{counts.ok}</span>
+              <span className="ctrl-stat-total">/ {counts.total}</span>
+            </dd>
           </div>
           <div className="ctrl-stat ctrl-stat-ko">
             <dt>Non conformes</dt>
@@ -724,10 +757,6 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
           <div className="ctrl-stat">
             <dt>En attente</dt>
             <dd><span className="ctrl-stat-num">{counts.pending}</span></dd>
-          </div>
-          <div className="ctrl-stat ctrl-stat-pct">
-            <dt>Taux de conformite</dt>
-            <dd><span className="ctrl-stat-num">{pctOk}<small>%</small></span></dd>
           </div>
         </dl>
 
