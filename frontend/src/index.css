@@ -1216,17 +1216,57 @@ body {
   .ctrl-hero-actions-top { justify-content: flex-end; }
 }
 
-/* ===== Control Split View ===== */
+/* ===== Control Split View — resizable ===== */
 .ctrl-split {
   display: grid;
-  grid-template-columns: 320px minmax(0, 1fr);
-  gap: 12px;
+  /* grid-template-columns is set inline based on useResizer state;
+     fallback here is only for SSR / the split-second before first render */
+  grid-template-columns: 320px 6px minmax(0, 1fr);
+  gap: 0;
   height: calc(100vh - 220px);
   min-height: 560px;
 }
 .ctrl-split.with-preview {
-  grid-template-columns: 300px minmax(0, 1fr) minmax(360px, 0.9fr);
+  grid-template-columns: 320px 6px minmax(0, 1fr) 6px 400px;
 }
+
+/* Resize handle — invisible hover hitbox with a thin visible rule in the middle */
+.ctrl-split-handle {
+  position: relative;
+  cursor: col-resize;
+  touch-action: none;
+  user-select: none;
+}
+.ctrl-split-handle::before {
+  content: '';
+  position: absolute;
+  left: 50%; top: 0; bottom: 0;
+  width: 1px; background: var(--ink-10);
+  transform: translateX(-50%);
+  transition: background 0.12s, width 0.12s;
+}
+.ctrl-split-handle:hover::before {
+  background: var(--ink-40);
+  width: 2px;
+}
+.ctrl-split-handle:active::before,
+.ctrl-split-handle[aria-orientation="vertical"]:focus-visible::before {
+  background: var(--ink);
+  width: 2px;
+}
+/* Grab indicator dots appear on hover */
+.ctrl-split-handle::after {
+  content: '';
+  position: absolute;
+  left: 50%; top: 50%;
+  width: 4px; height: 28px;
+  border-radius: 4px;
+  transform: translate(-50%, -50%);
+  background: var(--ink-20);
+  opacity: 0;
+  transition: opacity 0.12s;
+}
+.ctrl-split-handle:hover::after { opacity: 1; }
 .ctrl-split-left {
   display: flex; flex-direction: column;
   background: #fff; border: 1px solid var(--ink-10);
@@ -1880,15 +1920,12 @@ body {
 [data-theme="dark"] .ctrl-edit-panel { background: linear-gradient(180deg, rgba(59,130,246,0.08) 0%, #131927 100%); border-color: #1c2333; }
 [data-theme="dark"] .ctrl-empty h4 { color: #e8eaee; }
 
-@media (max-width: 1280px) {
-  .ctrl-split { grid-template-columns: 280px minmax(0,1fr); }
-  .ctrl-split.with-preview { grid-template-columns: 260px minmax(0,1fr) minmax(320px, 0.8fr); }
-}
 @media (max-width: 1024px) {
   .ctrl-split,
-  .ctrl-split.with-preview { grid-template-columns: 1fr; height: auto; gap: 10px; }
+  .ctrl-split.with-preview { grid-template-columns: 1fr !important; height: auto; gap: 10px; }
   .ctrl-split-right { min-height: 420px; }
   .ctrl-split-left { max-height: 420px; }
+  .ctrl-split-handle { display: none; }
 }
 
 /* ===== EvidenceList ===== */

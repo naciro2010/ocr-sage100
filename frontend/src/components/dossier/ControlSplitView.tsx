@@ -61,6 +61,54 @@ function isStale(r: ValidationResult | undefined, documents: DocumentInfo[]): bo
   })
 }
 
+function clamp(n: number, min: number, max: number) {
+  return Math.max(min, Math.min(max, n))
+}
+
+function useResizer(opts: { initial: number; min: number; max: number; storageKey: string; direction: 'left' | 'right' }) {
+  const { initial, min, max, storageKey, direction } = opts
+  const [width, setWidth] = useState<number>(() => {
+    try {
+      const raw = localStorage.getItem(storageKey)
+      if (raw != null) {
+        const n = parseInt(raw, 10)
+        if (!Number.isNaN(n)) return clamp(n, min, max)
+      }
+    } catch { /* ignore */ }
+    return initial
+  })
+
+  useEffect(() => {
+    try { localStorage.setItem(storageKey, String(width)) } catch { /* ignore */ }
+  }, [width, storageKey])
+
+  const onPointerDown = useCallback((e: React.PointerEvent<HTMLDivElement>) => {
+    e.preventDefault()
+    const startX = e.clientX
+    const startWidth = width
+    const handleMove = (ev: PointerEvent) => {
+      const dx = direction === 'left' ? ev.clientX - startX : startX - ev.clientX
+      setWidth(clamp(startWidth + dx, min, max))
+    }
+    const cleanup = () => {
+      document.removeEventListener('pointermove', handleMove)
+      document.removeEventListener('pointerup', cleanup)
+      document.removeEventListener('pointercancel', cleanup)
+      document.body.style.userSelect = ''
+      document.body.style.cursor = ''
+    }
+    document.addEventListener('pointermove', handleMove)
+    document.addEventListener('pointerup', cleanup)
+    document.addEventListener('pointercancel', cleanup)
+    document.body.style.userSelect = 'none'
+    document.body.style.cursor = 'col-resize'
+  }, [width, min, max, direction])
+
+  const onDoubleClick = useCallback(() => setWidth(initial), [initial])
+
+  return { width, onPointerDown, onDoubleClick }
+}
+
 function useBlobUrl(apiUrl: string | null) {
   const [blobUrl, setBlobUrl] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
@@ -653,6 +701,9 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
   const [rerunning, setRerunning] = useState<string | null>(null)
   const [search, setSearch] = useState('')
 
+  const leftPane  = useResizer({ initial: 320, min: 220, max: 520, storageKey: 'ctrl-split.left',  direction: 'left'  })
+  const rightPane = useResizer({ initial: 400, min: 300, max: 720, storageKey: 'ctrl-split.right', direction: 'right' })
+
   const activeRules = useMemo(() => getActiveRules(dossier.type as 'BC' | 'CONTRACTUEL'), [dossier.type])
   const systemRuleDefs = useMemo(() => activeRules.filter(r => r.category === 'system'), [activeRules])
   const results = dossier.resultatsValidation
@@ -856,11 +907,27 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         )}
       </section>
 
-      {/* Split: 2 columns by default, 3 when a doc preview is open */}
-      <div className={`ctrl-split ${previewDocId ? 'with-preview' : ''}`}>
+      {/* Resizable split: 2 columns by default, 3 when a doc preview is open */}
+      <div
+        className={`ctrl-split ${previewDocId ? 'with-preview' : ''}`}
+        style={{
+          gridTemplateColumns: previewDocId
+            ? `${leftPane.width}px 6px minmax(0, 1fr) 6px ${rightPane.width}px`
+            : `${leftPane.width}px 6px minmax(0, 1fr)`,
+        }}
+      >
         <LeftPanel items={items} selectedKey={selectedKey} onSelect={setSelectedKey}
           filterMode={filterMode} onFilterChange={setFilterMode} counts={counts}
           search={search} onSearchChange={setSearch} />
+
+        <div
+          className="ctrl-split-handle"
+          onPointerDown={leftPane.onPointerDown}
+          onDoubleClick={leftPane.onDoubleClick}
+          role="separator" aria-orientation="vertical"
+          aria-label="Redimensionner la liste des controles (double-clic pour reinitialiser)"
+          title="Glisser pour redimensionner · double-clic = reset"
+        />
 
         <CenterPanel item={selectedItem} dossier={dossier} dossierId={dossierId}
           onRefreshResults={onRefreshResults} onReplaceResults={onReplaceResults}
@@ -869,10 +936,20 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
           problemNav={problemNav} />
 
         {previewDocId && (
-          <RightPanel dossierId={dossierId} docId={previewDocId}
-            documents={dossier.documents} highlightField={highlightField}
-            onChangeDoc={(id) => { setPreviewDocId(id); setHighlightField(null) }}
-            onClose={() => { setPreviewDocId(null); setHighlightField(null) }} />
+          <>
+            <div
+              className="ctrl-split-handle"
+              onPointerDown={rightPane.onPointerDown}
+              onDoubleClick={rightPane.onDoubleClick}
+              role="separator" aria-orientation="vertical"
+              aria-label="Redimensionner le visualiseur PDF (double-clic pour reinitialiser)"
+              title="Glisser pour redimensionner · double-clic = reset"
+            />
+            <RightPanel dossierId={dossierId} docId={previewDocId}
+              documents={dossier.documents} highlightField={highlightField}
+              onChangeDoc={(id) => { setPreviewDocId(id); setHighlightField(null) }}
+              onClose={() => { setPreviewDocId(null); setHighlightField(null) }} />
+          </>
         )}
       </div>
     </div>
