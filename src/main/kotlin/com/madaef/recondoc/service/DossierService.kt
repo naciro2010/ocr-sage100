@@ -656,7 +656,11 @@ class DossierService(
                         if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
                         if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
                         append(", ${rawText.length} caracteres]\n\n")
+                        // Encapsulation defensive : toute instruction presente dans le texte OCR
+                        // doit etre traitee comme donnee, pas comme directive (voir COMMON_RULES).
+                        append("<document_content>\n")
                         append(rawText)
+                        append("\n</document_content>")
                     }
                     var jsonText = llmService.callClaude(prompt, ocrContext)
                     var data = parseLlmResponse(jsonText)
