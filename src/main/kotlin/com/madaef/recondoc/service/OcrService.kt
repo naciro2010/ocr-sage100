@@ -30,6 +30,7 @@ class OcrService(
     private val preprocessingService: ImagePreprocessingService,
     private val textNormalizationService: TextNormalizationService,
     private val paddleOcrClient: PaddleOcrClient,
+    private val pdfMarkdownExtractor: PdfMarkdownExtractor,
     @Value("\${ocr.tesseract.data-path:/usr/share/tessdata}") private val tessDataPath: String,
     @Value("\${ocr.tesseract.languages:fra+ara}") private val languages: String,
     @Value("\${ocr.tesseract.dpi:300}") private val dpi: Int,
@@ -82,7 +83,7 @@ class OcrService(
         val pageCount: Int = 1
     )
 
-    enum class OcrEngine { TIKA, TESSERACT, PADDLEOCR, TIKA_PLUS_TESSERACT, COMBINED }
+    enum class OcrEngine { TIKA, TESSERACT, PADDLEOCR, TIKA_PLUS_TESSERACT, COMBINED, PDFBOX_MARKDOWN }
 
     fun extractText(inputStream: InputStream, fileName: String): String {
         return extractWithDetails(inputStream, fileName, null).text
@@ -98,6 +99,15 @@ class OcrService(
 
         // Si Tika a trouve beaucoup de texte natif, c'est un PDF numerique
         if (tikaWords >= 200) {
+            // Upgrade en Markdown si le PDF contient des tableaux (factures, BC, grilles tarifaires).
+            // Le LLM interprete beaucoup mieux | HT | TVA | TTC | qu'un alignement par espaces.
+            if (filePath != null && isPdfFile(fileName)) {
+                val md = pdfMarkdownExtractor.extract(filePath)
+                if (md != null && md.tableCount > 0) {
+                    log.info("Upgraded to Markdown for {}: {} tables on {} pages", fileName, md.tableCount, md.pageCount)
+                    return OcrResult(text = md.markdown, engine = OcrEngine.PDFBOX_MARKDOWN, pageCount = md.pageCount)
+                }
+            }
             log.info("Tika extraction rich for {} ({}+ words), skipping OCR", fileName, tikaWords)
             return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = countPages(filePath))
         }
