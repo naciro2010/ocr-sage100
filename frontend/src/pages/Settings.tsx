@@ -16,8 +16,16 @@ import {
   Shield, Globe, Key, Info, ShieldCheck,
   FileText, Layers, Zap, Sparkles, CircuitBoard,
   ArrowRight, Database, Server, Activity, RefreshCw,
-  HardDrive, Clock, AlertTriangle,
+  HardDrive, Clock, AlertTriangle, Plus, Trash2,
+  Pencil, FlaskConical, Wand2, Save, X as XIcon,
 } from 'lucide-react'
+import {
+  listCustomRules, createCustomRule, updateCustomRule,
+  deleteCustomRule, toggleCustomRule, testCustomRule,
+  type CustomRule, type CustomRuleRequest, type CustomRuleTestResult,
+} from '../api/customRulesApi'
+import { listDossiers } from '../api/dossierApi'
+import type { DossierListItem } from '../api/dossierTypes'
 
 const AI_MODELS = [
   { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, ideal pour extraction' },
@@ -513,6 +521,7 @@ export default function Settings() {
             kpiLabel="Regles definies"
           />
           <ValidationRulesSection />
+          <CustomRulesSection />
         </div>
       )}
 
@@ -1117,6 +1126,442 @@ function ValidationRulesSection() {
           ))}
         </tbody>
       </table>
+    </div>
+  )
+}
+
+// ----------------------------------------------------------------------------
+// CUSTOM RULES — user-defined validation rules evaluated by Claude
+// ----------------------------------------------------------------------------
+
+const DOCUMENT_TYPES_FOR_CUSTOM = [
+  'FACTURE', 'BON_COMMANDE', 'CONTRAT_AVENANT', 'ORDRE_PAIEMENT',
+  'PV_RECEPTION', 'ATTESTATION_FISCALE', 'CHECKLIST_AUTOCONTROLE',
+  'TABLEAU_CONTROLE',
+]
+
+const PROMPT_EXAMPLES: Array<{ title: string; prompt: string }> = [
+  {
+    title: 'Montant superieur a un seuil',
+    prompt: "Signaler en AVERTISSEMENT si le montant TTC de la facture depasse 100 000 MAD et qu'aucun contrat n'est joint au dossier.",
+  },
+  {
+    title: 'Correspondance RIB sur liste blanche',
+    prompt: "Le RIB de la facture doit appartenir a l'un des etablissements bancaires marocains (commence par 007, 011, 021, 047, 101...). Non conforme sinon.",
+  },
+  {
+    title: 'Coherence mois de prestation',
+    prompt: "Le mois indique dans l'objet de la facture doit correspondre a un mois de la duree du contrat. Non conforme si la facture est hors periode contractuelle.",
+  },
+]
+
+const EMPTY_RULE: CustomRuleRequest = {
+  libelle: '',
+  description: '',
+  prompt: '',
+  enabled: true,
+  appliesToBC: true,
+  appliesToContractuel: true,
+  documentTypes: [],
+  severity: 'NON_CONFORME',
+  requiredFields: [],
+}
+
+function CustomRulesSection() {
+  const { toast } = useToast()
+  const [rules, setRules] = useState<CustomRule[]>([])
+  const [loading, setLoading] = useState(true)
+  const [editing, setEditing] = useState<CustomRule | 'new' | null>(null)
+  const [form, setForm] = useState<CustomRuleRequest>(EMPTY_RULE)
+  const [saving, setSaving] = useState(false)
+
+  const [testOpenFor, setTestOpenFor] = useState<CustomRule | null>(null)
+  const [dossiers, setDossiers] = useState<DossierListItem[]>([])
+  const [testDossierId, setTestDossierId] = useState<string>('')
+  const [testing, setTesting] = useState(false)
+  const [testResult, setTestResult] = useState<CustomRuleTestResult | null>(null)
+
+  const reload = useCallback(async () => {
+    setLoading(true)
+    try {
+      setRules(await listCustomRules())
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur de chargement')
+    } finally { setLoading(false) }
+  }, [toast])
+
+  useEffect(() => { reload() }, [reload])
+
+  const openNew = () => {
+    setEditing('new')
+    setForm(EMPTY_RULE)
+  }
+  const openEdit = (r: CustomRule) => {
+    setEditing(r)
+    setForm({
+      libelle: r.libelle,
+      description: r.description ?? '',
+      prompt: r.prompt,
+      enabled: r.enabled,
+      appliesToBC: r.appliesToBC,
+      appliesToContractuel: r.appliesToContractuel,
+      documentTypes: r.documentTypes,
+      severity: r.severity,
+      requiredFields: r.requiredFields,
+    })
+  }
+  const closeEdit = () => { setEditing(null); setForm(EMPTY_RULE) }
+
+  const save = async () => {
+    if (!form.libelle.trim() || !form.prompt.trim()) {
+      toast('error', 'Libelle et prompt sont obligatoires')
+      return
+    }
+    if (!form.appliesToBC && !form.appliesToContractuel) {
+      toast('error', 'Choisissez au moins un type de dossier (BC ou Contractuel)')
+      return
+    }
+    setSaving(true)
+    try {
+      if (editing === 'new') {
+        await createCustomRule(form)
+        toast('success', 'Regle creee')
+      } else if (editing) {
+        await updateCustomRule(editing.id, form)
+        toast('success', 'Regle mise a jour')
+      }
+      closeEdit()
+      await reload()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur sauvegarde')
+    } finally { setSaving(false) }
+  }
+
+  const remove = async (r: CustomRule) => {
+    if (!confirm(`Supprimer la regle ${r.code} — « ${r.libelle} » ?`)) return
+    try {
+      await deleteCustomRule(r.id)
+      toast('success', 'Regle supprimee')
+      await reload()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur suppression')
+    }
+  }
+
+  const toggle = async (r: CustomRule) => {
+    try {
+      await toggleCustomRule(r.id, !r.enabled)
+      await reload()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    }
+  }
+
+  const openTest = async (r: CustomRule) => {
+    setTestOpenFor(r)
+    setTestResult(null)
+    setTestDossierId('')
+    try {
+      const page = await listDossiers(0, 30)
+      setDossiers(page.content)
+      const firstApplicable = page.content.find(d =>
+        (d.type === 'BC' && r.appliesToBC) || (d.type === 'CONTRACTUEL' && r.appliesToContractuel)
+      )
+      if (firstApplicable) setTestDossierId(firstApplicable.id)
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Chargement dossiers impossible')
+    }
+  }
+
+  const runTest = async () => {
+    if (!testOpenFor || !testDossierId) return
+    setTesting(true)
+    setTestResult(null)
+    try {
+      setTestResult(await testCustomRule(testOpenFor.id, testDossierId))
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Test en echec')
+    } finally { setTesting(false) }
+  }
+
+  const toggleDocType = (t: string) => {
+    const current = new Set(form.documentTypes ?? [])
+    if (current.has(t)) current.delete(t); else current.add(t)
+    setForm({ ...form, documentTypes: Array.from(current) })
+  }
+
+  const setRequiredFieldsFromText = (text: string) => {
+    const list = text.split(',').map(s => s.trim()).filter(Boolean)
+    setForm({ ...form, requiredFields: list })
+  }
+
+  return (
+    <div className="card">
+      <div className="section-title-rail" style={{ display: 'flex', alignItems: 'center' }}>
+        <Wand2 size={14} /> Regles personnalisees (IA)
+        <span className="pill-meta accent" style={{ marginLeft: 8 }}>Beta</span>
+        <button
+          className="btn btn-primary"
+          style={{ marginLeft: 'auto', fontSize: 12, padding: '6px 12px' }}
+          onClick={openNew}
+        >
+          <Plus size={12} /> Nouvelle regle
+        </button>
+      </div>
+      <p className="settings-desc">
+        Ecrivez une regle en francais — Claude l'applique automatiquement a chaque validation
+        de dossier. Ideal pour des controles specifiques (plafond fournisseur, RIB
+        whitelistes, dates de prestation...). La regle tourne uniquement sur les dossiers
+        ou les cases « BC » et/ou « Contractuel » sont cochees.
+      </p>
+
+      {loading && (
+        <div style={{ padding: 16, color: 'var(--ink-50)', fontSize: 12 }}>
+          <Loader2 size={12} className="spin" /> Chargement...
+        </div>
+      )}
+
+      {!loading && rules.length === 0 && (
+        <div className="alert alert-info">
+          <Info size={14} />
+          <span>
+            Aucune regle personnalisee pour le moment. Cliquez sur « Nouvelle regle »
+            pour en creer une. L'IA evaluera automatiquement chaque dossier contre cette
+            regle apres l'extraction.
+          </span>
+        </div>
+      )}
+
+      {!loading && rules.length > 0 && (
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th style={{ width: 50 }}>Actif</th>
+              <th style={{ width: 90 }}>Code</th>
+              <th>Regle</th>
+              <th style={{ width: 60 }}>BC</th>
+              <th style={{ width: 80 }}>Contrat</th>
+              <th style={{ width: 110 }}>Severite</th>
+              <th style={{ width: 180 }}>Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {rules.map(r => (
+              <tr key={r.id} style={{ opacity: r.enabled ? 1 : 0.5 }}>
+                <td>
+                  <label className="toggle">
+                    <input type="checkbox" checked={r.enabled} onChange={() => toggle(r)} aria-label={`Activer ${r.code}`} />
+                    <span className="toggle-track" />
+                    <span className="toggle-thumb" />
+                  </label>
+                </td>
+                <td className="rule-code">{r.code}</td>
+                <td>
+                  <div className="rule-label">{r.libelle}</div>
+                  {r.description && <div className="rule-desc" style={{ marginTop: 2 }}>{r.description}</div>}
+                </td>
+                <td>{r.appliesToBC ? <CheckCircle size={12} style={{ color: 'var(--success)' }} aria-label="Applicable" /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
+                <td>{r.appliesToContractuel ? <CheckCircle size={12} style={{ color: 'var(--success)' }} aria-label="Applicable" /> : <span style={{ color: 'var(--ink-20)' }}>—</span>}</td>
+                <td>
+                  <span className="pill-meta" style={{
+                    background: r.severity === 'NON_CONFORME' ? 'rgba(239,68,68,0.08)' : 'rgba(245,158,11,0.1)',
+                    color: r.severity === 'NON_CONFORME' ? 'var(--danger)' : '#b45309',
+                  }}>{r.severity === 'NON_CONFORME' ? 'Non conforme' : 'Avertissement'}</span>
+                </td>
+                <td style={{ display: 'flex', gap: 6 }}>
+                  <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => openTest(r)} aria-label="Tester">
+                    <FlaskConical size={11} /> Tester
+                  </button>
+                  <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 8px' }} onClick={() => openEdit(r)} aria-label="Editer">
+                    <Pencil size={11} />
+                  </button>
+                  <button className="btn btn-secondary" style={{ fontSize: 11, padding: '4px 8px', color: 'var(--danger)' }} onClick={() => remove(r)} aria-label="Supprimer">
+                    <Trash2 size={11} />
+                  </button>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      )}
+
+      {editing && (
+        <div className="modal-overlay" onClick={closeEdit} role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}
+            style={{ maxWidth: 760, width: 'min(760px, 92vw)', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <Wand2 size={16} /> {editing === 'new' ? 'Nouvelle regle personnalisee' : `Editer ${editing.code}`}
+              </h3>
+              <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={closeEdit} aria-label="Fermer"><XIcon size={14} /></button>
+            </div>
+            <div>
+              <div className="form-grid">
+                <div className="form-grid-full">
+                  <label className="form-label">Libelle (nom court)</label>
+                  <input className="form-input" value={form.libelle} maxLength={200}
+                    onChange={e => setForm({ ...form, libelle: e.target.value })}
+                    placeholder="Ex: Plafond engagement fournisseur" />
+                </div>
+                <div className="form-grid-full">
+                  <label className="form-label">Description (optionnel)</label>
+                  <input className="form-input" value={form.description ?? ''} maxLength={500}
+                    onChange={e => setForm({ ...form, description: e.target.value })}
+                    placeholder="A quoi sert cette regle ?" />
+                </div>
+                <div className="form-grid-full">
+                  <label className="form-label" style={{ display: 'flex', justifyContent: 'space-between' }}>
+                    <span>Critere d'evaluation (en francais, pour l'IA)</span>
+                    <span className="pill-meta">{form.prompt.length}/4000</span>
+                  </label>
+                  <textarea className="form-input" rows={6} value={form.prompt} maxLength={4000}
+                    onChange={e => setForm({ ...form, prompt: e.target.value })}
+                    placeholder="Decrivez precisement la condition a verifier. Soyez factuel, citez les champs des documents..." />
+                  <div style={{ marginTop: 8, display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                    {PROMPT_EXAMPLES.map(ex => (
+                      <button key={ex.title} type="button" className="btn btn-secondary"
+                        style={{ fontSize: 10, padding: '3px 8px' }}
+                        onClick={() => setForm({ ...form, prompt: ex.prompt, libelle: form.libelle || ex.title })}>
+                        <Sparkles size={10} /> {ex.title}
+                      </button>
+                    ))}
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">Applicable aux dossiers</label>
+                  <div style={{ display: 'flex', gap: 16, marginTop: 6 }}>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input type="checkbox" checked={form.appliesToBC}
+                        onChange={e => setForm({ ...form, appliesToBC: e.target.checked })} /> BC
+                    </label>
+                    <label style={{ display: 'flex', alignItems: 'center', gap: 6, fontSize: 12 }}>
+                      <input type="checkbox" checked={form.appliesToContractuel}
+                        onChange={e => setForm({ ...form, appliesToContractuel: e.target.checked })} /> Contractuel
+                    </label>
+                  </div>
+                </div>
+
+                <div>
+                  <label className="form-label">Severite si non respectee</label>
+                  <select className="form-select full-width" value={form.severity}
+                    onChange={e => setForm({ ...form, severity: e.target.value as 'NON_CONFORME' | 'AVERTISSEMENT' })}>
+                    <option value="NON_CONFORME">Non conforme (bloquant)</option>
+                    <option value="AVERTISSEMENT">Avertissement (non bloquant)</option>
+                  </select>
+                </div>
+
+                <div className="form-grid-full">
+                  <label className="form-label">
+                    Documents a analyser (vide = tous)
+                    <span className="pill-meta" style={{ marginLeft: 6 }}>{(form.documentTypes ?? []).length} selectionne(s)</span>
+                  </label>
+                  <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6, marginTop: 6 }}>
+                    {DOCUMENT_TYPES_FOR_CUSTOM.map(t => {
+                      const active = (form.documentTypes ?? []).includes(t)
+                      return (
+                        <button key={t} type="button"
+                          className={`btn ${active ? 'btn-primary' : 'btn-secondary'}`}
+                          style={{ fontSize: 10, padding: '3px 8px' }}
+                          onClick={() => toggleDocType(t)}>
+                          {t}
+                        </button>
+                      )
+                    })}
+                  </div>
+                </div>
+
+                <div className="form-grid-full">
+                  <label className="form-label">
+                    Champs requis pour evaluer la regle
+                    <span className="pill-meta" style={{ marginLeft: 6 }}>Demande plus d'info si manquants</span>
+                  </label>
+                  <input className="form-input" placeholder="ex: montantTTC, rib, ice — separes par virgules"
+                    value={(form.requiredFields ?? []).join(', ')}
+                    onChange={e => setRequiredFieldsFromText(e.target.value)} />
+                  <div className="settings-desc" style={{ marginTop: 4, fontSize: 11 }}>
+                    Si un de ces champs est manquant dans les documents, l'IA renvoie « Non applicable » et liste les informations a fournir.
+                  </div>
+                </div>
+
+                <div className="form-grid-full">
+                  <label style={{ display: 'flex', alignItems: 'center', gap: 8, fontSize: 13 }}>
+                    <input type="checkbox" checked={form.enabled}
+                      onChange={e => setForm({ ...form, enabled: e.target.checked })} />
+                    Activer la regle immediatement (elle tournera sur chaque validation de dossier)
+                  </label>
+                </div>
+              </div>
+            </div>
+            <div className="modal-actions" style={{ gap: 8, marginTop: 16 }}>
+              <button className="btn btn-secondary" onClick={closeEdit}>Annuler</button>
+              <button className="btn btn-primary" onClick={save} disabled={saving}>
+                {saving ? <><Loader2 size={12} className="spin" /> Sauvegarde...</> : <><Save size={12} /> Sauvegarder</>}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {testOpenFor && (
+        <div className="modal-overlay" onClick={() => setTestOpenFor(null)} role="presentation">
+          <div className="modal" role="dialog" aria-modal="true" onClick={e => e.stopPropagation()}
+            style={{ maxWidth: 640, width: 'min(640px, 92vw)', maxHeight: '88vh', overflowY: 'auto' }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 12 }}>
+              <h3 style={{ display: 'flex', alignItems: 'center', gap: 8, margin: 0 }}>
+                <FlaskConical size={16} /> Tester {testOpenFor.code}
+              </h3>
+              <button className="btn btn-secondary" style={{ padding: '4px 8px' }} onClick={() => setTestOpenFor(null)} aria-label="Fermer"><XIcon size={14} /></button>
+            </div>
+            <div>
+              <div className="form-grid">
+                <div className="form-grid-full">
+                  <label className="form-label">Dossier de test</label>
+                  <select className="form-select full-width" value={testDossierId} onChange={e => setTestDossierId(e.target.value)}>
+                    <option value="">— Choisir un dossier —</option>
+                    {dossiers.map(d => (
+                      <option key={d.id} value={d.id} disabled={
+                        (d.type === 'BC' && !testOpenFor.appliesToBC) ||
+                        (d.type === 'CONTRACTUEL' && !testOpenFor.appliesToContractuel)
+                      }>
+                        {d.reference} · {d.type} · {d.fournisseur ?? '—'}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div className="form-grid-full">
+                  <button className="btn btn-primary" disabled={!testDossierId || testing} onClick={runTest}>
+                    {testing ? <><Loader2 size={12} className="spin" /> Evaluation IA...</> : <><Zap size={12} /> Lancer le test</>}
+                  </button>
+                </div>
+                {testResult && (
+                  <div className="form-grid-full">
+                    <div className={`alert ${testResult.statut === 'CONFORME' ? 'alert-success' : testResult.statut === 'NON_CONFORME' ? 'alert-error' : 'alert-warning'}`}>
+                      <strong>{testResult.statut}</strong>
+                      <div style={{ marginTop: 6, fontSize: 12 }}>{testResult.detail || 'Aucun detail'}</div>
+                    </div>
+                    {testResult.evidences && testResult.evidences.length > 0 && (
+                      <table className="data-table" style={{ marginTop: 8 }}>
+                        <thead><tr><th>Role</th><th>Champ</th><th>Valeur</th><th>Source</th></tr></thead>
+                        <tbody>
+                          {testResult.evidences.map((ev, i) => (
+                            <tr key={i}>
+                              <td className="rule-code">{ev.role}</td>
+                              <td>{ev.libelle ?? ev.champ}</td>
+                              <td className="mono">{ev.valeur ?? '—'}</td>
+                              <td>{ev.documentType ?? '—'}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    )}
+                  </div>
+                )}
+              </div>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

@@ -190,3 +190,9 @@ interface DossierRuleOverrideRepository : JpaRepository<DossierRuleOverride, UUI
     fun findByDossierIdAndRegle(dossierId: UUID, regle: String): DossierRuleOverride?
     fun deleteByDossierIdAndRegle(dossierId: UUID, regle: String)
 }
+
+interface CustomValidationRuleRepository : JpaRepository<CustomValidationRule, UUID> {
+    fun findByCode(code: String): CustomValidationRule?
+    fun findAllByOrderByCodeAsc(): List<CustomValidationRule>
+    fun findByEnabledTrueOrderByCodeAsc(): List<CustomValidationRule>
+}

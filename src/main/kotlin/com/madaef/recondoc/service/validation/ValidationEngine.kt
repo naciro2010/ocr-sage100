@@ -22,6 +22,7 @@ class ValidationEngine(
     private val ruleConfigRepo: RuleConfigRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
     private val ruleConfigCache: RuleConfigCache,
+    private val customRuleService: CustomRuleService,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -983,7 +984,47 @@ class ValidationEngine(
             }
         }
 
+        runCustomRules(dossier, isEnabled).let { results += it }
+
         return results
+    }
+
+    /**
+     * Execute user-defined rules that are enabled both globally and for this
+     * dossier type. Custom rules are stored under code "CUSTOM-XX" which flows
+     * through the same rule_config / dossier_rule_override tables as the
+     * deterministic rules, so the UI toggles Just Work.
+     */
+    private fun runCustomRules(dossier: DossierPaiement, isEnabled: (String) -> Boolean): List<ResultatValidation> {
+        val customRules = try {
+            customRuleService.listEnabled()
+        } catch (e: Exception) {
+            log.warn("Failed to load custom rules: {}", e.message)
+            return emptyList()
+        }
+        if (customRules.isEmpty()) return emptyList()
+
+        return customRules
+            .filter { isEnabled(it.code) }
+            .filter {
+                when (dossier.type) {
+                    DossierType.BC -> it.appliesToBC
+                    DossierType.CONTRACTUEL -> it.appliesToContractuel
+                }
+            }
+            .map { rule ->
+                try {
+                    customRuleService.evaluate(rule, dossier)
+                } catch (e: Exception) {
+                    log.warn("Custom rule {} crashed: {}", rule.code, e.message)
+                    ResultatValidation(
+                        dossier = dossier, regle = rule.code, libelle = rule.libelle,
+                        statut = StatutCheck.AVERTISSEMENT,
+                        detail = "Erreur interne evaluation: ${e.message?.take(200)}",
+                        source = "CUSTOM"
+                    )
+                }
+            }
     }
 
     private fun checkMontant(
