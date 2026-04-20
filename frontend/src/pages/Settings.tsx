@@ -137,15 +137,113 @@ export default function Settings() {
       {activeTab === 'ia' && (
         <div role="tabpanel" id="tab-panel-ia">
           <SettingsHero
-            eyebrow="Moteur d'extraction"
-            title={<>Claude lit chaque document <span style={{ color: 'var(--accent-deep)' }}>&amp;</span> structure la donnee.</>}
+            eyebrow="Moteur d'extraction · Confidentialite"
+            title={<>Vos dossiers restent <span style={{ color: 'var(--accent-deep)' }}>chez vous</span>. Seul le texte necessaire transite.</>}
             icon={<Brain size={24} aria-hidden="true" />}
-            lead="Apres l'OCR, l'IA Claude joue deux roles distincts : elle classe le document (facture, BC, OP...) puis en extrait les champs metier (montants, ICE, RIB, lignes de facture). Sans cette etape, la plateforme ne pourrait pas croiser les donnees entre documents d'un dossier."
+            lead="Claude classe les documents et en extrait les champs metier (montants, ICE, RIB, lignes). Anthropic ne stocke pas et n'entraine pas de modele sur vos appels API. Les fichiers originaux ne quittent jamais votre infrastructure."
             status={aiLive ? 'active' : (aiSettings?.apiKeyConfigured ? 'idle' : 'off')}
             statusLabel={aiLive ? 'En production' : (aiSettings?.apiKeyConfigured ? 'Configure, desactive' : 'Non configure')}
             kpi={aiSettings?.model || '—'}
             kpiLabel="Modele courant"
           />
+
+          <div className="card">
+            <div className="section-title-rail">
+              Flux des donnees — ce qui sort, ce qui reste
+              <span style={{
+                marginLeft: 'auto',
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                letterSpacing: 0.5, textTransform: 'none',
+                color: 'var(--ink-40)', fontWeight: 500,
+              }}>
+                schema simplifie
+              </span>
+            </div>
+            <div className="flow-diagram" aria-label="Schema du flux de donnees">
+              <div className="flow-zone flow-zone-internal">
+                <span className="flow-zone-tag">Chez vous</span>
+                <h5>Infrastructure MADAEF</h5>
+                <div className="flow-zone-sub">Votre backend, votre base, votre stockage.</div>
+                <ul>
+                  <li>Fichiers PDF &amp; images originaux</li>
+                  <li>PostgreSQL (dossiers, extraits)</li>
+                  <li>Bucket S3 (documents binaires)</li>
+                  <li>Tika, Tesseract, regles (R01-R20)</li>
+                </ul>
+                <div className="flow-zone-meta">Source de verite</div>
+              </div>
+
+              <div className="flow-arrow" aria-hidden="true">
+                <span className="flow-arrow-label">TLS 1.3</span>
+              </div>
+
+              <div className="flow-zone flow-zone-transit">
+                <span className="flow-zone-tag">En transit</span>
+                <h5>Ce qui est envoye</h5>
+                <div className="flow-zone-sub">Uniquement le texte necessaire, chiffre.</div>
+                <ul>
+                  <li>Texte OCR extrait (pas le PDF)</li>
+                  <li>Prompt d'extraction (system)</li>
+                  <li>Aucun metadata utilisateur</li>
+                  <li>Aucune donnee RH / personnelle</li>
+                </ul>
+                <div className="flow-zone-meta">HTTPS · ephemeral</div>
+              </div>
+
+              <div className="flow-arrow" aria-hidden="true">
+                <span className="flow-arrow-label">JSON</span>
+              </div>
+
+              <div className="flow-zone flow-zone-external">
+                <span className="flow-zone-tag">Cote Claude</span>
+                <h5>API Anthropic</h5>
+                <div className="flow-zone-sub">Traitement stateless, pas de conservation longue.</div>
+                <ul>
+                  <li>Inference du modele uniquement</li>
+                  <li>Pas d'entrainement sur vos donnees</li>
+                  <li>Retention safety max 30 jours</li>
+                  <li>Puis suppression automatique</li>
+                </ul>
+                <div className="flow-zone-meta">Retour · JSON structure</div>
+              </div>
+            </div>
+
+            <div className="privacy-grid">
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Shield size={16} /></div>
+                <div className="privacy-card-title">Pas d'entrainement</div>
+                <div className="privacy-card-desc">Les donnees envoyees via API ne servent pas a entrainer les modeles Anthropic.</div>
+                <div className="privacy-card-source">Politique API Anthropic</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Key size={16} /></div>
+                <div className="privacy-card-title">Chiffrement TLS 1.3</div>
+                <div className="privacy-card-desc">Toutes les requetes sont chiffrees de bout en bout entre votre backend et l'API.</div>
+                <div className="privacy-card-source">Standard HTTPS / TLS</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Clock size={16} /></div>
+                <div className="privacy-card-title">Retention &le; 30 jours</div>
+                <div className="privacy-card-desc">Anthropic conserve les requetes max 30 j pour la securite, puis suppression automatique.</div>
+                <div className="privacy-card-source">Data usage policy</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Globe size={16} /></div>
+                <div className="privacy-card-title">Conforme RGPD</div>
+                <div className="privacy-card-desc">Pas de donnees nominatives sensibles transmises. Fichiers sources stockes en UE.</div>
+                <div className="privacy-card-source">DPA Anthropic disponible</div>
+              </div>
+            </div>
+
+            <div className="alert alert-info" style={{ marginTop: 14 }}>
+              <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+              <span>
+                Pour un mode <strong>100 % local</strong> (aucune donnee ne sort), desactivez l'extraction IA :
+                les regles de validation R01-R20 et le moteur OCR Tika + Tesseract restent operationnels,
+                au prix d'une precision moindre sur les documents complexes.
+              </span>
+            </div>
+          </div>
 
           <div className="card">
             <div className="settings-toggle-row">
@@ -221,63 +319,52 @@ export default function Settings() {
           </div>
 
           <div className="card">
-            <div className="section-title-rail">Comment Claude intervient sur chaque document</div>
-            <div className="howto-block">
-              <div className="howto-steps">
-                <div className="howto-step">
-                  <div className="howto-step-num">01</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Classification
-                      <span className="pill-meta accent">~400 tokens</span>
-                      <span className="pill-meta">1 appel</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Apres l'OCR, Claude lit le texte extrait et identifie le type :
-                      FACTURE, BON_COMMANDE, ORDRE_PAIEMENT, CONTRAT, PV_RECEPTION,
-                      CHECKLIST_AUTOCONTROLE, ATTESTATION_FISCALE ou TABLEAU_CONTROLE.
-                      Ce type conditionne le prompt d'extraction de l'etape 02.
-                    </div>
+            <div className="section-title-rail">Les 3 etapes du traitement</div>
+            <div className="howto-steps">
+              <div className="howto-step">
+                <div className="howto-step-num">01</div>
+                <div>
+                  <div className="howto-step-title">
+                    Classification
+                    <span className="pill-meta accent">~400 tokens</span>
+                    <span className="pill-meta">1 appel</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    Claude identifie le type de document : facture, BC, OP, contrat, PV, checklist, attestation, tableau de controle.
                   </div>
                 </div>
-                <div className="howto-step">
-                  <div className="howto-step-num">02</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Extraction structuree
-                      <span className="pill-meta accent">~2k-6k tokens</span>
-                      <span className="pill-meta">1-2 appels</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Claude recoit un prompt specifique au type et renvoie un JSON propre :
-                      montants HT/TVA/TTC, ICE, IF, RIB, numero de facture, lignes avec quantites
-                      et prix unitaires, retenues (IR, TVA, garantie). En cas de JSON malforme,
-                      un 3e appel de retry corrige.
-                    </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">02</div>
+                <div>
+                  <div className="howto-step-title">
+                    Extraction structuree
+                    <span className="pill-meta accent">~2k-6k tokens</span>
+                    <span className="pill-meta">1-2 appels</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    JSON propre : montants HT/TVA/TTC, ICE, IF, RIB, lignes, retenues. Retry automatique si le JSON est malforme.
                   </div>
                 </div>
-                <div className="howto-step">
-                  <div className="howto-step-num">03</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Validation croisee
-                      <span className="pill-meta">local</span>
-                      <span className="pill-meta">gratuit</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Une fois les champs extraits, le moteur de regles (R01-R20 + CK01-CK10)
-                      rapproche les montants, references, ICE, RIB entre facture, BC et OP.
-                      Claude n'intervient plus ici — tout tourne en local.
-                    </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">03</div>
+                <div>
+                  <div className="howto-step-title">
+                    Validation croisee
+                    <span className="pill-meta">local</span>
+                    <span className="pill-meta">0 token</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    Le moteur de regles (R01-R20 + CK01-CK10) croise les donnees entre facture, BC et OP. Aucun appel externe.
                   </div>
                 </div>
               </div>
             </div>
-            <div className="alert alert-info" style={{ marginTop: 16 }}>
+            <div className="alert alert-info" style={{ marginTop: 14 }}>
               <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
               <span>
-                Le suivi detaille de la consommation Claude (tokens, cout, dossiers les plus gourmands)
-                est disponible dans la page <strong>Usage Claude</strong> du menu lateral.
+                Suivi detaille tokens &amp; couts par dossier : page <strong>Usage Claude</strong> du menu lateral.
               </span>
             </div>
           </div>
