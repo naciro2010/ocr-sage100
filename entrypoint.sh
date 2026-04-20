@@ -34,10 +34,11 @@ else
   echo "WARNING: No DATABASE_URL set, using defaults"
 fi
 
-# JVM: heap cap bas pour maitriser la RAM facturee sur Railway.
-# Spring Boot tient sans souci sous 512 Mo en fonctionnement nominal; ajuster via
-# JAVA_OPTS si une charge plus importante exige plus de heap.
-DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -Xms256m -Xmx512m -XX:+UseSerialGC -XX:MaxMetaspaceSize=128m -XX:TieredStopAtLevel=1 -Xss256k"
+# JVM tuning pour Railway. Spring Boot 3.4 + Hibernate 6 + Tika + PDFBox
+# chargent beaucoup de classes -> le Metaspace doit etre assez large pour
+# eviter les OOM au runtime et au shutdown. Heap maintenu bas pour limiter
+# la RAM facturee ; ajuster via JAVA_OPTS si une charge inhabituelle l'exige.
+DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -Xms256m -Xmx640m -XX:MetaspaceSize=192m -XX:MaxMetaspaceSize=320m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"
 
 # Pass Railway's PORT to Spring Boot
 SPRING_PORT_OPTS=""

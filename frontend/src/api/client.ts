@@ -1,4 +1,4 @@
-import type { AiSettingsResponse, OcrSettingsResponse } from './types'
+import type { AiSettingsResponse, OcrSettingsResponse, SystemHealthResponse } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
@@ -60,5 +60,12 @@ export async function saveOcrSettings(settings: {
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(settings),
   })
+  return handleResponse(res)
+}
+
+// --- System Health ---
+
+export async function getSystemHealth(): Promise<SystemHealthResponse> {
+  const res = await fetch(`${API_URL}/api/admin/system/health`, { headers: authHeaders() })
   return handleResponse(res)
 }
