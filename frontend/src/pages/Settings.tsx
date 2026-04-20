@@ -1013,12 +1013,11 @@ function deriveWorstTone(components?: HealthComponent[]): HealthTone {
 }
 
 function HealthCard({ comp }: { comp: HealthComponent }) {
-  const Icon = componentIcon(comp.id)
   const details = comp.details as Record<string, unknown> | undefined
   return (
     <div className={`health-card health-tone-${comp.tone}`}>
       <div className="health-card-head">
-        <div className="health-card-icon" aria-hidden="true"><Icon size={14} /></div>
+        <div className="health-card-icon" aria-hidden="true">{renderComponentIcon(comp.id)}</div>
         <div className="health-card-title">
           <span className="health-card-label">{comp.label}</span>
           <span className="health-card-cat">{comp.category}</span>
@@ -1046,14 +1045,14 @@ function StatusDot({ tone }: { tone: HealthTone }) {
   return <span className={`health-dot health-dot-${tone}`} aria-hidden="true" />
 }
 
-function componentIcon(id: string) {
+function renderComponentIcon(id: string) {
   switch (id) {
-    case 'db': return Database
-    case 'ocr': return ScanLine
-    case 'ai': return Brain
-    case 'storage': return HardDrive
-    case 'jvm': return Cpu
-    default: return Server
+    case 'db': return <Database size={14} />
+    case 'ocr': return <ScanLine size={14} />
+    case 'ai': return <Brain size={14} />
+    case 'storage': return <HardDrive size={14} />
+    case 'jvm': return <Cpu size={14} />
+    default: return <Server size={14} />
   }
 }
 

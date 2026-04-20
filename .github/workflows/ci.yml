@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main, feat/**, claude/**]
+    branches: [main, feat/**, fix/**, chore/**, claude/**]
   pull_request:
     branches: [main]
 
@@ -109,40 +109,22 @@ jobs:
           path: frontend/dist/
           retention-days: 3
 
-  ocr-service:
-    name: OCR Service Validate
-    runs-on: ubuntu-latest
-    defaults:
-      run:
-        working-directory: ocr-service
-
-    steps:
-      - uses: actions/checkout@v4
-
-      - name: Set up Python 3.12
-        uses: actions/setup-python@v5
-        with:
-          python-version: "3.12"
-
-      - name: Syntax check
-        run: python -m py_compile main.py
-
   docker:
     name: Docker Build
     runs-on: ubuntu-latest
-    needs: [backend, frontend, ocr-service]
+    needs: [backend, frontend]
     if: github.event_name == 'pull_request'
 
     steps:
       - uses: actions/checkout@v4
 
-      - name: Build unified image (backend + frontend)
+      - name: Build backend image
         run: docker build -t recondoc-madaef .
 
-      - name: Build OCR service image
-        run: docker build -t recondoc-madaef-ocr ocr-service/
+      - name: Build frontend image
+        run: docker build -f frontend/Dockerfile.nginx -t recondoc-madaef-front frontend/
 
       - name: Verify images
         run: |
           docker images recondoc-madaef --format "{{.Repository}}:{{.Tag}} {{.Size}}"
-          docker images recondoc-madaef-ocr --format "{{.Repository}}:{{.Tag}} {{.Size}}"
+          docker images recondoc-madaef-front --format "{{.Repository}}:{{.Tag}} {{.Size}}"

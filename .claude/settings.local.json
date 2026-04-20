@@ -87,7 +87,9 @@
       "Bash(../gradlew build *)",
       "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 build -x test)",
       "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test)",
-      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 compileKotlin)"
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 compileKotlin)",
+      "Bash(gh run *)",
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test --no-daemon)"
     ],
     "deny": []
   },
