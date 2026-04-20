@@ -38,10 +38,16 @@ def get_ocr(lang: str = "fr") -> PaddleOCR:
 
 @asynccontextmanager
 async def lifespan(application: FastAPI):
-    logger.info("Warming up PaddleOCR (fr + ar)...")
-    get_ocr("fr")
-    get_ocr("ar")
-    logger.info("Warmup complete — fr + ar loaded")
+    # Seul le modele francais est charge au boot pour limiter la RAM residente
+    # (chaque modele PaddleOCR occupe ~500-700 Mo). Les autres langues sont
+    # initialisees a la premiere requete via get_ocr().
+    preload_lang = os.getenv("OCR_PRELOAD_LANG", "fr")
+    if preload_lang:
+        logger.info("Warming up PaddleOCR (%s)...", preload_lang)
+        get_ocr(preload_lang)
+        logger.info("Warmup complete — %s loaded", preload_lang)
+    else:
+        logger.info("Warmup skipped (OCR_PRELOAD_LANG vide) — lazy load")
     yield
 
 
