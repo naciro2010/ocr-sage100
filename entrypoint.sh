@@ -34,11 +34,20 @@ else
   echo "WARNING: No DATABASE_URL set, using defaults"
 fi
 
-# JVM tuning pour Railway. Spring Boot 3.4 + Hibernate 6 + Tika + PDFBox
-# chargent beaucoup de classes -> le Metaspace doit etre assez large pour
-# eviter les OOM au runtime et au shutdown. Heap maintenu bas pour limiter
-# la RAM facturee ; ajuster via JAVA_OPTS si une charge inhabituelle l'exige.
-DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -Xms256m -Xmx640m -XX:MetaspaceSize=192m -XX:MaxMetaspaceSize=320m -XX:+UseSerialGC -XX:TieredStopAtLevel=1 -Xss512k"
+# JVM tuning pour Railway.
+#
+# Strategie : laisser la JVM se dimensionner automatiquement sur la memoire
+# du conteneur plutot que de poser des caps rigides. Spring Boot 3.4 +
+# Hibernate 6 + Tika + PDFBox chargent beaucoup de classes, et un
+# MaxMetaspaceSize trop bas fait OOM au runtime ou au shutdown quand Tika
+# instancie des lambdas tardives (cf. AbstractExternalProcessParser).
+#
+# MaxRAMPercentage=70 : la heap prend jusqu'a 70 % de la RAM conteneur,
+# le reste reste dispo pour le Metaspace (illimite par defaut), le code
+# natif Tesseract et les threads.
+#
+# Surchargez via JAVA_OPTS sur Railway si besoin (ex : JAVA_OPTS=-Xmx1g).
+DEFAULT_JAVA_OPTS="-XX:+UseContainerSupport -XX:InitialRAMPercentage=25 -XX:MaxRAMPercentage=70 -XX:+UseG1GC -Xss512k"
 
 # Pass Railway's PORT to Spring Boot
 SPRING_PORT_OPTS=""
