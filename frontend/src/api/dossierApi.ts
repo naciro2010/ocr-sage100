@@ -289,6 +289,17 @@ export function getDocumentFileUrl(dossierId: string, docId: string): string {
 }
 
 /**
+ * Safe for <iframe src> / <embed src> PDF previews: the backend issues a 307
+ * redirect to a presigned S3 URL when the bucket is enabled, so the PDF is
+ * streamed by the object store (no backend bandwidth). Falls back to byte
+ * streaming for filesystem storage. Don't use this for fetch().blob() calls —
+ * stick with getDocumentFileUrl() there until the bucket has CORS configured.
+ */
+export function getDocumentPreviewUrl(dossierId: string, docId: string): string {
+  return `${API_URL}/api/dossiers/${dossierId}/documents/${docId}/file?redirect=true`
+}
+
+/**
  * If S3 storage is enabled on the backend, resolves to a short-lived presigned
  * URL that the browser can hit directly against the bucket (no backend
  * bandwidth). For filesystem storage, the /file-url endpoint returns 204 and

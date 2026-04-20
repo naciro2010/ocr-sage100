@@ -207,7 +207,25 @@ class DossierController(
     }
 
     @GetMapping("/{id}/documents/{docId}/file")
-    fun downloadDocumentFile(@PathVariable id: UUID, @PathVariable docId: UUID): ResponseEntity<Resource> {
+    fun downloadDocumentFile(
+        @PathVariable id: UUID,
+        @PathVariable docId: UUID,
+        @RequestParam(required = false, defaultValue = "false") redirect: Boolean
+    ): ResponseEntity<Resource> {
+        // Opt-in redirect path: when ?redirect=true and S3 storage is active,
+        // send a 307 to a presigned bucket URL so the browser fetches the PDF
+        // directly from the CDN. Saves backend bandwidth for iframe previews.
+        // Default remains a byte stream so fetch().blob() downloads stay safe
+        // even when the bucket hasn't enabled CORS yet.
+        if (redirect) {
+            dossierService.getDocumentPresignedUrl(id, docId)?.let { url ->
+                return ResponseEntity.status(HttpStatus.TEMPORARY_REDIRECT)
+                    .header(HttpHeaders.LOCATION, url)
+                    .header(HttpHeaders.CACHE_CONTROL, "private, max-age=300")
+                    .build()
+            }
+        }
+
         val (filePath, fileName) = dossierService.getDocumentFile(id, docId)
         val resource = FileSystemResource(filePath)
         val contentType = when {
