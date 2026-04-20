@@ -1,24 +1,13 @@
-# === Stage 1: Build Frontend ===
-FROM node:22-alpine AS frontend-build
-WORKDIR /app/frontend
-COPY frontend/package*.json ./
-RUN npm ci
-COPY frontend/ .
-ARG VITE_API_URL=
-ENV VITE_API_URL=$VITE_API_URL
-RUN npm run build
-
-# === Stage 2: Build Backend ===
+# === Stage 1: Build Backend ===
 FROM eclipse-temurin:21-jdk-alpine AS backend-build
 WORKDIR /app
 COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
 RUN ./gradlew dependencies --no-daemon || true
 COPY src src
-COPY --from=frontend-build /app/frontend/dist src/main/resources/static/
 RUN ./gradlew bootJar --no-daemon
 
-# === Stage 3: Runtime ===
+# === Stage 2: Runtime ===
 FROM eclipse-temurin:21-jre-alpine
 WORKDIR /app
 
