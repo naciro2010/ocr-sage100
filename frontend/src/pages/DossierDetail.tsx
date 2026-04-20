@@ -4,6 +4,7 @@ import { useParams } from 'react-router-dom'
 const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
 import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
+import { listCustomRules, type CustomRule } from '../api/customRulesApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
 import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
@@ -141,6 +142,7 @@ export default function DossierDetail() {
   const [validationError, setValidationError] = useState('')
 
   const [ruleConfig, setRuleConfig] = useState<{ global: Record<string, boolean>; overrides: Record<string, boolean> } | null>(null)
+  const [customRules, setCustomRules] = useState<CustomRule[]>([])
   const [cascadeScope, setCascadeScope] = useState<Record<string, string[]>>({})
   // UI states
   const [validating, setValidating] = useState(false)
@@ -194,6 +196,10 @@ export default function DossierDetail() {
     getRuleConfig(id).then(setRuleConfig).catch(() => {})
   }, [id])
 
+  const loadCustomRules = useCallback(() => {
+    listCustomRules().then(setCustomRules).catch(() => setCustomRules([]))
+  }, [])
+
   // Load all blocks in parallel on mount
   useEffect(() => {
     loadSummary()
@@ -201,7 +207,8 @@ export default function DossierDetail() {
     loadValidation()
     loadAudit()
     loadRuleConfig()
-  }, [id, loadSummary, loadDocs, loadValidation, loadAudit, loadRuleConfig])
+    loadCustomRules()
+  }, [id, loadSummary, loadDocs, loadValidation, loadAudit, loadRuleConfig, loadCustomRules])
 
   const reloadAll = useCallback(() => {
     loadSummary(); loadDocs(); loadValidation(); loadAudit()
@@ -437,6 +444,7 @@ export default function DossierDetail() {
               onToggleRule={handleToggleRule}
               ruleConfig={ruleConfig || undefined}
               cascadeScope={cascadeScope}
+              customRules={customRules}
             />
           </div>
         ) : (docsData === null && !docsError) ? <VerifSkeleton /> : null}

@@ -1314,6 +1314,15 @@ function CustomRulesSection() {
         whitelistes, dates de prestation...). La regle tourne uniquement sur les dossiers
         ou les cases « BC » et/ou « Contractuel » sont cochees.
       </p>
+      <div className="alert alert-info" style={{ marginBottom: 12 }}>
+        <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+        <span>
+          Activation <strong>globale</strong> depuis cette page. Pour activer ou desactiver une
+          regle uniquement sur un dossier precis (override), ouvrez le dossier, selectionnez
+          la regle dans le panneau « Controles » — un selecteur « Dans ce dossier » apparait
+          dans l'en-tete du detail.
+        </span>
+      </div>
 
       {loading && (
         <div style={{ padding: 16, color: 'var(--ink-50)', fontSize: 12 }}>

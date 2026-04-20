@@ -175,6 +175,7 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
     fun countByDossierId(dossierId: UUID): Long
     fun countByDossierIdAndStatut(dossierId: UUID, statut: StatutCheck): Long
     fun deleteByDossierId(dossierId: UUID)
+    fun deleteByRegle(regle: String)
 }
 
 interface AuditLogRepository : JpaRepository<AuditLog, UUID> {
@@ -189,6 +190,7 @@ interface DossierRuleOverrideRepository : JpaRepository<DossierRuleOverride, UUI
     fun findByDossierId(dossierId: UUID): List<DossierRuleOverride>
     fun findByDossierIdAndRegle(dossierId: UUID, regle: String): DossierRuleOverride?
     fun deleteByDossierIdAndRegle(dossierId: UUID, regle: String)
+    fun deleteByRegle(regle: String)
 }
 
 interface CustomValidationRuleRepository : JpaRepository<CustomValidationRule, UUID> {

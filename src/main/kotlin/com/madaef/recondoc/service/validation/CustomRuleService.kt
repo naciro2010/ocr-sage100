@@ -4,6 +4,9 @@ import com.fasterxml.jackson.databind.JsonNode
 import com.fasterxml.jackson.databind.ObjectMapper
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.CustomValidationRuleRepository
+import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository
+import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
+import com.madaef.recondoc.repository.dossier.RuleConfigRepository
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -26,7 +29,11 @@ import java.util.UUID
 class CustomRuleService(
     private val repo: CustomValidationRuleRepository,
     private val llm: LlmExtractionService,
-    private val objectMapper: ObjectMapper
+    private val objectMapper: ObjectMapper,
+    private val resultatRepository: ResultatValidationRepository,
+    private val overrideRepo: DossierRuleOverrideRepository,
+    private val ruleConfigRepo: RuleConfigRepository,
+    private val ruleConfigCache: RuleConfigCache
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -82,7 +89,18 @@ class CustomRuleService(
 
     @Transactional
     fun delete(id: UUID) {
-        if (!repo.existsById(id)) throw IllegalArgumentException("Regle custom introuvable: $id")
+        val rule = repo.findById(id).orElseThrow { IllegalArgumentException("Regle custom introuvable: $id") }
+        val code = rule.code
+        // Cascade cleanup so the rule leaves no dangling rows in rule_config,
+        // dossier_rule_override or resultat_validation (which would show up as
+        // "orphan results" in the UI otherwise).
+        resultatRepository.deleteByRegle(code)
+        overrideRepo.deleteByRegle(code)
+        ruleConfigRepo.findByRegle(code)?.let {
+            ruleConfigRepo.delete(it)
+            ruleConfigCache.evictGlobal()
+        }
+        ruleConfigCache.evictAllOverrides()
         repo.deleteById(id)
     }
 

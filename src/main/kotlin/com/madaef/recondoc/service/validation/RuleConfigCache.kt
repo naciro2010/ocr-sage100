@@ -43,4 +43,13 @@ class RuleConfigCache(
     @CacheEvict(value = ["ruleOverridesByDossier"], key = "#override.dossierId")
     fun saveOverride(override: DossierRuleOverride): DossierRuleOverride =
         overrideRepo.save(override)
+
+    @Caching(evict = [
+        CacheEvict(value = ["ruleConfigGlobal"], allEntries = true),
+        CacheEvict(value = ["ruleConfigByCode"], allEntries = true)
+    ])
+    fun evictGlobal() { /* caches emptied */ }
+
+    @CacheEvict(value = ["ruleOverridesByDossier"], allEntries = true)
+    fun evictAllOverrides() { /* caches emptied */ }
 }
