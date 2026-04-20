@@ -10,9 +10,11 @@ import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.stereotype.Component
 
 /**
- * Surfaces OCR engine state on /actuator/health/ocr. Marked OUT_OF_SERVICE
- * (not DOWN) when Mistral OCR n'est pas configure — Tesseract local reste
- * disponible en fallback, donc le healthcheck Railway reste UP.
+ * Expose l'etat du moteur OCR sur /actuator/health/ocr. Tesseract etant embarque
+ * dans le conteneur du backend, l'OCR est toujours fonctionnel — on renvoie UP
+ * et on ajoute un detail indiquant si Mistral OCR est branche (engine=mistral-ocr)
+ * ou si l'on tourne en mode Tesseract pur (engine=tesseract). Cela evite que le
+ * healthcheck Railway echoue lorsque la cle Mistral n'est pas configuree.
  */
 @Component("ocr")
 class OcrHealthIndicator(
@@ -21,20 +23,28 @@ class OcrHealthIndicator(
 
     override fun health(): Health = try {
         if (mistralOcrClient.isAvailable()) {
-            Health.up().withDetail("engine", "mistral-ocr").build()
+            Health.up()
+                .withDetail("engine", "mistral-ocr")
+                .withDetail("fallback", "tesseract")
+                .build()
         } else {
-            Health.status("OUT_OF_SERVICE")
-                .withDetail("reason", "Mistral OCR non configure; fallback Tesseract actif")
+            Health.up()
+                .withDetail("engine", "tesseract")
+                .withDetail("mode", "local-only")
                 .build()
         }
     } catch (e: Exception) {
-        Health.status("OUT_OF_SERVICE").withException(e).build()
+        Health.up()
+            .withDetail("engine", "tesseract")
+            .withDetail("mistralError", e.message ?: "unknown")
+            .build()
     }
 }
 
 /**
- * Reports the Claude API resilience state. UP when key configured & circuit closed,
- * OUT_OF_SERVICE otherwise — extraction degrades but the app still serves requests.
+ * Expose l'etat de l'integration Claude. On reste UP meme en mode degrade pour
+ * que le healthcheck global Railway passe. Les details reportent precisement
+ * l'etat (cle configuree, circuit breaker) — utile pour les dashboards.
  */
 @Component("claude")
 class ClaudeHealthIndicator(
@@ -51,20 +61,19 @@ class ClaudeHealthIndicator(
             log.debug("Claude key check failed: {}", e.message)
             false
         }
-        if (!keyConfigured) {
-            return Health.status("OUT_OF_SERVICE")
-                .withDetail("reason", "CLAUDE_API_KEY not set")
-                .build()
-        }
         val cb = circuitBreakerRegistry.find("claude").orElse(null)
-        if (cb != null && cb.state == CircuitBreaker.State.OPEN) {
-            return Health.status("OUT_OF_SERVICE")
-                .withDetail("reason", "circuit breaker OPEN")
-                .withDetail("failureRate", cb.metrics.failureRate)
-                .build()
+        val circuit = cb?.state?.name ?: "UNKNOWN"
+        val status = when {
+            !keyConfigured -> "not-configured"
+            cb != null && cb.state == CircuitBreaker.State.OPEN -> "circuit-open"
+            else -> "ready"
         }
         return Health.up()
-            .withDetail("circuit", cb?.state?.name ?: "UNKNOWN")
+            .withDetail("status", status)
+            .withDetail("circuit", circuit)
+            .apply {
+                if (cb != null) withDetail("failureRate", cb.metrics.failureRate)
+            }
             .build()
     }
 }

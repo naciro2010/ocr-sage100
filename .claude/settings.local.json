@@ -86,7 +86,8 @@
       "Bash(awk -F: '$1 >= 1000')",
       "Bash(../gradlew build *)",
       "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 build -x test)",
-      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test)"
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test)",
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 compileKotlin)"
     ],
     "deny": []
   },
