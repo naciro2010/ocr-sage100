@@ -1,9 +1,30 @@
 import { memo } from 'react'
 import { useToast } from '../Toast'
+import { rulesForField } from '../../config/validationRules'
 
 interface Props {
   data: Record<string, unknown> | null | undefined
   docType?: string
+}
+
+/**
+ * Micro-badge liste des regles qui utilisent ce champ.
+ * Permet a l'utilisateur de savoir, en un coup d'oeil, si editer cette valeur va
+ * potentiellement declencher un recalcul des regles concernees.
+ */
+function RulesUsing({ field }: { field: string }) {
+  const codes = rulesForField(field)
+  if (codes.length === 0) return null
+  const preview = codes.slice(0, 3).join(', ')
+  const more = codes.length > 3 ? ` +${codes.length - 3}` : ''
+  return (
+    <span
+      className="edv-cell-rules"
+      title={`Champ utilise par : ${codes.join(', ')}`}
+    >
+      →&nbsp;{preview}{more}
+    </span>
+  )
 }
 
 const INVOICE_SECTIONS: { title: string; fields: string[]; mono?: boolean }[] = [
@@ -86,7 +107,10 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
               <div className={`edv-grid ${sectionFields.length <= 3 ? 'cols-3' : 'cols-auto'}`}>
                 {sectionFields.map(([k, v]) => (
                   <div key={k} className="edv-cell">
-                    <span className="edv-cell-key">{FIELD_LABELS[k] || k}</span>
+                    <span className="edv-cell-key">
+                      {FIELD_LABELS[k] || k}
+                      <RulesUsing field={k} />
+                    </span>
                     {Array.isArray(v) ? (
                       <div className="edv-cell-value mono" style={{ display: 'flex', flexDirection: 'column', gap: 2 }}>
                         {(v as string[]).map((item, idx) => (
@@ -169,12 +193,15 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
             <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
               {remainingScalars.map(([k, v]) => (
                 <div key={k} className="data-field">
-                  <span className="data-field-key">{FIELD_LABELS[k] || k}</span>
+                  <span className="data-field-key">
+                    {FIELD_LABELS[k] || k}
+                    <RulesUsing field={k} />
+                  </span>
                   <span className="data-field-value" contentEditable suppressContentEditableWarning
                     onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
                     {formatValue(k, v)}
                   </span>
-                  <span className="data-field-source ai">IA</span>
+                  <span className="data-field-source ai" title="Valeur extraite par Claude (IA)">IA</span>
                 </div>
               ))}
             </div>
@@ -191,12 +218,20 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 1 }}>
         {scalars.map(([k, v]) => (
           <div key={k} className="data-field">
-            <span className="data-field-key">{FIELD_LABELS[k] || k}</span>
+            <span className="data-field-key">
+              {FIELD_LABELS[k] || k}
+              <RulesUsing field={k} />
+            </span>
             <span className="data-field-value" contentEditable suppressContentEditableWarning
               onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
               {formatValue(k, v)}
             </span>
-            <span className={`data-field-source ${isLlmExtracted ? 'ai' : 'ocr'}`}>{isLlmExtracted ? 'IA' : 'OCR'}</span>
+            <span
+              className={`data-field-source ${isLlmExtracted ? 'ai' : 'ocr'}`}
+              title={isLlmExtracted ? 'Valeur extraite par Claude (IA)' : 'Valeur lue par OCR (Tika / Mistral / Tesseract)'}
+            >
+              {isLlmExtracted ? 'IA' : 'OCR'}
+            </span>
           </div>
         ))}
       </div>

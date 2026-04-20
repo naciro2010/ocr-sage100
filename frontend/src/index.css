@@ -3193,3 +3193,121 @@ body {
   .search-panel { width: calc(100vw - 32px); }
   .header-actions { flex-wrap: wrap; }
 }
+
+/* ============================================================
+   Tracabilite controles — methode, preuves vides, cross-link
+   ============================================================ */
+
+.ctrl-method {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--ink-02);
+  border: 1px solid var(--ink-10);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ctrl-method-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ctrl-method-label {
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--ink-40);
+  font-family: var(--font-mono);
+  padding-top: 3px;
+}
+.ctrl-method-formula {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-80);
+  background: #fff;
+  border: 1px solid var(--ink-10);
+  border-radius: 5px;
+  padding: 5px 9px;
+  display: inline-block;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.ctrl-method-text {
+  font-size: 12px;
+  color: var(--ink-60);
+  line-height: 1.55;
+}
+.ctrl-method-fields {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.ctrl-method-field {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--ink-05);
+  color: var(--ink-60);
+  border: 1px solid var(--ink-10);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.ctrl-method-provenance {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+}
+.ctrl-method-provenance.tone-info {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+.ctrl-method-provenance.tone-success {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.ctrl-method-provenance.tone-warning {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+.ctrl-method-provenance.tone-neutral {
+  background: var(--ink-02);
+  border-color: var(--ink-10);
+}
+.ctrl-method-provenance-label {
+  font-weight: 700; font-size: 12px; color: var(--ink-80);
+}
+.ctrl-method-provenance-hint {
+  font-size: 11px; color: var(--ink-50); line-height: 1.5;
+}
+
+/* Preuves — empty state */
+.ctrl-evidence-empty {
+  font-size: 12px; color: var(--ink-50);
+  background: var(--ink-02);
+  border: 1px dashed var(--ink-20);
+  border-radius: 6px;
+  padding: 10px 12px;
+  line-height: 1.55;
+}
+
+/* Comparaison — note de source */
+.ctrl-compare-source {
+  font-size: 9.5px; color: var(--ink-40);
+  font-style: italic;
+  margin-top: 3px;
+  letter-spacing: 0.1px;
+}
+
+/* Cross-link : champ extrait -> regles qui l'utilisent */
+.edv-cell-rules,
+.data-field-key .edv-cell-rules {
+  display: inline-block;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--accent-deep);
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: help;
+  vertical-align: 1px;
+}
