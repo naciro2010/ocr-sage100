@@ -68,6 +68,37 @@ class GlobalExceptionHandler {
             .body(ErrorResponse("Le serveur est temporairement surcharge. Reessayez dans quelques secondes."))
     }
 
+    /**
+     * Long-poll / SSE endpoints (DocumentProgressService) end with an async
+     * timeout when nothing happens for the configured interval — expected
+     * behaviour, not an error. Spring surfaces it to the controller advice
+     * once the connection is torn down; swallow it silently.
+     */
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestTimeoutException::class)
+    fun handleAsyncTimeout(): ResponseEntity<Void> {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+    }
+
+    @ExceptionHandler(org.springframework.web.context.request.async.AsyncRequestNotUsableException::class)
+    fun handleAsyncNotUsable(): ResponseEntity<Void> {
+        return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).build()
+    }
+
+    @ExceptionHandler(java.io.IOException::class)
+    fun handleIo(e: java.io.IOException): ResponseEntity<ErrorResponse> {
+        // Client disconnects while streaming produce "Broken pipe" / "ClientAbortException".
+        // These are noise, not errors — log once at DEBUG and return a generic 503.
+        val msg = e.message ?: ""
+        if (msg.contains("Broken pipe", ignoreCase = true) ||
+            msg.contains("Connection reset", ignoreCase = true) ||
+            e.javaClass.simpleName == "ClientAbortException") {
+            log.debug("Client disconnected mid-stream: {}", e.javaClass.simpleName)
+            return ResponseEntity.status(HttpStatus.SERVICE_UNAVAILABLE).body(ErrorResponse("Connexion interrompue"))
+        }
+        log.warn("I/O error: {}", msg)
+        return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(ErrorResponse("Erreur I/O"))
+    }
+
     @ExceptionHandler(Exception::class)
     fun handleGeneric(e: Exception): ResponseEntity<ErrorResponse> {
         log.error("Unexpected error [{}]: {}", e.javaClass.simpleName, e.message, e)

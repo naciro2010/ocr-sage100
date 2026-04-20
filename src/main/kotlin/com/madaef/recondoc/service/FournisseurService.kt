@@ -24,9 +24,9 @@ class FournisseurService(
 
     @Transactional(readOnly = true)
     fun getFournisseurDetail(nom: String): FournisseurDetailResponse {
-        val row = dossierRepo.aggregateOneFournisseur(nom)
+        val row = dossierRepo.aggregateOneFournisseur(nom).firstOrNull()
             ?: throw NoSuchElementException("Fournisseur introuvable: $nom")
-        val resolvedNom = (row[0] as? String) ?: nom
+        val resolvedNom = (row.getOrNull(0) as? String) ?: nom
         val dossiers = dossierRepo.findByFournisseurIgnoreCaseOrderByDateCreationDesc(resolvedNom)
         val ident = dossierRepo.findFactureIdentitiesByFournisseur(resolvedNom, PageRequest.of(0, 1)).firstOrNull()
         return FournisseurDetailResponse(
@@ -35,21 +35,23 @@ class FournisseurService(
             identifiantFiscal = ident?.getOrNull(2) as? String,
             rc = ident?.getOrNull(3) as? String,
             rib = ident?.getOrNull(4) as? String,
-            nbDossiers = (row[1] as Number).toLong(),
-            nbBrouillons = (row[2] as Number).toLong(),
-            nbEnVerification = (row[3] as Number).toLong(),
-            nbValides = (row[4] as Number).toLong(),
-            nbRejetes = (row[5] as Number).toLong(),
-            montantTotalTtc = toBigDecimal(row[6]),
-            montantTotalHt = toBigDecimal(row[7]),
-            montantTotalTva = toBigDecimal(row[8]),
-            montantValide = toBigDecimal(row[9]),
-            montantEnCours = toBigDecimal(row[10]),
-            dernierDossier = row[11] as? LocalDateTime,
-            premierDossier = row[12] as? LocalDateTime,
+            nbDossiers = toLongOrZero(row.getOrNull(1)),
+            nbBrouillons = toLongOrZero(row.getOrNull(2)),
+            nbEnVerification = toLongOrZero(row.getOrNull(3)),
+            nbValides = toLongOrZero(row.getOrNull(4)),
+            nbRejetes = toLongOrZero(row.getOrNull(5)),
+            montantTotalTtc = toBigDecimal(row.getOrNull(6)),
+            montantTotalHt = toBigDecimal(row.getOrNull(7)),
+            montantTotalTva = toBigDecimal(row.getOrNull(8)),
+            montantValide = toBigDecimal(row.getOrNull(9)),
+            montantEnCours = toBigDecimal(row.getOrNull(10)),
+            dernierDossier = row.getOrNull(11) as? LocalDateTime,
+            premierDossier = row.getOrNull(12) as? LocalDateTime,
             dossiers = dossiers.map { it.toListResponse() }
         )
     }
+
+    private fun toLongOrZero(v: Any?): Long = (v as? Number)?.toLong() ?: 0L
 
     @Transactional(readOnly = true)
     fun getStats(): FournisseursStatsResponse {

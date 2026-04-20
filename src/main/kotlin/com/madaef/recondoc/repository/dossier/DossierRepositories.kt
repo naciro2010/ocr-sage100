@@ -108,7 +108,7 @@ interface DossierRepository : JpaRepository<DossierPaiement, UUID> {
         WHERE LOWER(CAST(d.fournisseur AS string)) = LOWER(CAST(:nom AS string))
         GROUP BY d.fournisseur
     """)
-    fun aggregateOneFournisseur(nom: String): Array<Any?>?
+    fun aggregateOneFournisseur(nom: String): List<Array<Any?>>
 
     @Query("""
         SELECT f.fournisseur, f.ice, f.identifiantFiscal, f.rc, f.rib
