@@ -42,8 +42,8 @@ import java.util.UUID
 class S3DocumentStorage(
     @Value("\${storage.upload-dir:uploads}") uploadDir: String,
     @Value("\${storage.s3.bucket}") private val bucket: String,
-    @Value("\${storage.s3.region:eu-west-1}") region: String,
-    @Value("\${storage.s3.endpoint:}") endpoint: String,
+    @Value("\${storage.s3.region:eu-west-1}") private val region: String,
+    @Value("\${storage.s3.endpoint:}") private val endpoint: String,
     @Value("\${storage.s3.access-key:}") accessKey: String,
     @Value("\${storage.s3.secret-key:}") secretKey: String,
     @Value("\${storage.s3.force-path-style:false}") private val forcePathStyle: Boolean
@@ -51,6 +51,22 @@ class S3DocumentStorage(
 
     private val log = LoggerFactory.getLogger(javaClass)
     private val cacheDir: Path = Path.of(uploadDir, "_s3cache")
+
+    @jakarta.annotation.PostConstruct
+    fun logActive() {
+        log.info(
+            "DocumentStorage active: S3 (bucket={}, endpoint={}, region={} -> {}, forcePathStyle={}, credentials={})",
+            bucket,
+            endpoint.ifBlank { "(default AWS)" },
+            region,
+            effectiveRegion,
+            forcePathStyle,
+            if (credentials.javaClass.simpleName.contains("Static")) "static" else "default-chain"
+        )
+        if (bucket.isBlank()) {
+            log.warn("storage.type=s3 but BUCKET_NAME / S3_BUCKET is blank — every upload will fail")
+        }
+    }
 
     private val credentials = if (accessKey.isNotBlank() && secretKey.isNotBlank()) {
         StaticCredentialsProvider.create(AwsBasicCredentials.create(accessKey, secretKey))

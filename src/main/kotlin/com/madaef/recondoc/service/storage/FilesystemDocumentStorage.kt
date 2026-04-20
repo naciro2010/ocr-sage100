@@ -22,6 +22,11 @@ class FilesystemDocumentStorage(
 
     private val log = LoggerFactory.getLogger(javaClass)
 
+    @jakarta.annotation.PostConstruct
+    fun logActive() {
+        log.info("DocumentStorage active: FILESYSTEM (upload-dir={})", uploadDir)
+    }
+
     override fun store(dossierId: UUID, fileName: String, bytes: ByteArray): String {
         val dir = Path.of(uploadDir, dossierId.toString())
         Files.createDirectories(dir)
