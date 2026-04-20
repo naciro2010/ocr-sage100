@@ -311,7 +311,12 @@ class DossierController(
     }
 
     @GetMapping("/rule-catalog")
-    fun getRuleCatalog(): List<RuleCatalogEntry> = RuleCatalog.all()
+    fun getRuleCatalog(): ResponseEntity<List<RuleCatalogEntry>> =
+        ResponseEntity.ok()
+            // Catalogue statique (recompile avec le backend). Long cache cote client
+            // + revalidation conditionnelle economisent ~1 roundtrip par chargement de page.
+            .header(HttpHeaders.CACHE_CONTROL, "public, max-age=600, must-revalidate")
+            .body(RuleCatalog.all())
 
     @GetMapping("/{id}/rule-config")
     fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {
