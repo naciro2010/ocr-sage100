@@ -20,8 +20,8 @@ import {
 } from 'lucide-react'
 
 const AI_MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, ideal pour extraction' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', desc: 'Plus precis, documents complexes' },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', desc: 'Le plus precis, recommande pour dossiers' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, bon compromis' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Leger, economique' },
 ]
 
@@ -40,7 +40,7 @@ export default function Settings() {
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
-  const [aiModel, setAiModel] = useState('claude-sonnet-4-6')
+  const [aiModel, setAiModel] = useState('claude-opus-4-7')
   const [aiBaseUrl, setAiBaseUrl] = useState('https://api.anthropic.com')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
