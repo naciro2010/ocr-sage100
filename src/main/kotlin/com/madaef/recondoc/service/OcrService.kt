@@ -20,8 +20,9 @@ import javax.imageio.ImageIO
 /**
  * Pipeline OCR a 3 moteurs avec cascade intelligente :
  * 1. Tika       : extraction texte natif (PDF numeriques) - instantane
- * 2. PaddleOCR  : OCR deep learning via microservice Python - meilleure precision
- * 3. Tesseract  : OCR local fallback si PaddleOCR indisponible
+ * 1b.Markdown   : PDF numeriques avec tableaux -> Markdown structure (local)
+ * 2. Mistral OCR: API cloud, rend du Markdown avec tableaux preserves
+ * 3. Tesseract  : fallback local si Mistral indisponible ou non configure
  *
  * Strategie : combiner les resultats des moteurs pour maximiser le contenu extrait.
  */
@@ -29,7 +30,7 @@ import javax.imageio.ImageIO
 class OcrService(
     private val preprocessingService: ImagePreprocessingService,
     private val textNormalizationService: TextNormalizationService,
-    private val paddleOcrClient: PaddleOcrClient,
+    private val mistralOcrClient: MistralOcrClient,
     private val pdfMarkdownExtractor: PdfMarkdownExtractor,
     @Value("\${ocr.tesseract.data-path:/usr/share/tessdata}") private val tessDataPath: String,
     @Value("\${ocr.tesseract.languages:fra+ara}") private val languages: String,
@@ -56,7 +57,6 @@ class OcrService(
 
     private var tesseractAvailable: Boolean = false
     private var resolvedTessDataPath: String = tessDataPath
-    private var paddleAvailable: Boolean = false
 
     init {
         tesseractAvailable = checkTesseractAvailability()
@@ -64,15 +64,10 @@ class OcrService(
             log.info("Tesseract OCR available (dataPath={}, languages={})", resolvedTessDataPath, languages)
         }
 
-        try {
-            paddleAvailable = paddleOcrClient.isAvailable()
-            if (paddleAvailable) {
-                log.info("PaddleOCR service available - using as primary OCR engine")
-            } else {
-                log.info("PaddleOCR service not available - using Tika/Tesseract pipeline")
-            }
-        } catch (_: Exception) {
-            log.info("PaddleOCR service not configured")
+        if (mistralOcrClient.isAvailable()) {
+            log.info("Mistral OCR configured - used as primary OCR engine for scans")
+        } else {
+            log.info("Mistral OCR not configured - falling back to Tika + Tesseract only")
         }
     }
 
@@ -83,7 +78,7 @@ class OcrService(
         val pageCount: Int = 1
     )
 
-    enum class OcrEngine { TIKA, TESSERACT, PADDLEOCR, TIKA_PLUS_TESSERACT, COMBINED, PDFBOX_MARKDOWN }
+    enum class OcrEngine { TIKA, TESSERACT, MISTRAL_OCR, TIKA_PLUS_TESSERACT, COMBINED, PDFBOX_MARKDOWN }
 
     fun extractText(inputStream: InputStream, fileName: String): String {
         return extractWithDetails(inputStream, fileName, null).text
@@ -112,36 +107,30 @@ class OcrService(
             return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = countPages(filePath))
         }
 
-        // Phase 2: PaddleOCR (toujours tenter si disponible)
-        var paddleResult: OcrResult? = null
-        if (filePath != null) {
-            paddleResult = tryPaddleOcr(filePath)
-            if (paddleResult != null) {
-                val paddleWords = countSignificantWords(paddleResult.text)
-                log.info("PaddleOCR: {} words, {:.1f}% confidence for {}", paddleWords, paddleResult.confidence, fileName)
+        // Phase 2: Mistral OCR (Markdown structure, tableaux preserves) si configure
+        if (filePath != null && mistralOcrClient.isAvailable()) {
+            val mistralResult = tryMistralOcr(filePath)
+            if (mistralResult != null) {
+                val mistralWords = countSignificantWords(mistralResult.text)
+                log.info("Mistral OCR: {} words for {}", mistralWords, fileName)
 
-                // Combiner Tika + Paddle si les deux ont du contenu
-                if (tikaWords >= 20 && paddleWords >= 20) {
-                    val combined = mergeTexts(tikaText, paddleResult.text)
+                // Combiner Tika + Mistral si les deux sont riches
+                if (tikaWords >= 20 && mistralWords >= 20) {
+                    val combined = mergeTexts(tikaText, mistralResult.text)
                     val combinedWords = countSignificantWords(combined)
-                    if (combinedWords > paddleWords && combinedWords > tikaWords) {
-                        log.info("Combined Tika+Paddle: {} words (was Tika={}, Paddle={})", combinedWords, tikaWords, paddleWords)
-                        return OcrResult(text = combined, engine = OcrEngine.COMBINED, confidence = paddleResult.confidence, pageCount = paddleResult.pageCount)
+                    if (combinedWords > mistralWords && combinedWords > tikaWords) {
+                        log.info("Combined Tika+Mistral: {} words (was Tika={}, Mistral={})", combinedWords, tikaWords, mistralWords)
+                        return OcrResult(text = combined, engine = OcrEngine.COMBINED, pageCount = mistralResult.pageCount)
                     }
                 }
 
-                // Sinon garder le meilleur
-                if (paddleWords > tikaWords) {
-                    return paddleResult
-                }
-                if (tikaWords >= 30) {
-                    return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = paddleResult.pageCount)
-                }
-                return paddleResult
+                if (mistralWords > tikaWords) return mistralResult
+                if (tikaWords >= 30) return OcrResult(text = tikaText, engine = OcrEngine.TIKA, pageCount = mistralResult.pageCount)
+                return mistralResult
             }
         }
 
-        // Phase 3: Tesseract fallback (si PaddleOCR indisponible ou echoue)
+        // Phase 3: Tesseract fallback (Mistral indisponible ou non configure)
         if (tesseractAvailable && filePath != null) {
             val tessResult = tryTesseract(filePath, fileName, tikaText)
             if (tessResult != null) {
@@ -162,45 +151,23 @@ class OcrService(
     }
 
     /**
-     * PaddleOCR avec fallback arabe si le francais est pauvre.
+     * Appel Mistral OCR. Le service gere nativement FR + AR et rend du Markdown
+     * avec tableaux preserves, donc pas besoin de double passe par langue.
      */
-    private fun tryPaddleOcr(filePath: Path): OcrResult? {
-        if (!paddleAvailable) {
-            try { paddleAvailable = paddleOcrClient.isAvailable() } catch (_: Exception) { return null }
-        }
-        if (!paddleAvailable) return null
-
+    private fun tryMistralOcr(filePath: Path): OcrResult? {
         return try {
-            val result = paddleOcrClient.ocr(filePath, "fr")
-            val normalized = textNormalizationService.normalize(result.text)
-            val frWords = countSignificantWords(normalized)
-
-            // Si le francais est pauvre, tenter en arabe
-            if (frWords < 15) {
-                try {
-                    val arResult = paddleOcrClient.ocr(filePath, "ar")
-                    val arNormalized = textNormalizationService.normalize(arResult.text)
-                    val arWords = countSignificantWords(arNormalized)
-                    if (arWords > frWords) {
-                        log.info("PaddleOCR Arabic better ({} vs {} words)", arWords, frWords)
-                        // Combiner fr + ar
-                        val combined = if (frWords > 5) mergeTexts(normalized, arNormalized) else arNormalized
-                        return OcrResult(text = combined, engine = OcrEngine.PADDLEOCR, confidence = arResult.confidence * 100, pageCount = arResult.pageCount)
-                    }
-                } catch (e: Exception) {
-                    log.debug("PaddleOCR Arabic fallback failed: {}", e.message)
-                }
-            }
-
-            if (normalized.isBlank()) {
-                log.warn("PaddleOCR returned empty text, falling back")
+            val result = mistralOcrClient.ocr(filePath)
+            if (result.markdown.isBlank()) {
+                log.warn("Mistral OCR returned empty markdown, falling back")
                 return null
             }
-
-            OcrResult(text = normalized, engine = OcrEngine.PADDLEOCR, confidence = result.confidence * 100, pageCount = result.pageCount)
+            OcrResult(
+                text = result.markdown,
+                engine = OcrEngine.MISTRAL_OCR,
+                pageCount = result.pageCount
+            )
         } catch (e: Exception) {
-            log.warn("PaddleOCR call failed: {}", e.message)
-            paddleAvailable = false
+            log.warn("Mistral OCR failed: {}", e.message)
             null
         }
     }

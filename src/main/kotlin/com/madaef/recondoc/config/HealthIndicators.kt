@@ -1,7 +1,7 @@
 package com.madaef.recondoc.config
 
 import com.madaef.recondoc.service.AppSettingsService
-import com.madaef.recondoc.service.PaddleOcrClient
+import com.madaef.recondoc.service.MistralOcrClient
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import org.slf4j.LoggerFactory
@@ -10,21 +10,21 @@ import org.springframework.boot.actuate.health.HealthIndicator
 import org.springframework.stereotype.Component
 
 /**
- * Surfaces the OCR microservice state on /actuator/health/ocr. Marked OUT_OF_SERVICE
- * (not DOWN) when not configured so a missing PADDLE_OCR_URL doesn't break the
- * Railway healthcheck — Tesseract still runs as fallback.
+ * Surfaces OCR engine state on /actuator/health/ocr. Marked OUT_OF_SERVICE
+ * (not DOWN) when Mistral OCR n'est pas configure — Tesseract local reste
+ * disponible en fallback, donc le healthcheck Railway reste UP.
  */
 @Component("ocr")
 class OcrHealthIndicator(
-    private val paddleOcrClient: PaddleOcrClient
+    private val mistralOcrClient: MistralOcrClient
 ) : HealthIndicator {
 
     override fun health(): Health = try {
-        if (paddleOcrClient.isAvailable()) {
-            Health.up().withDetail("engine", "paddleocr").build()
+        if (mistralOcrClient.isAvailable()) {
+            Health.up().withDetail("engine", "mistral-ocr").build()
         } else {
             Health.status("OUT_OF_SERVICE")
-                .withDetail("reason", "PaddleOCR unreachable; falling back to Tesseract")
+                .withDetail("reason", "Mistral OCR non configure; fallback Tesseract actif")
                 .build()
         }
     } catch (e: Exception) {

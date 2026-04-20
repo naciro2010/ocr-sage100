@@ -35,7 +35,14 @@ docker compose up -d db       # Start only PostgreSQL (for local dev)
 
 ### Processing Pipeline
 ```
-PDF/Image upload → Apache Tika (text extraction) → Claude API (structured JSON extraction) → ValidationEngine (cross-document checks) → PostgreSQL
+PDF/Image upload
+  -> Apache Tika (texte natif PDF, gratuit)
+  -> PdfMarkdownExtractor (Markdown avec tableaux si PDF numerique, local)
+  -> Mistral OCR API (si scan, rend du Markdown, optionnel via MISTRAL_API_KEY)
+  -> Tesseract local (fallback hors-ligne)
+  -> Claude API (classification + extraction JSON structuree)
+  -> ValidationEngine (R01-R20 + CK01-CK10)
+  -> PostgreSQL
 ```
 
 ### Backend (Kotlin + Spring Boot)
@@ -48,7 +55,7 @@ PDF/Image upload → Apache Tika (text extraction) → Claude API (structured JS
   - `InvoiceService`: Legacy single-invoice processing
   - `service/extraction/`: LLM-based document classification (`ClassificationService`) and data extraction (`LlmExtractionService`) with prompts in `ExtractionPrompts`
   - `service/validation/ValidationEngine`: Cross-document validation rules (montant matching, reference coherence between facture/BC/OP)
-  - `OcrService` + `PaddleOcrClient`: Text extraction from PDFs/images via Tika, Tesseract, or PaddleOCR
+  - `OcrService` + `MistralOcrClient`: text extraction cascade — Apache Tika (natif PDF) -> `PdfMarkdownExtractor` (tableaux locaux) -> Mistral OCR API (scans, rend du Markdown) -> Tesseract local (fallback hors-ligne)
   - `ErpConnectorFactory` → `Sage1000Service`, `SageX3Service`, `Sage50Service`: ERP sync (factory pattern, selected via `erp.active` config)
 - **Config**: `application.yml` (main), `application-test.yml` (H2, Flyway disabled), `application-ci.yml` (PostgreSQL integration tests)
 
@@ -71,7 +78,8 @@ PDF/Image upload → Apache Tika (text extraction) → Claude API (structured JS
 - Montant tolerance for cross-document validation: configurable via `app.tolerance-montant` (default 5%)
 
 ## Key Environment Variables
-- `CLAUDE_API_KEY`: Required for AI extraction
+- `CLAUDE_API_KEY`: Required for AI extraction (classification + extraction structuree)
+- `MISTRAL_API_KEY`: Optional — active Mistral OCR comme moteur OCR principal pour les scans. Sans cette cle, la cascade utilise Tika + Tesseract (local, sans cout externe)
 - `DATABASE_URL`, `DATABASE_USERNAME`, `DATABASE_PASSWORD`: PostgreSQL connection
 - `ERP_ACTIVE`: Which ERP connector to use (SAGE_1000, SAGE_X3, SAGE_50)
 - `BUCKET_*`: S3-compatible object storage for uploaded files

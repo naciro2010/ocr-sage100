@@ -19,10 +19,10 @@ claude:
   base-url: http://localhost:9999
 
 ocr:
-  paddle:
-    base-url: ""
-    timeout: 5
-    lang: fr
+  mistral:
+    api-key: ""
+    base-url: "http://localhost:0"
+    model: mistral-ocr-latest
 
 storage:
   upload-dir: /tmp/ocrsage-test-uploads

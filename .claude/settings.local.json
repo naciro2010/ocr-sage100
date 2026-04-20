@@ -79,7 +79,14 @@
       "Bash(grep -E \"\\\\.kt$\")",
       "mcp__Railway__list-projects",
       "Bash(git diff *)",
-      "Read(//tmp/**)"
+      "Read(//tmp/**)",
+      "mcp__Railway__check-railway-status",
+      "Bash(awk -F: '$2 >= 1060 && $2 <= 1500')",
+      "Bash(awk 'NR>=1060 && NR<=1500 && /^\\\\[data-theme|^\\\\.ctrl-|^\\\\.edv-|^\\\\/\\\\* =====/' /Users/ennacirimohamed/workspace/github/ocr-sage100/frontend/src/index.css)",
+      "Bash(awk -F: '$1 >= 1000')",
+      "Bash(../gradlew build *)",
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 build -x test)",
+      "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test)"
     ],
     "deny": []
   },

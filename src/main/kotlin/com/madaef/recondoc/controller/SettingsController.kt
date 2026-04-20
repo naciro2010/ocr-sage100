@@ -35,19 +35,36 @@ class SettingsController(
     }
 
     @GetMapping("/ocr")
-    fun getOcrInfo(): OcrInfoResponse {
-        return OcrInfoResponse(
+    fun getOcrSettings(): OcrSettingsResponse {
+        val rawKey = appSettingsService.getMistralApiKey()
+        return OcrSettingsResponse(
             tikaVersion = "3.0.0",
             tesseractAvailable = true,
             languages = "fra+ara",
             preprocessingEnabled = true,
-            dpi = 300
+            dpi = 300,
+            mistralEnabled = appSettingsService.isMistralOcrEnabled(),
+            mistralApiKey = maskApiKey(rawKey),
+            mistralApiKeyConfigured = rawKey.isNotBlank(),
+            mistralModel = appSettingsService.getMistralOcrModel(),
+            mistralBaseUrl = appSettingsService.getMistralBaseUrl()
         )
+    }
+
+    @PostMapping("/ocr")
+    fun saveOcrSettings(@RequestBody settings: OcrSettingsRequest): OcrSettingsResponse {
+        settings.mistralEnabled?.let { appSettingsService.set("ocr.mistral.enabled", it.toString()) }
+        if (settings.mistralApiKey != null && !settings.mistralApiKey.startsWith("***")) {
+            appSettingsService.set("ocr.mistral.api_key", settings.mistralApiKey)
+        }
+        settings.mistralModel?.let { appSettingsService.set("ocr.mistral.model", it) }
+        settings.mistralBaseUrl?.let { appSettingsService.set("ocr.mistral.base_url", it) }
+        return getOcrSettings()
     }
 
     private fun maskApiKey(key: String): String {
         if (key.isBlank() || key.length < 8) return ""
-        return key.take(7) + "***" + key.takeLast(4)
+        return key.take(4) + "***" + key.takeLast(4)
     }
 }
 
@@ -66,10 +83,22 @@ data class AiSettingsResponse(
     val baseUrl: String
 )
 
-data class OcrInfoResponse(
+data class OcrSettingsRequest(
+    val mistralEnabled: Boolean? = null,
+    val mistralApiKey: String? = null,
+    val mistralModel: String? = null,
+    val mistralBaseUrl: String? = null
+)
+
+data class OcrSettingsResponse(
     val tikaVersion: String,
     val tesseractAvailable: Boolean,
     val languages: String,
     val preprocessingEnabled: Boolean,
-    val dpi: Int
+    val dpi: Int,
+    val mistralEnabled: Boolean,
+    val mistralApiKey: String,
+    val mistralApiKeyConfigured: Boolean,
+    val mistralModel: String,
+    val mistralBaseUrl: String
 )

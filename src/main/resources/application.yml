@@ -50,10 +50,12 @@ app:
 
 # OCR configuration
 ocr:
-  paddle:
-    base-url: ${PADDLE_OCR_URL:}
-    timeout: ${PADDLE_OCR_TIMEOUT:120}
-    lang: ${PADDLE_OCR_LANG:fr}
+  mistral:
+    # Mistral Document AI (mistral-ocr-latest). Configurable aussi a chaud
+    # via Parametres > Pipeline OCR dans le front.
+    api-key: ${MISTRAL_API_KEY:}
+    base-url: ${MISTRAL_BASE_URL:https://api.mistral.ai}
+    model: ${MISTRAL_OCR_MODEL:mistral-ocr-latest}
   tesseract:
     data-path: ${TESSDATA_PREFIX:/usr/share/tessdata}
     languages: ${OCR_LANGUAGES:fra+ara+eng}

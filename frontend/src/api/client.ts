@@ -1,4 +1,4 @@
-import type { AiSettingsResponse } from './types'
+import type { AiSettingsResponse, OcrSettingsResponse } from './types'
 
 const API_URL = (import.meta.env.VITE_API_URL || '').replace(/\/+$/, '')
 
@@ -35,6 +35,27 @@ export async function saveAiSettings(settings: {
   baseUrl?: string
 }): Promise<AiSettingsResponse> {
   const res = await fetch(`${API_URL}/api/settings/ai`, {
+    method: 'POST',
+    headers: { 'Content-Type': 'application/json', ...authHeaders() },
+    body: JSON.stringify(settings),
+  })
+  return handleResponse(res)
+}
+
+// --- OCR Settings ---
+
+export async function getOcrSettings(): Promise<OcrSettingsResponse> {
+  const res = await fetch(`${API_URL}/api/settings/ocr`, { headers: authHeaders() })
+  return handleResponse(res)
+}
+
+export async function saveOcrSettings(settings: {
+  mistralEnabled?: boolean
+  mistralApiKey?: string
+  mistralModel?: string
+  mistralBaseUrl?: string
+}): Promise<OcrSettingsResponse> {
+  const res = await fetch(`${API_URL}/api/settings/ocr`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json', ...authHeaders() },
     body: JSON.stringify(settings),

@@ -1,94 +1,137 @@
-# OCR Sage 100
+# ReconDoc MADAEF
 
-Micro-service Spring Boot / Kotlin pour le traitement automatisé de factures par OCR et synchronisation avec Sage 100.
+Plateforme de reconciliation documentaire des dossiers de paiement MADAEF (Groupe CDG).
+Upload de documents PDF/images, extraction OCR + IA (Claude + Mistral OCR), verification croisee entre documents, et validation des dossiers fournisseurs.
 
 ## Architecture
 
 ```
-Facture PDF/Image
-    ↓
-Apache Tika (extraction texte, JVM natif)
-    ↓
-Claude API (structuration → JSON)
-    ↓
-Spring Boot (validation, workflow, API REST)
-    ↓
-PostgreSQL (stockage et suivi)
-    ↓
-Connecteur Sage 100 (REST API)
+Upload PDF / Image
+        |
+        v
+Apache Tika (texte natif PDF, gratuit, local)
+        |
+        |-- texte riche + tableaux --> PdfMarkdownExtractor (local, Markdown)
+        |-- texte riche sans table  --> Tika brut
+        |-- scan / peu de texte     --> Mistral OCR API (Markdown avec tableaux)
+        |                               fallback --> Tesseract local
+        v
+Claude API (classification + extraction JSON structuree)
+        |
+        v
+ValidationEngine (22 regles R01-R20 + CK01-CK10, local)
+        |
+        v
+PostgreSQL + S3 (documents)
+        |
+        v
+(optionnel) Connecteur Sage / ERP
 ```
 
-**Un seul langage (Kotlin), un seul runtime (JVM), une seule équipe.**
+**Un seul backend Kotlin (Spring Boot) + un front React. Aucun microservice OCR
+a maintenir** — Mistral OCR est appele en HTTP, Tesseract est embarque dans le
+conteneur du backend.
 
 ## Stack technique
 
-- **Kotlin 2.1** + **Spring Boot 3.4**
-- **Apache Tika** pour l'extraction de texte (PDF, images, scans)
-- **Claude API** pour l'extraction structurée des données de facturation
-- **PostgreSQL** + **Flyway** pour la persistance
-- **Docker Compose** pour le déploiement
+- **Kotlin 2.1** + **Spring Boot 3.4** (Java 21)
+- **Apache Tika** : extraction de texte natif PDF (gratuit)
+- **PDFBox + tabula-java** : detection et export de tableaux en Markdown (gratuit)
+- **Mistral Document AI** (`mistral-ocr-latest`) : OCR cloud pour les scans, rend du Markdown
+- **Tesseract 5** : fallback OCR local (langues : fra + ara + eng)
+- **Anthropic Claude API** : classification et extraction structuree
+- **PostgreSQL 16** + **Flyway** pour la persistance
+- **React 18** + **Vite** + **TypeScript** pour le front
+- **Docker Compose** (dev) / **Railway** (prod)
 
-## API REST
+## Demarrage rapide
 
-| Méthode | Endpoint                    | Description                      |
-|---------|-----------------------------|----------------------------------|
-| POST    | `/api/invoices`             | Upload et traitement d'une facture |
-| GET     | `/api/invoices`             | Liste paginée des factures       |
-| GET     | `/api/invoices/{id}`        | Détail d'une facture             |
-| POST    | `/api/invoices/{id}/sync`   | Synchronisation vers Sage 100    |
-| GET     | `/api/invoices/dashboard`   | Statistiques du tableau de bord  |
-
-## Démarrage rapide
-
-### Prérequis
+### Prerequis
 
 - Java 21+
 - Docker & Docker Compose
+- Une cle Claude API (requis)
+- Une cle Mistral API (optionnel — sans elle, seuls Tika + Tesseract sont utilises)
 
 ### Lancer avec Docker Compose
 
 ```bash
-# Configurer la clé API Claude
 export CLAUDE_API_KEY=sk-ant-...
+export MISTRAL_API_KEY=...   # optionnel
 
-# Lancer PostgreSQL + l'application
 docker compose up -d
 ```
 
-### Développement local
+### Developpement local
 
 ```bash
-# Lancer uniquement PostgreSQL
+# PostgreSQL uniquement
 docker compose up -d db
 
-# Lancer l'application
+# Backend
 export CLAUDE_API_KEY=sk-ant-...
+export MISTRAL_API_KEY=...   # optionnel
 ./gradlew bootRun
+
+# Frontend
+cd frontend && npm install && npm run dev
 ```
 
-### Tester l'upload d'une facture
+### Tests
 
 ```bash
-curl -X POST http://localhost:8080/api/invoices \
-  -F "file=@facture.pdf"
+./gradlew test                       # unit tests (H2)
+./gradlew test -Dspring.profiles.active=ci   # integration (PostgreSQL)
+cd frontend && npm run lint
 ```
 
 ## Configuration
 
-Variables d'environnement :
+Variables d'environnement principales :
 
-| Variable          | Description                    | Défaut                      |
-|-------------------|--------------------------------|-----------------------------|
-| `CLAUDE_API_KEY`  | Clé API Anthropic              | (requis)                    |
-| `SAGE100_BASE_URL`| URL de l'API Sage 100          | `http://localhost:8443`     |
-| `SAGE100_API_KEY` | Clé API Sage 100               | (optionnel)                 |
+| Variable              | Description                                                          | Defaut                          |
+|-----------------------|----------------------------------------------------------------------|---------------------------------|
+| `CLAUDE_API_KEY`      | Cle API Anthropic (classification + extraction)                      | (requis)                        |
+| `MISTRAL_API_KEY`     | Cle API Mistral OCR (activation optionnelle)                         | vide (fallback Tika+Tesseract)  |
+| `DATABASE_URL`        | URL JDBC PostgreSQL                                                  | `jdbc:postgresql://localhost:5432/recondoc` |
+| `BUCKET_*`            | Credentials S3-compatibles pour stocker les PDF uploades             | vide (stockage local)           |
+| `ERP_ACTIVE`          | Connecteur ERP a activer (`SAGE_1000`, `SAGE_X3`, `SAGE_50`)         | (optionnel)                     |
+| `TOLERANCE_MONTANT`   | Tolerance relative pour les controles montants (ex. 0.05 = 5%)       | `0.05`                          |
 
-## Workflow de traitement
+La cle Mistral et la cle Claude peuvent aussi etre configurees **a chaud** dans
+l'interface `Parametres` du front (onglet *Extraction IA* et *Pipeline OCR*).
+Les valeurs saisies dans l'UI ont priorite sur les variables d'environnement.
 
-1. **UPLOADED** → Facture reçue
-2. **OCR_IN_PROGRESS** → Extraction de texte par Tika
-3. **OCR_COMPLETED** → Texte brut extrait
-4. **AI_EXTRACTION_IN_PROGRESS** → Analyse par Claude API
-5. **EXTRACTED** → Données structurées extraites
-6. **READY_FOR_SAGE** → Validation OK, prête pour sync
-7. **SAGE_SYNCED** → Synchronisée avec Sage 100
+## Pipeline de traitement
+
+1. **Upload** — le document arrive via `POST /api/dossiers/{id}/documents`.
+2. **Classification** — Claude identifie le type (FACTURE, BON_COMMANDE, ORDRE_PAIEMENT, CONTRAT, PV_RECEPTION, CHECKLIST_AUTOCONTROLE, ATTESTATION_FISCALE, TABLEAU_CONTROLE).
+3. **OCR cascade** (voir schema ci-dessus).
+4. **Extraction** — Claude renvoie un JSON structure selon le type (montants, ICE, RIB, lignes, retenues...).
+5. **Validation** — le `ValidationEngine` execute les 22 regles metier croisees entre documents du dossier.
+6. **Stockage** — document + extraits + resultats de controle sauvegardes en base, fichier binaire en S3.
+
+## Cout & performance
+
+Le pipeline est concu pour minimiser le cout d'infrastructure :
+
+- **Tika / PdfMarkdownExtractor / Tesseract** : locaux, gratuits, utilises sur
+  environ 80 % des documents (PDF numeriques generes par SAP / Sage / Excel).
+- **Mistral OCR** : facture a la page (~0.001 $/page), utilise uniquement pour
+  les vrais scans. Rend du Markdown avec tableaux preserves, ce qui reduit les
+  tokens Claude en aval (~20-30 % d'economie sur l'extraction).
+- **Claude API** : 2 appels par document (classification + extraction), parfois
+  un 3e appel de retry si le JSON est malforme. Le suivi de consommation est
+  accessible via `/api/admin/claude-usage/*` et la page `/claude-usage` du front.
+
+## Deploiement Railway
+
+Le backend et le frontend sont deployes sur Railway via `railway.json` et `Procfile`.
+Un seul service backend (`ocr-sage100`) + un service frontend (`ocr-front`) +
+PostgreSQL manage. Aucun microservice OCR a maintenir.
+
+Variables minimales a configurer dans Railway :
+- `CLAUDE_API_KEY`
+- `MISTRAL_API_KEY` (optionnel)
+- `BUCKET_*` (S3 storage)
+- `JAVA_OPTS` (optionnel, defaut `-Xms256m -Xmx512m`)

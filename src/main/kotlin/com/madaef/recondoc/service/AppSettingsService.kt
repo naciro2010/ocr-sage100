@@ -11,7 +11,8 @@ import java.util.concurrent.ConcurrentHashMap
 @Service
 class AppSettingsService(
     private val repo: AppSettingRepository,
-    @Value("\${claude.api-key:}") private val envApiKey: String
+    @Value("\${claude.api-key:}") private val envApiKey: String,
+    @Value("\${ocr.mistral.api-key:}") private val envMistralKey: String
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -129,4 +130,19 @@ class AppSettingsService(
         val (inPrice, outPrice) = getPricingForModel(model)
         return (inputTokens / 1_000_000.0) * inPrice + (outputTokens / 1_000_000.0) * outPrice
     }
+
+    // --- Mistral OCR settings (remplace l'ancien microservice PaddleOCR) ---
+
+    fun isMistralOcrEnabled(): Boolean = get("ocr.mistral.enabled") == "true"
+
+    fun getMistralApiKey(): String {
+        val dbKey = get("ocr.mistral.api_key")
+        return if (!dbKey.isNullOrBlank()) dbKey else envMistralKey
+    }
+
+    fun getMistralBaseUrl(): String = getOrDefault("ocr.mistral.base_url", "https://api.mistral.ai")
+
+    fun getMistralOcrModel(): String = getOrDefault("ocr.mistral.model", "mistral-ocr-latest")
+
+    fun hasValidMistralOcrConfig(): Boolean = isMistralOcrEnabled() && getMistralApiKey().isNotBlank()
 }
