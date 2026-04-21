@@ -146,10 +146,12 @@ class LlmExtractionService(
             "input_schema" to inputSchema
         )
 
+        // Pas de `temperature` ici non plus (cf. PR #78). `tool_choice` force
+        // deja Claude a produire un objet conforme au schema, ce qui rend le
+        // parametre temperature redondant pour l'extraction structuree.
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
-            "temperature" to 0,
             "system" to systemPrompt,
             "tools" to listOf(tool),
             "tool_choice" to mapOf("type" to "tool", "name" to toolName),
@@ -220,13 +222,13 @@ class LlmExtractionService(
         log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
             kind, model, maxTokens, userContent.length)
 
-        // temperature=0 : extraction structuree, reponse deterministe.
-        // Evite que deux appels identiques produisent des valeurs differentes
-        // et stabilise les tests golden.
+        // Note: le parametre `temperature` a ete retire (cf. PR #78). Les
+        // modeles Claude recents (Haiku 4.5+, Sonnet 4.6+, Opus 4.x) l'ont
+        // deprecie au profit d'un comportement deterministe par defaut sur
+        // les appels structures, et renvoient 400 si on le fournit.
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
-            "temperature" to 0,
             "system" to systemPrompt,
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
