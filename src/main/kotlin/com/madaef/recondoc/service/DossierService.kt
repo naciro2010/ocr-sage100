@@ -4,6 +4,7 @@ import com.fasterxml.jackson.databind.ObjectMapper
 import com.madaef.recondoc.dto.dossier.*
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.*
+import com.madaef.recondoc.repository.engagement.EngagementRepository
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
@@ -63,6 +64,7 @@ class DossierService(
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val fournisseurMatchingService: FournisseurMatchingService,
+    private val engagementRepository: EngagementRepository,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
     @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
@@ -1305,6 +1307,57 @@ class DossierService(
         dossier.montantHt = facture.montantHt
         dossier.montantTva = facture.montantTva
         dossier.fournisseur = dossier.fournisseur ?: facture.fournisseur
+        tryAutoAttachEngagement(dossier)
+    }
+
+    /**
+     * Auto-rattachement du dossier a un engagement existant via lookup par
+     * reference. Scanne les champs susceptibles de citer un engagement
+     * (facture.referenceContrat, op.referenceBcOuContrat, etc.), normalise,
+     * et s'il existe exactement un Engagement avec une reference correspondante,
+     * rattache le dossier.
+     *
+     * Principe prudent : si 0 ou plusieurs matches, on ne rattache pas et on
+     * log pour revue. Un dossier deja rattache n'est pas ecrase.
+     */
+    private fun tryAutoAttachEngagement(dossier: DossierPaiement) {
+        if (dossier.engagement != null) return
+
+        val candidates = collectEngagementCandidates(dossier)
+        if (candidates.isEmpty()) return
+
+        val matches = candidates
+            .mapNotNull { ref -> engagementRepository.findByReference(ref) }
+            .distinctBy { it.id }
+
+        when (matches.size) {
+            0 -> log.debug("Dossier {} : aucune reference engagement matchee parmi {}",
+                dossier.reference, candidates.size)
+            1 -> {
+                val eng = matches.first()
+                dossier.engagement = eng
+                log.info("Dossier {} rattache automatiquement a l'engagement {} (type {})",
+                    dossier.reference, eng.reference, eng.typeEngagement())
+                audit(dossier.id, "AUTO_ATTACH_ENGAGEMENT",
+                    "Rattache a l'engagement ${eng.reference} (via citation dans le dossier)")
+            }
+            else -> log.warn("Dossier {} : {} engagements matches, rattachement manuel requis : {}",
+                dossier.reference, matches.size, matches.joinToString { it.reference })
+        }
+    }
+
+    private fun collectEngagementCandidates(dossier: DossierPaiement): List<String> {
+        val refs = mutableSetOf<String>()
+        dossier.factures.forEach { f ->
+            f.referenceContrat?.trim()?.takeIf { it.isNotBlank() }?.let { refs += it }
+        }
+        dossier.ordrePaiement?.let { op ->
+            op.referenceBcOuContrat?.trim()?.takeIf { it.isNotBlank() }?.let { refs += it }
+            op.referenceFacture?.trim()?.takeIf { it.isNotBlank() }?.let { refs += it }
+        }
+        dossier.bonCommande?.reference?.trim()?.takeIf { it.isNotBlank() }?.let { refs += it }
+        dossier.contratAvenant?.referenceContrat?.trim()?.takeIf { it.isNotBlank() }?.let { refs += it }
+        return refs.toList()
     }
 
     private val dateFormats = listOf(
