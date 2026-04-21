@@ -80,6 +80,15 @@ abstract class Engagement(
     @Column(name = "date_modification")
     var dateModification: LocalDateTime? = null,
 
+    @Column(name = "source_document_path", length = 1000)
+    var sourceDocumentPath: String? = null,
+
+    @Column(name = "source_document_name", length = 500)
+    var sourceDocumentName: String? = null,
+
+    @Column(name = "source_document_hash", length = 64)
+    var sourceDocumentHash: String? = null,
+
     @OneToMany(mappedBy = "engagement", fetch = FetchType.LAZY)
     @OrderBy("dateCreation ASC")
     var dossiers: MutableList<DossierPaiement> = mutableListOf()

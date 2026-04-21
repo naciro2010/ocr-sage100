@@ -26,6 +26,19 @@ interface DocumentStorage {
     fun store(dossierId: UUID, fileName: String, bytes: ByteArray): String
 
     /**
+     * Stocke un document contractuel source d'un Engagement (marche, BC cadre,
+     * contrat). Ces documents ne sont pas rattaches a un dossier ; on les
+     * regroupe par reference d'engagement via un UUID deterministe.
+     *
+     * L'impl par defaut reutilise `store` sous un UUID derive de la reference
+     * pour maintenir la meme arborescence de stockage (filesystem / S3).
+     */
+    fun storeEngagementDocument(engagementRef: String, fileName: String, bytes: ByteArray): String {
+        val pseudoId = UUID.nameUUIDFromBytes("engagement/$engagementRef".toByteArray())
+        return store(pseudoId, fileName, bytes)
+    }
+
+    /**
      * Resolve a stored pointer to a local filesystem path, fetching from
      * remote storage if necessary. Returns null if the object doesn't exist.
      */

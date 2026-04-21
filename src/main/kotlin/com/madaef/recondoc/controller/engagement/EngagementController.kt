@@ -2,20 +2,39 @@ package com.madaef.recondoc.controller.engagement
 
 import com.madaef.recondoc.dto.engagement.*
 import com.madaef.recondoc.entity.engagement.StatutEngagement
+import com.madaef.recondoc.service.engagement.EngagementExtractionService
 import com.madaef.recondoc.service.engagement.EngagementService
 import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
 import org.springframework.data.web.PageableDefault
 import org.springframework.http.HttpStatus
+import org.springframework.http.MediaType
 import org.springframework.web.bind.annotation.*
+import org.springframework.web.multipart.MultipartFile
 import java.util.UUID
 
 @RestController
 @RequestMapping("/api/engagements")
 class EngagementController(
-    private val engagementService: EngagementService
+    private val engagementService: EngagementService,
+    private val extractionService: EngagementExtractionService
 ) {
+
+    @PostMapping("/upload", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
+    @ResponseStatus(HttpStatus.CREATED)
+    fun uploadContractualDocument(@RequestParam("file") file: MultipartFile): UploadEngagementResponse {
+        if (file.isEmpty) throw IllegalArgumentException("Fichier vide")
+        val result = extractionService.uploadAndExtract(file)
+        return UploadEngagementResponse(
+            engagementId = result.engagementId,
+            reference = result.reference,
+            type = result.typeEngagement,
+            created = result.created,
+            confidence = result.confidence,
+            warnings = result.warnings
+        )
+    }
 
     @PostMapping
     @ResponseStatus(HttpStatus.CREATED)

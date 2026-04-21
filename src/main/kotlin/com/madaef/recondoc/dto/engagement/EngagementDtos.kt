@@ -85,6 +85,15 @@ data class AttachDossierRequest(
     @field:NotNull val dossierId: UUID
 )
 
+data class UploadEngagementResponse(
+    val engagementId: UUID,
+    val reference: String,
+    val type: TypeEngagement,
+    val created: Boolean,
+    val confidence: Double?,
+    val warnings: List<String>
+)
+
 // === Responses ===
 
 data class EngagementListItem(

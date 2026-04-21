@@ -20,6 +20,9 @@ interface EngagementRepository : JpaRepository<Engagement, UUID> {
 
     fun existsByReference(reference: String): Boolean
 
+    /** Dedoublonnage lors du re-upload du meme PDF source (meme SHA-256). */
+    fun findFirstBySourceDocumentHash(hash: String): Engagement?
+
     @EntityGraph(attributePaths = ["dossiers", "fournisseurCanonique"])
     @Query("SELECT e FROM Engagement e WHERE e.id = :id")
     fun findByIdWithDossiers(id: UUID): Optional<Engagement>
