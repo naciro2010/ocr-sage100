@@ -6,6 +6,7 @@ import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
+import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.storage.DocumentStorage
 import com.madaef.recondoc.service.storage.ExtractStorage
@@ -57,6 +58,7 @@ class DossierService(
     private val ruleConfigCache: RuleConfigCache,
     private val extractStorage: ExtractStorage,
     private val documentStorage: DocumentStorage,
+    private val extractionQualityService: ExtractionQualityService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
@@ -703,6 +705,7 @@ class DossierService(
 
             doc.statutExtraction = StatutExtraction.EXTRAIT
             doc.erreurExtraction = null
+            extractionQualityService.applyTo(doc)
             emitProgress(doc, "extract", "done", "Termine")
 
             if (detectedType == TypeDocument.FACTURE) {

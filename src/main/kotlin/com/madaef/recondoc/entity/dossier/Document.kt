@@ -51,6 +51,11 @@ class Document(
     @Column(name = "extraction_confidence") var extractionConfidence: Double = -1.0,
     @Column(name = "extraction_warnings", columnDefinition = "TEXT") var extractionWarnings: String? = null,
 
+    @Column(name = "extraction_quality_score") var extractionQualityScore: Int? = null,
+
+    @Column(name = "missing_mandatory_fields", columnDefinition = "TEXT")
+    var missingMandatoryFields: String? = null,
+
     // SHA-256 of the original uploaded file. Used to skip re-processing identical
     // PDFs (same hash, same dossier).
     @Column(name = "file_hash", length = 64) var fileHash: String? = null
