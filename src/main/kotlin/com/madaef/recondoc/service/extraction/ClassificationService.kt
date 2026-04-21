@@ -93,7 +93,11 @@ class ClassificationService(
 
     private fun classifyByKeywords(text: String): TypeDocument? {
         val lower = text.lowercase()
-        // Order matters: most specific patterns first, broadest last
+        // Le header contient generalement le titre du document. Un doc qui
+        // affiche "FACTURE" en en-tete + totaux HT/TTC est une FACTURE meme
+        // s'il reference un BC plus bas. On biaise la classification vers ce
+        // qui est annonce en haut.
+        val header = lower.take(600)
         return when {
             // Checklists (very specific codes)
             lower.contains("ccf-en-04") || (lower.contains("autocontr") && lower.contains("check")) -> TypeDocument.CHECKLIST_AUTOCONTROLE
@@ -114,16 +118,39 @@ class ClassificationService(
             // Contrat/Avenant
             lower.contains("contrat") && (lower.contains("avenant") || lower.contains("convention")) -> TypeDocument.CONTRAT_AVENANT
 
+            // ANTI-CONFUSION FACTURE vs BON_COMMANDE (cf. prompt classificateur) :
+            // un document qui annonce "FACTURE" / "Invoice" / "N Facture" dans son
+            // header ET qui contient des marqueurs financiers (TTC, TVA, Net a payer)
+            // est une FACTURE, meme s'il reference un "bon de commande" dans son
+            // corps (ref BC sur ligne de paiement). Cette branche doit passer AVANT
+            // la detection BC pour ne pas classer la facture comme BC.
+            hasFactureHeaderSignal(header) && hasInvoiceTotalsMarker(lower) -> TypeDocument.FACTURE
+
             // Bon de commande
             lower.contains("bon de commande") || Regex("cf\\s*sie\\s*\\d+", RegexOption.IGNORE_CASE).containsMatchIn(text) -> TypeDocument.BON_COMMANDE
 
             // Formulaire fournisseur
             lower.contains("ouverture de compte") || lower.contains("formulaire fournisseur") -> TypeDocument.FORMULAIRE_FOURNISSEUR
 
-            // Facture (last - broadest match)
-            lower.contains("facture") && (lower.contains("montant") || lower.contains("ttc") || lower.contains("tva") || lower.contains("net a payer")) -> TypeDocument.FACTURE
+            // Facture (filet large en dernier recours : "facture" + marqueurs financiers)
+            lower.contains("facture") && hasInvoiceTotalsMarker(lower) -> TypeDocument.FACTURE
 
             else -> null
         }
+    }
+
+    private fun hasFactureHeaderSignal(header: String): Boolean {
+        return header.contains("facture") ||
+            header.contains("invoice") ||
+            header.contains("numero facture") || header.contains("numéro facture") ||
+            header.contains("ref. facture") || header.contains("ref facture") ||
+            header.contains("n facture") || header.contains("n. facture")
+    }
+
+    private fun hasInvoiceTotalsMarker(lower: String): Boolean {
+        return lower.contains("ttc") || lower.contains("t.t.c") ||
+            lower.contains("tva") || lower.contains("t.v.a") ||
+            lower.contains("net a payer") || lower.contains("net à payer") ||
+            lower.contains("montant") || lower.contains("total ht")
     }
 }

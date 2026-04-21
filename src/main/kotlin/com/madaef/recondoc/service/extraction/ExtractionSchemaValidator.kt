@@ -162,17 +162,17 @@ class ExtractionSchemaValidator {
 
         return when (rule.kind) {
             FieldKind.ICE -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (ICE_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "ICE attendu 15 chiffres, trouve ${digits.length}")
             }
             FieldKind.RIB -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (RIB_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "RIB attendu 24 chiffres, trouve ${digits.length}")
             }
             FieldKind.IF_NUM -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (IF_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "IF attendu 5-15 chiffres")
             }
@@ -202,6 +202,26 @@ class ExtractionSchemaValidator {
             }
             FieldKind.NON_VIDE -> null
         }
+    }
+
+    /**
+     * Filet de normalisation OCR sur les champs 100% numeriques (ICE/RIB/IF).
+     * L'OCR confond frequemment des lettres avec des chiffres visuellement
+     * proches : O/o -> 0, l/I -> 1. CLAUDE.md demande explicitement au prompt
+     * de corriger ces cas ; on double la securite cote Kotlin pour ne pas
+     * dependre uniquement du LLM. On ne normalise PAS les champs textuels
+     * (NON_VIDE) pour ne pas alterer un nom ou un numero structure.
+     */
+    private fun normalizeDigits(s: String): String {
+        val normalized = StringBuilder(s.length)
+        for (c in s) {
+            normalized.append(when (c) {
+                'O', 'o' -> '0'
+                'l', 'I' -> '1'
+                else -> c
+            })
+        }
+        return normalized.toString().replace("[^\\d]".toRegex(), "")
     }
 
     private fun tryParseDate(s: String): LocalDate? {

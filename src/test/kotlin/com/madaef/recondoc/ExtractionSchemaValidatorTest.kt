@@ -189,4 +189,65 @@ class ExtractionSchemaValidatorTest {
                 "'$v' devrait etre refuse comme placeholder")
         }
     }
+
+    // --- Normalisation OCR des champs 100% numeriques (O->0, l->1) ---
+
+    @Test
+    fun `ICE avec O (lettre) a la place de 0 (chiffre) est corrige`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME",
+            "ice" to "OO15O9176OOOOO8", // O a la place des 0
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.none { it.field == "ice" },
+            "ICE avec O OCR doit etre corrige en 0 et accepte")
+    }
+
+    @Test
+    fun `ICE avec l (lettre minuscule) a la place de 1 est corrige`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME",
+            "ice" to "00l509l76000008", // l a la place des 1
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.none { it.field == "ice" },
+            "ICE avec l OCR doit etre corrige en 1 et accepte")
+    }
+
+    @Test
+    fun `ICE avec I (lettre majuscule) a la place de 1 est corrige`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME",
+            "ice" to "00I509I76000008", // I a la place des 1
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.none { it.field == "ice" })
+    }
+
+    @Test
+    fun `RIB avec espaces, tirets et O OCR est accepte apres normalisation`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME", "ice" to "001509176000008",
+            "montantTTC" to 100,
+            "rib" to "O11 810-OOOOOO123456789012" // 24 chiffres avec O
+        ))
+        // RIB devient 011810000000123456789012 = 24 chiffres -> OK
+        assertTrue(r.violations.none { it.field == "rib" })
+        assertTrue(r.cleanedData["rib"] != null, "RIB valide ne doit pas etre strip")
+    }
+
+    @Test
+    fun `ICE avec OCR cryptographique OO1 reste 001 (pas de strip arbitraire)`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME",
+            "ice" to "0012345670000O9", // seul le dernier 0 est un O
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.none { it.field == "ice" })
+    }
 }
