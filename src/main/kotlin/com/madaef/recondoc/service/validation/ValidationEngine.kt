@@ -25,6 +25,7 @@ class ValidationEngine(
     private val customRuleService: CustomRuleService,
     private val factureRepository: com.madaef.recondoc.repository.dossier.FactureRepository,
     private val fournisseurMatchingService: com.madaef.recondoc.service.fournisseur.FournisseurMatchingService,
+    private val engagementDispatcher: com.madaef.recondoc.service.validation.engagement.EngagementValidationDispatcher,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
     @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
     @Value("\${app.anti-doublon.date-tolerance-days:3}") private val antiDoublonDateToleranceDays: Long,
@@ -178,7 +179,11 @@ class ValidationEngine(
 
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
-        val results = runAllRules(dossier, isEnabled)
+        val results = runAllRules(dossier, isEnabled).toMutableList()
+
+        // Couche engagement (R-E/R-M/R-B/R-C) : no-op si dossier non rattache
+        results += engagementDispatcher.validate(dossier)
+
         val totalMs = (System.nanoTime() - t0) / 1_000_000
         results.forEach { it.dateExecution = LocalDateTime.now() }
         resultatRepository.saveAll(results)
