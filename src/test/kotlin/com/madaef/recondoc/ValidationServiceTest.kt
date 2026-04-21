@@ -184,15 +184,15 @@ class ValidationServiceTest {
     }
 
     @Test
-    fun `R19 CONFORME when QR code matches printed verification code`() {
+    fun `R19 CONFORME when QR code matches printed verification code on canonical DGI host`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
         dossier.documents.add(d1)
         dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
             codeVerification = "18a50bf6baf372bd"
-            qrPayload = "https://www.tax.gov.ma/verify?code=18a50bf6baf372bd"
+            qrPayload = "https://attestation.tax.gov.ma/verify?code=18a50bf6baf372bd"
             qrCodeExtrait = "18a50bf6baf372bd"
-            qrHost = "www.tax.gov.ma"
+            qrHost = "attestation.tax.gov.ma"
         }
         dossierRepo.save(dossier)
 
@@ -233,7 +233,7 @@ class ValidationServiceTest {
     }
 
     @Test
-    fun `R19 AVERTISSEMENT when QR host is not tax gov ma`() {
+    fun `R19 NON_CONFORME when QR host is not tax gov ma`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
         dossier.documents.add(d1)
@@ -246,7 +246,72 @@ class ValidationServiceTest {
         dossierRepo.save(dossier)
 
         val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.NON_CONFORME, r19.statut, r19.detail)
+        assertTrue(r19.detail!!.contains("attestation.tax.gov.ma"), "Le detail doit pointer vers le site officiel: ${r19.detail}")
+    }
+
+    @Test
+    fun `R19 NON_CONFORME when QR payload uses javascript scheme`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrPayload = "javascript:alert('xss')"
+            qrCodeExtrait = null
+            qrHost = null
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        assertEquals(StatutCheck.NON_CONFORME, r19.statut, r19.detail)
+        assertTrue(r19.detail!!.contains("dangereux") || r19.detail!!.contains("Schema"), "Le detail doit signaler le danger: ${r19.detail}")
+    }
+
+    @Test
+    fun `R19 AVERTISSEMENT when QR is on tax gov ma but not attestation subdomain`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            codeVerification = "18a50bf6baf372bd"
+            qrPayload = "https://www.tax.gov.ma/verify?code=18a50bf6baf372bd"
+            qrCodeExtrait = "18a50bf6baf372bd"
+            qrHost = "www.tax.gov.ma"
+        }
+        dossierRepo.save(dossier)
+
+        val r19 = validationEngine.validate(dossier).first { it.regle == "R19" }
+        // www.tax.gov.ma est officiel mais pas canonique — warning, pas blocage.
         assertEquals(StatutCheck.AVERTISSEMENT, r19.statut, r19.detail)
+    }
+
+    @Test
+    fun `R23 NON_CONFORME when attestation says estEnRegle false`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            estEnRegle = false
+        }
+        dossierRepo.save(dossier)
+
+        val r23 = validationEngine.validate(dossier).first { it.regle == "R23" }
+        assertEquals(StatutCheck.NON_CONFORME, r23.statut, r23.detail)
+    }
+
+    @Test
+    fun `R23 CONFORME when attestation confirms regularity`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.add(d1)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = d1).apply {
+            estEnRegle = true
+        }
+        dossierRepo.save(dossier)
+
+        val r23 = validationEngine.validate(dossier).first { it.regle == "R23" }
+        assertEquals(StatutCheck.CONFORME, r23.statut, r23.detail)
     }
 
     @Test

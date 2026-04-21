@@ -375,9 +375,9 @@ object ExtractionPrompts {
         }
 
         Regles specifiques :
-        - estEnRegle=true si l'attestation confirme que le contribuable est en situation reguliere.
+        - estEnRegle=true si l'attestation contient explicitement "en situation reguliere", "en situation fiscale reguliere", "quitus fiscal" ou equivalent. estEnRegle=false si l'attestation mentionne "non en regle", "non regulier", "dette", "redressement" ou un rejet. null si le texte est ambigu — ajoute alors un warning "estEnRegle non determine" pour declencher la revue humaine.
         - L'ICE doit avoir exactement 15 chiffres. Si l'OCR donne un nombre different, retourner tel quel et ajouter un warning.
-        - codeVerification : code alphanumerique imprime a cote ou sous le QR code, apres "Code de verification sur le site www.tax.gov.ma". Souvent 12-32 caracteres hexadecimaux. Retourner tel quel, sans espace, sans ponctuation.
+        - codeVerification : code alphanumerique imprime a cote ou sous le QR code, apres "Code de verification sur le site attestation.tax.gov.ma" (ou www.tax.gov.ma, ancienne URL). Souvent 12-32 caracteres hexadecimaux. Retourner tel quel, sans espace, sans ponctuation.
 
         $COMMON_RULES
     """.trimIndent()

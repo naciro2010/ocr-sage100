@@ -49,6 +49,10 @@ class DossierPaiement(
     @Column(name = "valide_par") var validePar: String? = null,
     @Column(name = "motif_rejet", columnDefinition = "TEXT") var motifRejet: String? = null,
 
+    // CSV de TypeDocument pour R20 ; null = defauts par type de dossier.
+    @Column(name = "required_documents", columnDefinition = "TEXT")
+    var requiredDocuments: String? = null,
+
     @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("dateUpload ASC")
     var documents: MutableSet<Document> = mutableSetOf(),

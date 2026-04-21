@@ -375,6 +375,29 @@ export async function getGlobalRuleConfig(): Promise<Array<{ regle: string; enab
   return cachedFetch(`${BASE}/global-rule-config`, 5000)
 }
 
+export interface RequiredDocumentEntry { type: string; label: string }
+export interface RequiredDocumentsResponse {
+  defaults: RequiredDocumentEntry[]
+  selected: string[]
+  isCustom: boolean
+}
+
+export async function getRequiredDocuments(dossierId: string): Promise<RequiredDocumentsResponse> {
+  return cachedFetch(`${BASE}/${dossierId}/required-documents`, 5000)
+}
+
+export async function updateRequiredDocuments(
+  dossierId: string, selected: string[] | null
+): Promise<RequiredDocumentsResponse> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/required-documents`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ selected }),
+  })
+  return handleResponse(res)
+}
+
 export async function updateGlobalRuleConfig(rules: Record<string, boolean>): Promise<Array<{ regle: string; enabled: boolean }>> {
   const res = await apiFetch(`${BASE}/global-rule-config`, {
     method: 'PATCH',

@@ -68,6 +68,21 @@ data class DossierSummaryResponse(
     val nbChecksTotal: Int = 0
 )
 
+data class RequiredDocumentsResponse(
+    val defaults: List<RequiredDocumentEntry>,
+    val selected: List<TypeDocument>,
+    val isCustom: Boolean
+)
+
+data class RequiredDocumentEntry(
+    val type: TypeDocument,
+    val label: String
+)
+
+data class UpdateRequiredDocumentsRequest(
+    val selected: List<TypeDocument>? = null
+)
+
 data class DossierResponse(
     val id: UUID,
     val reference: String,

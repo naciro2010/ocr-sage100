@@ -336,6 +336,19 @@ class DossierController(
             .header(HttpHeaders.CACHE_CONTROL, "public, max-age=600, must-revalidate")
             .body(RuleCatalog.all())
 
+    @GetMapping("/{id}/required-documents")
+    fun getRequiredDocuments(@PathVariable id: UUID): RequiredDocumentsResponse {
+        return dossierService.getRequiredDocuments(id)
+    }
+
+    @PatchMapping("/{id}/required-documents")
+    fun updateRequiredDocuments(
+        @PathVariable id: UUID,
+        @RequestBody body: UpdateRequiredDocumentsRequest
+    ): RequiredDocumentsResponse {
+        return dossierService.updateRequiredDocuments(id, body.selected)
+    }
+
     @GetMapping("/{id}/rule-config")
     fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {
         return dossierService.getRuleConfig(id)

@@ -163,5 +163,48 @@ class QrCodeService(
             return h == "tax.gov.ma" || h.endsWith(".tax.gov.ma") ||
                 h == "www.tax.gov.ma"
         }
+
+        // Host canonique de verification DGI (https://attestation.tax.gov.ma/).
+        // Autres sous-domaines tax.gov.ma = AVERTISSEMENT seulement.
+        fun isCanonicalAttestationHost(host: String?): Boolean =
+            host?.lowercase()?.trim() == "attestation.tax.gov.ma"
+
+        // Safety scheme-level du payload QR : seul https + host DGI est valide.
+        // javascript:/data:/file:/credentials embarquees = NON_CONFORME.
+        fun assessPayloadSafety(payload: String?): PayloadSafety {
+            if (payload.isNullOrBlank()) return PayloadSafety(PayloadVerdict.ABSENT, null)
+            val trimmed = payload.trim()
+            if (trimmed.any { it.code in 0..31 && it != '\t' }) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Caracteres de controle detectes dans le QR")
+            }
+            // Code hex nu (sans schema) : sera confronte au code imprime plus tard.
+            if (!trimmed.contains(":") && !trimmed.contains("/")) {
+                return PayloadSafety(PayloadVerdict.SAFE, null)
+            }
+            val uri = try { URI(trimmed) } catch (_: Exception) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "URL du QR malformee: $trimmed")
+            }
+            val scheme = uri.scheme?.lowercase()
+            if (scheme in BLOCKED_SCHEMES) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Schema interdit dans le QR : $scheme")
+            }
+            if (scheme != null && scheme != "https" && scheme != "http") {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Schema non supporte : $scheme (attendu https)")
+            }
+            if (scheme == "http") {
+                return PayloadSafety(PayloadVerdict.UNSAFE, "URL non chiffree (http) : redirection possible")
+            }
+            if (!uri.userInfo.isNullOrBlank()) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Identifiants embarques dans l'URL du QR")
+            }
+            return PayloadSafety(PayloadVerdict.SAFE, null)
+        }
+
+        private val BLOCKED_SCHEMES = setOf(
+            "javascript", "data", "vbscript", "file", "jar", "ftp", "blob", "about"
+        )
     }
+
+    enum class PayloadVerdict { SAFE, UNSAFE, DANGEROUS, ABSENT }
+    data class PayloadSafety(val verdict: PayloadVerdict, val reason: String?)
 }

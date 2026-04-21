@@ -163,6 +163,30 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
+    fun getRequiredDocuments(dossierId: UUID): RequiredDocumentsResponse {
+        val dossier = getDossier(dossierId)
+        val defaults = validationEngine.resolveRequiredDocuments(dossier.type, null)
+        val effective = validationEngine.resolveRequiredDocuments(dossier.type, dossier.requiredDocuments)
+        return RequiredDocumentsResponse(
+            defaults = defaults.map { RequiredDocumentEntry(it.first, it.second) },
+            selected = effective.map { it.first },
+            isCustom = dossier.requiredDocuments != null
+        )
+    }
+
+    @Transactional
+    fun updateRequiredDocuments(dossierId: UUID, selected: List<TypeDocument>?): RequiredDocumentsResponse {
+        val dossier = getDossier(dossierId)
+        val previous = dossier.requiredDocuments
+        dossier.requiredDocuments = selected?.takeIf { it.isNotEmpty() }?.joinToString(",") { it.name }
+        audit(dossierId, "UPDATE_REQUIRED_DOCUMENTS",
+            if (dossier.requiredDocuments == null) "Retour aux pieces par defaut"
+            else "Pieces personnalisees: ${dossier.requiredDocuments}")
+        log.info("Dossier {} required documents: {} -> {}", dossier.reference, previous, dossier.requiredDocuments)
+        return getRequiredDocuments(dossierId)
+    }
+
+    @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
         val dossier = dossierRepo.findById(id)
             .orElseThrow { NoSuchElementException("Dossier not found: $id") }
@@ -533,22 +557,88 @@ class DossierService(
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         if (doc.dossier.id != dossierId) throw NoSuchElementException("Document does not belong to this dossier")
         log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
-        documentStorage.delete(doc.cheminFichier)
-        doc.texteExtraitKey?.let { extractStorage.delete(it) }
+
+        val docName = doc.nomFichier
+        val pointer = doc.cheminFichier
+        val extractKey = doc.texteExtraitKey
+
+        clearTypedEntityForDocument(doc)
+        doc.dossier.documents.remove(doc)
         documentRepo.delete(doc)
-        audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
+        documentRepo.flush()
+
+        // Storage cleanup best-effort : un fichier deja absent ne doit pas annuler la suppression DB.
+        documentStorage.delete(pointer)
+        extractKey?.let { extractStorage.delete(it) }
+
+        audit(dossierId, "DELETE_DOCUMENT", docName)
     }
 
     @Transactional
     fun changeDocumentType(documentId: UUID, newType: TypeDocument) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
-        log.info("Changing document {} type from {} to {}", doc.nomFichier, doc.typeDocument, newType)
+        val oldType = doc.typeDocument
+        if (oldType == newType) {
+            log.info("Type unchanged for {} ({}), skipping re-extraction", doc.nomFichier, newType)
+            return
+        }
+        log.info("Changing document {} type from {} to {}", doc.nomFichier, oldType, newType)
+
+        clearTypedEntityForDocument(doc)
+
         doc.typeDocument = newType
         doc.statutExtraction = StatutExtraction.EN_ATTENTE
         doc.donneesExtraites = null
         doc.erreurExtraction = null
-        documentRepo.save(doc)
-        processDocument(documentId, skipClassification = true)
+        doc.extractionConfidence = -1.0
+        doc.extractionWarnings = null
+        doc.extractionQualityScore = null
+        doc.missingMandatoryFields = null
+        documentRepo.saveAndFlush(doc)
+        audit(doc.dossier.id, "CHANGE_DOCUMENT_TYPE", "${doc.nomFichier}: $oldType -> $newType")
+
+        // Re-extraction asynchrone apres commit : si elle echoue, le type reste
+        // persiste et l'operateur peut relancer manuellement.
+        eventPublisher.publishEvent(DocumentUploadedEvent(documentId, doc.dossier.id!!, skipClassification = true))
+    }
+
+    // Retire l'enfant type (Facture/BC/...) avant suppression/reclassement,
+    // sinon R20/R14 matcheraient encore des donnees obsoletes.
+    private fun clearTypedEntityForDocument(doc: Document) {
+        val docId = doc.id ?: return
+        val d = doc.dossier
+        try {
+            when (doc.typeDocument) {
+                TypeDocument.FACTURE -> d.factures.firstOrNull { it.document.id == docId }?.let {
+                    d.factures.remove(it); factureRepo.delete(it)
+                }
+                TypeDocument.BON_COMMANDE -> d.bonCommande?.takeIf { it.document.id == docId }?.let {
+                    d.bonCommande = null; bcRepo.delete(it)
+                }
+                TypeDocument.CONTRAT_AVENANT -> d.contratAvenant?.takeIf { it.document.id == docId }?.let {
+                    d.contratAvenant = null; contratRepo.delete(it)
+                }
+                TypeDocument.ORDRE_PAIEMENT -> d.ordrePaiement?.takeIf { it.document.id == docId }?.let {
+                    d.ordrePaiement = null; opRepo.delete(it)
+                }
+                TypeDocument.CHECKLIST_AUTOCONTROLE -> d.checklistAutocontrole?.takeIf { it.document.id == docId }?.let {
+                    d.checklistAutocontrole = null; checklistRepo.delete(it)
+                }
+                TypeDocument.TABLEAU_CONTROLE -> d.tableauControle?.takeIf { it.document.id == docId }?.let {
+                    d.tableauControle = null; tableauRepo.delete(it)
+                }
+                TypeDocument.PV_RECEPTION -> d.pvReception?.takeIf { it.document.id == docId }?.let {
+                    d.pvReception = null; pvRepo.delete(it)
+                }
+                TypeDocument.ATTESTATION_FISCALE -> d.attestationFiscale?.takeIf { it.document.id == docId }?.let {
+                    d.attestationFiscale = null; arfRepo.delete(it)
+                }
+                else -> Unit
+            }
+            entityManager.flush()
+        } catch (e: Exception) {
+            log.warn("Cleanup of typed entity for {} ({}) failed: {}", doc.nomFichier, doc.typeDocument, e.message)
+        }
     }
 
     @Transactional

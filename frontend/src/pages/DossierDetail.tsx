@@ -20,6 +20,7 @@ const FieldDiffMatrix = lazy(() => import('../components/dossier/FieldDiffMatrix
 const DocumentManager = lazy(() => import('../components/dossier/DocumentManager'))
 const ControlSplitView = lazy(() => import('../components/dossier/ControlSplitView'))
 const AuditLog = lazy(() => import('../components/dossier/AuditLog'))
+const RequiredDocumentsConfig = lazy(() => import('../components/dossier/RequiredDocumentsConfig'))
 
 function HeaderSkeleton() {
   return (
@@ -443,10 +444,15 @@ export default function DossierDetail() {
         ) : !docsData ? (
           <DocsSkeleton />
         ) : dossierCompat ? (
-          <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
-            <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
-              onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
-          </div>
+          <>
+            <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
+              <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
+                onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
+            </div>
+            <div className="block-loaded" style={{ animationDelay: '0.17s' }}>
+              <RequiredDocumentsConfig dossierId={id!} onChanged={() => { loadValidation(); loadAudit() }} />
+            </div>
+          </>
         ) : null}
 
         {/* Block 6: Audit */}

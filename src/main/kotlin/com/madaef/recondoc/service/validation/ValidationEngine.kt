@@ -81,6 +81,37 @@ class ValidationEngine(
             else -> null
         }
 
+        val TYPE_LABELS: Map<TypeDocument, String> = mapOf(
+            TypeDocument.FACTURE to "Facture",
+            TypeDocument.BON_COMMANDE to "Bon de commande",
+            TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
+            TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement",
+            TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
+            TypeDocument.CHECKLIST_PIECES to "Checklist des pieces",
+            TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
+            TypeDocument.PV_RECEPTION to "PV de reception",
+            TypeDocument.ATTESTATION_FISCALE to "Attestation fiscale",
+            TypeDocument.FORMULAIRE_FOURNISSEUR to "Formulaire fournisseur",
+            TypeDocument.INCONNU to "A classer"
+        )
+
+        val DEFAULT_REQUIRED_BY_TYPE: Map<DossierType, List<TypeDocument>> = mapOf(
+            DossierType.BC to listOf(
+                TypeDocument.FACTURE,
+                TypeDocument.BON_COMMANDE,
+                TypeDocument.CHECKLIST_AUTOCONTROLE,
+                TypeDocument.TABLEAU_CONTROLE,
+                TypeDocument.ORDRE_PAIEMENT
+            ),
+            DossierType.CONTRACTUEL to listOf(
+                TypeDocument.FACTURE,
+                TypeDocument.CONTRAT_AVENANT,
+                TypeDocument.PV_RECEPTION,
+                TypeDocument.CHECKLIST_AUTOCONTROLE,
+                TypeDocument.ORDRE_PAIEMENT
+            )
+        )
+
         val RULE_DEPENDENCIES: Map<String, Set<String>> = mapOf(
             "R01" to setOf("R02", "R03", "R03b"),
             "R02" to setOf("R01", "R03", "R03b"),
@@ -104,11 +135,12 @@ class ValidationEngine(
             "R14b" to setOf("R09", "R10", "R14"),
             "R17a" to setOf("R17b"),
             "R17b" to setOf("R17a"),
-            "R18" to emptySet(),
+            "R18" to setOf("R23"),
             "R19" to emptySet(),
             "R20" to emptySet(),
             "R21" to emptySet(),
             "R22" to emptySet(),
+            "R23" to setOf("R18"),
             "R12" to emptySet(),
             "R13" to emptySet(),
         )
@@ -268,34 +300,24 @@ class ValidationEngine(
 
         if (isEnabled("R20")) {
             val docTypes = dossier.documents.map { it.typeDocument }.toSet()
-            val required = when (dossier.type) {
-                DossierType.BC -> listOf(
-                    TypeDocument.FACTURE to "Facture",
-                    TypeDocument.BON_COMMANDE to "Bon de commande",
-                    TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
-                    TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
-                    TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
-                )
-                DossierType.CONTRACTUEL -> listOf(
-                    TypeDocument.FACTURE to "Facture",
-                    TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
-                    TypeDocument.PV_RECEPTION to "PV de reception",
-                    TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
-                    TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
-                )
-            }
+            val required = resolveRequiredDocuments(dossier.type, dossier.requiredDocuments)
             val missing = required.filter { it.first !in docTypes }
             val present = required.size - missing.size
+            val source = if (dossier.requiredDocuments.isNullOrBlank()) "defaut" else "personnalisee"
             results += ResultatValidation(
                 dossier = dossier, regle = "R20",
-                libelle = "Completude dossier (${present}/${required.size} pieces)",
+                libelle = "Completude dossier (${present}/${required.size} pieces, liste $source)",
                 statut = when {
+                    required.isEmpty() -> StatutCheck.CONFORME
                     missing.isEmpty() -> StatutCheck.CONFORME
                     missing.size <= 2 -> StatutCheck.AVERTISSEMENT
                     else -> StatutCheck.NON_CONFORME
                 },
-                detail = if (missing.isEmpty()) "Toutes les pieces obligatoires sont presentes"
-                    else "Manquant: ${missing.joinToString(", ") { it.second }}"
+                detail = when {
+                    required.isEmpty() -> "Aucune piece obligatoire configuree — completude non evaluee"
+                    missing.isEmpty() -> "Toutes les pieces obligatoires sont presentes (${required.joinToString(", ") { it.second }})"
+                    else -> "Manquant: ${missing.joinToString(", ") { it.second }}"
+                }
             )
         }
 
@@ -892,6 +914,10 @@ class ValidationEngine(
 
         if (isEnabled("R19") && arf != null) {
             results += checkAttestationQr(arf, arfDoc, dossier)
+        }
+
+        if (isEnabled("R23") && arf != null) {
+            results += checkAttestationRegularite(arf, arfDoc, dossier)
         }
 
         if (isEnabled("R16") && facture != null && fHt != null && fTva != null && fTtc != null) {
@@ -1633,19 +1659,18 @@ class ValidationEngine(
         else StatutCheck.CONFORME
     }
 
-    /**
-     * R19: Verify the QR code on the DGI "attestation de regularite fiscale".
-     * The attestation prints a "Code de verification" under the QR; the QR
-     * itself encodes a tax.gov.ma URL that carries the same code. A mismatch
-     * between them (or a missing/unreadable QR) suggests tampering or a
-     * photocopy of an outdated attestation.
-     */
+    // R19 : QR DGI doit encoder le meme "Code de verification" que celui imprime
+    // sous le QR ET etre servi par attestation.tax.gov.ma en HTTPS. Toute autre
+    // forme (javascript:, data:, host externe, URL malformee) = NON_CONFORME
+    // meme si le code hex coincide par hasard.
     private fun checkAttestationQr(arf: AttestationFiscale, arfDoc: Document?, dossier: DossierPaiement): ResultatValidation {
         val printedCode = arf.codeVerification?.trim()?.takeIf { it.isNotBlank() }
         val qrCode = arf.qrCodeExtrait?.trim()?.takeIf { it.isNotBlank() }
         val qrPayload = arf.qrPayload?.trim()?.takeIf { it.isNotBlank() }
         val qrHost = arf.qrHost?.trim()?.takeIf { it.isNotBlank() }
         val officialHost = QrCodeService.isOfficialDgiHost(qrHost)
+        val canonicalHost = QrCodeService.isCanonicalAttestationHost(qrHost)
+        val safety = QrCodeService.assessPayloadSafety(qrPayload)
 
         val evidences = mutableListOf<ValidationEvidence>().apply {
             add(evidence("source", "qrPayload", "Contenu du QR code", arfDoc, qrPayload ?: "(absent)"))
@@ -1654,6 +1679,8 @@ class ValidationEngine(
             if (qrHost != null) {
                 add(evidence("source", "qrHost", "Domaine cible du QR", arfDoc, qrHost))
             }
+            add(evidence("calcule", "qrHostOfficiel", "Domaine attendu (DGI)", null, "attestation.tax.gov.ma"))
+            add(evidence("calcule", "qrSafety", "Verification securite du QR", null, safety.verdict.name))
         }
 
         val (statut, detail) = when {
@@ -1661,19 +1688,25 @@ class ValidationEngine(
                 val reason = arf.qrScanError ?: "Aucun QR code lisible sur le document"
                 StatutCheck.NON_CONFORME to "QR code introuvable ou illisible : $reason"
             }
+            safety.verdict == QrCodeService.PayloadVerdict.DANGEROUS ->
+                StatutCheck.NON_CONFORME to "QR potentiellement dangereux : ${safety.reason ?: "contenu suspect"}"
             qrCode == null -> StatutCheck.AVERTISSEMENT to "QR decode mais aucun code de verification extractible du contenu"
             printedCode == null -> StatutCheck.AVERTISSEMENT to "QR decode (${qrCode}) mais code imprime non extrait par l'OCR — verification visuelle requise"
             normalizeCode(printedCode) != normalizeCode(qrCode) -> StatutCheck.NON_CONFORME to
                 "Incoherence : code imprime = '$printedCode', code QR = '$qrCode'"
-            !officialHost && qrHost != null -> StatutCheck.AVERTISSEMENT to
-                "Codes coherents ($printedCode) mais domaine inattendu : $qrHost (attendu tax.gov.ma)"
+            !officialHost && qrHost != null -> StatutCheck.NON_CONFORME to
+                "Domaine inattendu : $qrHost. L'attestation doit emaner de attestation.tax.gov.ma (DGI)"
+            safety.verdict == QrCodeService.PayloadVerdict.UNSAFE ->
+                StatutCheck.AVERTISSEMENT to "Codes coherents ($printedCode) mais ${safety.reason}"
+            officialHost && !canonicalHost ->
+                StatutCheck.AVERTISSEMENT to "Codes coherents ($printedCode) sur $qrHost — domaine officiel mais different de attestation.tax.gov.ma"
             else -> StatutCheck.CONFORME to "Codes coherents ($printedCode)" +
                 (qrHost?.let { " sur $it" } ?: "")
         }
 
         return ResultatValidation(
             dossier = dossier, regle = "R19",
-            libelle = "QR code attestation fiscale coherent avec le code imprime",
+            libelle = "QR code attestation fiscale (origine DGI + coherence code)",
             statut = statut,
             detail = detail,
             valeurAttendue = printedCode, valeurTrouvee = qrCode,
@@ -1681,8 +1714,47 @@ class ValidationEngine(
         )
     }
 
+    // R23 : estEnRegle=true requis. null = AVERTISSEMENT (relecture humaine).
+    private fun checkAttestationRegularite(arf: AttestationFiscale, arfDoc: Document?, dossier: DossierPaiement): ResultatValidation {
+        val estEnRegle = arf.estEnRegle
+        val (statut, detail) = when (estEnRegle) {
+            true -> StatutCheck.CONFORME to "Attestation confirme la regularite fiscale"
+            false -> StatutCheck.NON_CONFORME to "L'attestation indique que la societe n'est PAS en situation reguliere"
+            null -> StatutCheck.AVERTISSEMENT to "Regularite non extraite — relecture manuelle requise"
+        }
+        return ResultatValidation(
+            dossier = dossier, regle = "R23",
+            libelle = "Regularite fiscale de la societe",
+            statut = statut,
+            detail = detail,
+            valeurAttendue = "estEnRegle=true",
+            valeurTrouvee = estEnRegle?.toString() ?: "null",
+            evidences = listOf(
+                evidence("source", "estEnRegle", "Regularite declaree par l'attestation", arfDoc, estEnRegle?.toString())
+            )
+        )
+    }
+
     private fun normalizeCode(code: String): String =
         code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
+
+    /**
+     * Liste des pieces obligatoires pour R20.
+     * `customRequired` (CSV de TypeDocument) prime ; null = defauts par type.
+     * Les types inconnus dans la config heritee sont ignores silencieusement.
+     */
+    fun resolveRequiredDocuments(type: DossierType, customRequired: String?): List<Pair<TypeDocument, String>> {
+        val selection = parseCustomTypes(customRequired) ?: DEFAULT_REQUIRED_BY_TYPE.getValue(type)
+        return selection.map { it to TYPE_LABELS.getValue(it) }
+    }
+
+    private fun parseCustomTypes(csv: String?): List<TypeDocument>? {
+        if (csv == null) return null
+        return csv.split(",").mapNotNull { raw ->
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) null else runCatching { TypeDocument.valueOf(trimmed) }.getOrNull()
+        }
+    }
 
     private data class BcLigne(
         val codeArticle: String?,
