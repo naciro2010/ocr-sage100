@@ -9,6 +9,7 @@ import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.fournisseur.FournisseurMatchingService
 import com.madaef.recondoc.service.storage.DocumentStorage
 import com.madaef.recondoc.service.storage.ExtractStorage
 import com.madaef.recondoc.service.validation.RuleConfigCache
@@ -61,6 +62,7 @@ class DossierService(
     private val documentStorage: DocumentStorage,
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
+    private val fournisseurMatchingService: FournisseurMatchingService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
     @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
@@ -1056,6 +1058,13 @@ class DossierService(
         facture.referenceContrat = data["referenceContrat"] as? String
         facture.periode = data["periode"] as? String
 
+        facture.fournisseur?.takeIf { it.isNotBlank() }?.let { raw ->
+            val match = fournisseurMatchingService.findOrCreateCanonical(
+                raw, TypeDocument.FACTURE, facture.ice, facture.identifiantFiscal, facture.rib
+            )
+            facture.fournisseurCanonique = match.canonique
+        }
+
         @Suppress("UNCHECKED_CAST")
         val rawLignes = data["lignes"] as? List<Map<String, Any?>>
         if (rawLignes != null) {
@@ -1090,6 +1099,10 @@ class DossierService(
         bc.tauxTva = toBigDecimal(data["tauxTVA"])
         bc.montantTtc = toBigDecimal(data["montantTTC"])
         bc.signataire = data["signataire"] as? String
+        bc.fournisseur?.takeIf { it.isNotBlank() }?.let { raw ->
+            val match = fournisseurMatchingService.findOrCreateCanonical(raw, TypeDocument.BON_COMMANDE)
+            bc.fournisseurCanonique = match.canonique
+        }
         bcRepo.save(bc)
     }
 
@@ -1115,6 +1128,10 @@ class DossierService(
                     entite = g["entite"] as? String
                 ))
             }
+        }
+        (ca.parties?.split(",")?.firstOrNull()?.trim())?.takeIf { it.isNotBlank() }?.let { raw ->
+            val match = fournisseurMatchingService.findOrCreateCanonical(raw, TypeDocument.CONTRAT_AVENANT)
+            ca.fournisseurCanonique = match.canonique
         }
         contratRepo.save(ca)
     }
@@ -1242,6 +1259,12 @@ class DossierService(
         arf.estEnRegle = data["estEnRegle"] as? Boolean
         arf.dateValidite = parseDate(data["dateValidite"] as? String)
         arf.codeVerification = (data["codeVerification"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+        arf.raisonSociale?.takeIf { it.isNotBlank() }?.let { raw ->
+            val match = fournisseurMatchingService.findOrCreateCanonical(
+                raw, TypeDocument.ATTESTATION_FISCALE, arf.ice, arf.identifiantFiscal, null
+            )
+            arf.fournisseurCanonique = match.canonique
+        }
         scanQrAndPopulate(doc, arf, data)
         arfRepo.save(arf)
     }

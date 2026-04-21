@@ -35,6 +35,10 @@ class Facture(
     @Column(name = "reference_contrat") var referenceContrat: String? = null,
     var periode: String? = null,
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fournisseur_canonique_id")
+    var fournisseurCanonique: FournisseurCanonique? = null,
+
     @OneToMany(mappedBy = "facture", cascade = [CascadeType.ALL], orphanRemoval = true)
     var lignes: MutableList<LigneFacture> = mutableListOf()
 )

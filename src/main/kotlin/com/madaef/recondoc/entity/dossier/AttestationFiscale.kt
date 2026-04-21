@@ -36,5 +36,9 @@ class AttestationFiscale(
     // Host parsed out of the QR URL — expected to be a tax.gov.ma subdomain.
     @Column(name = "qr_host") var qrHost: String? = null,
     @Column(name = "qr_scanned_at") var qrScannedAt: LocalDateTime? = null,
-    @Column(name = "qr_scan_error", columnDefinition = "TEXT") var qrScanError: String? = null
+    @Column(name = "qr_scan_error", columnDefinition = "TEXT") var qrScanError: String? = null,
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fournisseur_canonique_id")
+    var fournisseurCanonique: FournisseurCanonique? = null
 )

@@ -28,5 +28,9 @@ class BonCommande(
     @Column(name = "taux_tva", precision = 5, scale = 2) var tauxTva: BigDecimal? = null,
     @Column(name = "montant_ttc", precision = 15, scale = 2) var montantTtc: BigDecimal? = null,
 
-    var signataire: String? = null
+    var signataire: String? = null,
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fournisseur_canonique_id")
+    var fournisseurCanonique: FournisseurCanonique? = null
 )

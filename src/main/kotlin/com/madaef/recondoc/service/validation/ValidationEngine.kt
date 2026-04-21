@@ -24,6 +24,7 @@ class ValidationEngine(
     private val ruleConfigCache: RuleConfigCache,
     private val customRuleService: CustomRuleService,
     private val factureRepository: com.madaef.recondoc.repository.dossier.FactureRepository,
+    private val fournisseurMatchingService: com.madaef.recondoc.service.fournisseur.FournisseurMatchingService,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
     @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
     @Value("\${app.anti-doublon.date-tolerance-days:3}") private val antiDoublonDateToleranceDays: Long,
@@ -559,24 +560,43 @@ class ValidationEngine(
             val arfRaison = arf?.raisonSociale ?: docStr(arfDoc, "raisonSociale")
             if (arfRaison != null) r14Evidences += evidence("source", "raisonSociale", "Raison sociale attestation fiscale", arfDoc, arfRaison)
 
-            val fournisseurs = (listOfNotNull(
-                dossier.fournisseur,
-                bcFourn, opBenef, tcFourn, ckPrest, arfRaison
-            ) + allFactures.mapNotNull { it.fournisseur ?: docStr(it.document, "fournisseur") }).map { it.trim().lowercase() }.distinct()
-            if (fournisseurs.size > 1) {
+            val canonIds = mutableSetOf<String>()
+            allFactures.forEach { f -> f.fournisseurCanonique?.id?.toString()?.let { canonIds += "CANON:$it" } }
+            bc?.fournisseurCanonique?.id?.toString()?.let { canonIds += "CANON:$it" }
+            contrat?.fournisseurCanonique?.id?.toString()?.let { canonIds += "CANON:$it" }
+            arf?.fournisseurCanonique?.id?.toString()?.let { canonIds += "CANON:$it" }
+
+            val rawFallback = mutableListOf<String>()
+            if (bc?.fournisseurCanonique == null) bcFourn?.let { rawFallback += it }
+            if (arf?.fournisseurCanonique == null) arfRaison?.let { rawFallback += it }
+            opBenef?.let { rawFallback += it }
+            tcFourn?.let { rawFallback += it }
+            ckPrest?.let { rawFallback += it }
+            dossier.fournisseur?.let { rawFallback += it }
+            allFactures.forEach { f ->
+                if (f.fournisseurCanonique == null) {
+                    (f.fournisseur ?: docStr(f.document, "fournisseur"))?.let { rawFallback += it }
+                }
+            }
+            val normalizedFallback = rawFallback.map { fournisseurMatchingService.normalize(it) }
+                .filter { it.isNotBlank() }
+                .distinct()
+
+            val allKeys = canonIds + normalizedFallback.map { "NORM:$it" }
+            if (allKeys.size > 1) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
                     libelle = "Coherence fournisseur entre documents",
                     statut = StatutCheck.AVERTISSEMENT,
-                    detail = "Fournisseurs differents: ${fournisseurs.joinToString(", ")}",
+                    detail = "Fournisseurs distincts detectes apres normalisation: ${allKeys.size} entites differentes",
                     evidences = r14Evidences.ifEmpty { null }
                 )
-            } else if (fournisseurs.isNotEmpty()) {
+            } else if (allKeys.isNotEmpty()) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R14",
                     libelle = "Coherence fournisseur entre documents",
                     statut = StatutCheck.CONFORME,
-                    detail = "Fournisseur: ${fournisseurs.first()}",
+                    detail = "Fournisseur unique (via normalisation / canonical)",
                     evidences = r14Evidences.ifEmpty { null }
                 )
             }
@@ -660,21 +680,28 @@ class ValidationEngine(
 
                     val ttc = f.montantTtc
                     val date = f.dateFacture
+                    val canonId = f.fournisseurCanonique?.id
                     val fournisseur = f.fournisseur?.takeIf { it.isNotBlank() }
-                    if (ttc != null && date != null && fournisseur != null) {
+                    if (ttc != null && date != null) {
                         val delta = ttc.multiply(tolPct)
                         val mMin = ttc.subtract(delta)
                         val mMax = ttc.add(delta)
                         val dMin = date.minusDays(antiDoublonDateToleranceDays)
                         val dMax = date.plusDays(antiDoublonDateToleranceDays)
-                        val byCombo = factureRepository.findByMontantFournisseurDate(
-                            fournisseur, mMin, mMax, dMin, dMax, dossierId)
+
+                        val byCombo = if (canonId != null) {
+                            factureRepository.findByMontantCanoniqueDate(canonId, mMin, mMax, dMin, dMax, dossierId)
+                        } else if (fournisseur != null) {
+                            factureRepository.findByMontantFournisseurDate(fournisseur, mMin, mMax, dMin, dMax, dossierId)
+                        } else emptyList()
+
                         byCombo.filter { it.numeroFacture?.equals(numero, ignoreCase = true) != true }
                             .forEach { d ->
-                                doublons += "Meme fournisseur/montant/date (+/- ${antiDoublonDateToleranceDays}j) dans dossier ${d.dossier.reference}"
+                                val via = if (canonId != null) "meme fournisseur canonique" else "meme fournisseur"
+                                doublons += "${via}, montant/date (+/- ${antiDoublonDateToleranceDays}j) dans dossier ${d.dossier.reference}"
                                 r21Evidences += evidence("doublon", "combo",
                                     "Doublon fournisseur+montant+date - dossier ${d.dossier.reference}",
-                                    f.document, "${fournisseur} / ${ttc} / ${date}")
+                                    f.document, "${fournisseur ?: f.fournisseurCanonique?.nomCanonique} / ${ttc} / ${date}")
                             }
                     }
 
