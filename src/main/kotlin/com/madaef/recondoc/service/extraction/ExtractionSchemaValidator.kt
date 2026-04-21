@@ -1,0 +1,193 @@
+package com.madaef.recondoc.service.extraction
+
+import com.madaef.recondoc.entity.dossier.TypeDocument
+import org.slf4j.LoggerFactory
+import org.springframework.stereotype.Service
+import java.math.BigDecimal
+import java.time.LocalDate
+import java.time.format.DateTimeFormatter
+import java.time.format.DateTimeParseException
+
+data class FieldViolation(val field: String, val value: String?, val reason: String)
+
+data class SchemaValidationResult(
+    val valid: Boolean,
+    val violations: List<FieldViolation>,
+    val cleanedData: Map<String, Any?>
+) {
+    val severity: Int get() = violations.size
+}
+
+private enum class FieldKind { ICE, RIB, IF_NUM, RC, DATE, MONTANT_POSITIF, TAUX_TVA, NON_VIDE }
+
+private data class FieldRule(
+    val name: String,
+    val kind: FieldKind,
+    val critical: Boolean = true
+)
+
+@Service
+class ExtractionSchemaValidator {
+    private val log = LoggerFactory.getLogger(javaClass)
+
+    companion object {
+        private val ICE_RE = Regex("^\\d{15}$")
+        private val RIB_RE = Regex("^\\d{24}$")
+        private val IF_RE = Regex("^\\d{5,15}$")
+        private val RC_RE = Regex("^[A-Z0-9]{1,20}$")
+        private val ISO_DATE_FORMATTERS = listOf(
+            DateTimeFormatter.ISO_LOCAL_DATE,
+            DateTimeFormatter.ofPattern("dd/MM/yyyy"),
+            DateTimeFormatter.ofPattern("d/M/yyyy"),
+            DateTimeFormatter.ofPattern("dd-MM-yyyy"),
+            DateTimeFormatter.ofPattern("yyyy/MM/dd")
+        )
+        private val ALLOWED_TVA = listOf(
+            BigDecimal.ZERO, BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20")
+        )
+    }
+
+    private val rules: Map<TypeDocument, List<FieldRule>> = mapOf(
+        TypeDocument.FACTURE to listOf(
+            FieldRule("ice", FieldKind.ICE),
+            FieldRule("rib", FieldKind.RIB, critical = false),
+            FieldRule("identifiantFiscal", FieldKind.IF_NUM, critical = false),
+            FieldRule("dateFacture", FieldKind.DATE),
+            FieldRule("montantTTC", FieldKind.MONTANT_POSITIF),
+            FieldRule("montantHT", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("montantTVA", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("tauxTVA", FieldKind.TAUX_TVA, critical = false),
+            FieldRule("numeroFacture", FieldKind.NON_VIDE),
+            FieldRule("fournisseur", FieldKind.NON_VIDE)
+        ),
+        TypeDocument.BON_COMMANDE to listOf(
+            FieldRule("dateBC", FieldKind.DATE, critical = false),
+            FieldRule("montantTTC", FieldKind.MONTANT_POSITIF),
+            FieldRule("fournisseur", FieldKind.NON_VIDE)
+        ),
+        TypeDocument.ORDRE_PAIEMENT to listOf(
+            FieldRule("dateOP", FieldKind.DATE, critical = false),
+            FieldRule("dateEmission", FieldKind.DATE, critical = false),
+            FieldRule("montantOperation", FieldKind.MONTANT_POSITIF),
+            FieldRule("rib", FieldKind.RIB, critical = false)
+        ),
+        TypeDocument.CONTRAT_AVENANT to listOf(
+            FieldRule("dateContrat", FieldKind.DATE, critical = false),
+            FieldRule("montantTotal", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("fournisseur", FieldKind.NON_VIDE)
+        ),
+        TypeDocument.ATTESTATION_FISCALE to listOf(
+            FieldRule("ice", FieldKind.ICE, critical = false),
+            FieldRule("identifiantFiscal", FieldKind.IF_NUM, critical = false),
+            FieldRule("dateEmission", FieldKind.DATE, critical = false),
+            FieldRule("dateEdition", FieldKind.DATE, critical = false),
+            FieldRule("dateValidite", FieldKind.DATE, critical = false)
+        )
+    )
+
+    fun validate(type: TypeDocument, data: Map<String, Any?>): SchemaValidationResult {
+        val typeRules = rules[type] ?: return SchemaValidationResult(true, emptyList(), data)
+        val violations = mutableListOf<FieldViolation>()
+        val cleaned = data.toMutableMap()
+
+        for (rule in typeRules) {
+            val rawValue = data[rule.name] ?: data.entries
+                .firstOrNull { it.key.equals(rule.name, ignoreCase = true) }?.value
+            val check = validateField(rule, rawValue)
+            if (check != null) {
+                violations += check
+                if (shouldStrip(rule.kind)) {
+                    cleaned[rule.name] = null
+                    log.warn("Stripping invalid field {} on {} (value={}): {}",
+                        rule.name, type, rawValue, check.reason)
+                }
+            }
+        }
+
+        if (violations.isNotEmpty()) {
+            val existingWarnings = (data["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            val newWarnings = existingWarnings + violations.map { "Schema violation on ${it.field}: ${it.reason}" }
+            cleaned["_warnings"] = newWarnings
+        }
+
+        val criticalViolations = violations.any { v -> typeRules.firstOrNull { it.name == v.field }?.critical == true }
+        return SchemaValidationResult(
+            valid = !criticalViolations,
+            violations = violations,
+            cleanedData = cleaned
+        )
+    }
+
+    private fun shouldStrip(kind: FieldKind): Boolean = when (kind) {
+        FieldKind.NON_VIDE -> false
+        else -> true
+    }
+
+    private fun validateField(rule: FieldRule, value: Any?): FieldViolation? {
+        if (value == null) return null
+        val str = value.toString().trim()
+        if (str.isEmpty()) {
+            return if (rule.kind == FieldKind.NON_VIDE)
+                FieldViolation(rule.name, str, "champ obligatoire vide")
+            else null
+        }
+
+        return when (rule.kind) {
+            FieldKind.ICE -> {
+                val digits = str.replace("[^\\d]".toRegex(), "")
+                if (ICE_RE.matches(digits)) null
+                else FieldViolation(rule.name, str, "ICE attendu 15 chiffres, trouve ${digits.length}")
+            }
+            FieldKind.RIB -> {
+                val digits = str.replace("[^\\d]".toRegex(), "")
+                if (RIB_RE.matches(digits)) null
+                else FieldViolation(rule.name, str, "RIB attendu 24 chiffres, trouve ${digits.length}")
+            }
+            FieldKind.IF_NUM -> {
+                val digits = str.replace("[^\\d]".toRegex(), "")
+                if (IF_RE.matches(digits)) null
+                else FieldViolation(rule.name, str, "IF attendu 5-15 chiffres")
+            }
+            FieldKind.RC -> {
+                if (RC_RE.matches(str.uppercase())) null
+                else FieldViolation(rule.name, str, "RC format alphanumerique attendu")
+            }
+            FieldKind.DATE -> {
+                if (tryParseDate(str) != null) null
+                else FieldViolation(rule.name, str, "date non parseable (ISO ou dd/MM/yyyy)")
+            }
+            FieldKind.MONTANT_POSITIF -> {
+                val bd = tryParseAmount(str)
+                when {
+                    bd == null -> FieldViolation(rule.name, str, "montant non numerique")
+                    bd.signum() < 0 -> FieldViolation(rule.name, str, "montant negatif")
+                    else -> null
+                }
+            }
+            FieldKind.TAUX_TVA -> {
+                val bd = tryParseAmount(str)
+                when {
+                    bd == null -> FieldViolation(rule.name, str, "taux TVA non numerique")
+                    bd !in ALLOWED_TVA -> FieldViolation(rule.name, str, "taux TVA Maroc: 0, 7, 10, 14, 20 attendus")
+                    else -> null
+                }
+            }
+            FieldKind.NON_VIDE -> null
+        }
+    }
+
+    private fun tryParseDate(s: String): LocalDate? {
+        for (f in ISO_DATE_FORMATTERS) {
+            try { return LocalDate.parse(s, f) } catch (_: DateTimeParseException) {}
+        }
+        return null
+    }
+
+    private fun tryParseAmount(s: String): BigDecimal? {
+        val cleaned = s.replace("[^\\d.,\\-]".toRegex(), "")
+        if (cleaned.isEmpty()) return null
+        val lc = cleaned.lastIndexOf(','); val ld = cleaned.lastIndexOf('.')
+        return if (lc > ld) cleaned.replace(".", "").replace(",", ".").toBigDecimalOrNull()
+        else cleaned.replace(",", "").toBigDecimalOrNull()
+    }
+}

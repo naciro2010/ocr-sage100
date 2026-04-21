@@ -11,7 +11,7 @@ enum class TypeDocument {
     INCONNU
 }
 
-enum class StatutExtraction { EN_ATTENTE, EN_COURS, EXTRAIT, ERREUR }
+enum class StatutExtraction { EN_ATTENTE, EN_COURS, EXTRAIT, ERREUR, REVUE_HUMAINE_REQUISE }
 
 enum class TypeRetenue { TVA_SOURCE, IS_HONORAIRES, GARANTIE, AUTRE }
 

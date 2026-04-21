@@ -7,6 +7,7 @@ import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
+import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.storage.DocumentStorage
 import com.madaef.recondoc.service.storage.ExtractStorage
@@ -59,7 +60,10 @@ class DossierService(
     private val extractStorage: ExtractStorage,
     private val documentStorage: DocumentStorage,
     private val extractionQualityService: ExtractionQualityService,
-    @Value("\${storage.upload-dir:uploads}") private val uploadDir: String
+    private val extractionSchemaValidator: ExtractionSchemaValidator,
+    @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
+    @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
+    @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
@@ -690,13 +694,19 @@ class DossierService(
                     }
 
                     if (data != null) {
-                        val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
-                        val warnings = (data["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+                        val schemaResult = extractionSchemaValidator.validate(detectedType, data)
+                        if (schemaResult.violations.isNotEmpty()) {
+                            log.warn("Schema violations on {} ({}): {}", doc.nomFichier, detectedType,
+                                schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+                        }
+                        val finalData = schemaResult.cleanedData
+                        val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
+                        val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
                         doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
 
-                        doc.donneesExtraites = data
-                        saveExtractedEntity(doc.dossier, doc, detectedType, data)
+                        doc.donneesExtraites = finalData
+                        saveExtractedEntity(doc.dossier, doc, detectedType, finalData)
                     } else {
                         log.warn("Failed to parse LLM response for document {}", doc.nomFichier)
                     }
@@ -705,8 +715,23 @@ class DossierService(
 
             doc.statutExtraction = StatutExtraction.EXTRAIT
             doc.erreurExtraction = null
-            extractionQualityService.applyTo(doc)
-            emitProgress(doc, "extract", "done", "Termine")
+            val qualityReport = extractionQualityService.applyTo(doc)
+
+            if (qualityReport.score < minQualityScore && llmService.isAvailable) {
+                val retryReport = retryExtractionWithReinforcedPrompt(doc, detectedType, rawText, ocrResult, qualityReport)
+                if (retryReport != null && retryReport.score < humanReviewThreshold) {
+                    doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
+                    doc.erreurExtraction = "Score qualite ${retryReport.score} < ${humanReviewThreshold} apres retry. " +
+                        "Champs manquants: ${retryReport.missingMandatory.joinToString(", ")}"
+                    log.warn("Document {} flagged for human review: score={}, missing={}",
+                        doc.nomFichier, retryReport.score, retryReport.missingMandatory)
+                }
+            } else if (qualityReport.score < humanReviewThreshold) {
+                doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
+                doc.erreurExtraction = "Score qualite ${qualityReport.score} < ${humanReviewThreshold}, " +
+                    "revue humaine requise. Champs manquants: ${qualityReport.missingMandatory.joinToString(", ")}"
+            }
+            emitProgress(doc, "extract", "done", "Termine (score ${doc.extractionQualityScore})")
 
             if (detectedType == TypeDocument.FACTURE) {
                 updateDossierFromFacture(doc.dossier)
@@ -912,6 +937,52 @@ class DossierService(
         val rerun = validationEngine.rerunRule(dossier, regle)
         audit(dossierId, "CORRECT_RERUN", "Regle $regle corrigee et relancee (${rerun.size} resultats)")
         return rerun
+    }
+
+    private fun retryExtractionWithReinforcedPrompt(
+        doc: Document,
+        type: TypeDocument,
+        rawText: String,
+        ocrResult: OcrService.OcrResult,
+        initialReport: com.madaef.recondoc.service.extraction.QualityReport
+    ): com.madaef.recondoc.service.extraction.QualityReport? {
+        val basePrompt = getPromptForType(type) ?: return null
+        val missingFields = initialReport.missingMandatory
+        if (missingFields.isEmpty()) return null
+
+        val reinforcedPrompt = basePrompt + "\n\nATTENTION: L'extraction initiale a obtenu un score qualite de ${initialReport.score}/100. " +
+            "Les champs OBLIGATOIRES suivants n'ont pas ete trouves ou sont invalides: ${missingFields.joinToString(", ")}. " +
+            "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, laisse-le a null " +
+            "et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur."
+
+        val ocrContext = buildString {
+            append("[OCR: moteur=${ocrResult.engine}")
+            if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
+            if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
+            append(", ${rawText.length} caracteres]\n\n")
+            append("<document_content>\n")
+            append(rawText)
+            append("\n</document_content>")
+        }
+
+        return try {
+            emitProgress(doc, "extract", "active", "Re-extraction (score ${initialReport.score} < ${minQualityScore})...")
+            val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+            val retryData = parseLlmResponse(retryJson) ?: return null
+            val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
+
+            doc.donneesExtraites = validated
+            doc.extractionConfidence = (validated["_confidence"] as? Number)?.toDouble() ?: -1.0
+            val warnings = (validated["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
+            saveExtractedEntity(doc.dossier, doc, type, validated)
+            val retryReport = extractionQualityService.applyTo(doc)
+            log.info("Retry extraction for {}: score {} -> {}", doc.nomFichier, initialReport.score, retryReport.score)
+            retryReport
+        } catch (e: Exception) {
+            log.warn("Reinforced retry failed for {}: {}", doc.nomFichier, e.message)
+            null
+        }
     }
 
     private fun parseLlmResponse(jsonText: String): Map<String, Any?>? {
