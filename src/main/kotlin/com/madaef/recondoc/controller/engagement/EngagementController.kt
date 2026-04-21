@@ -8,7 +8,6 @@ import org.springframework.data.domain.Pageable
 import org.springframework.data.domain.Sort
 import org.springframework.data.web.PageableDefault
 import org.springframework.http.HttpStatus
-import org.springframework.http.ResponseEntity
 import org.springframework.web.bind.annotation.*
 import java.util.UUID
 
@@ -67,16 +66,4 @@ class EngagementController(
     fun detachDossier(@PathVariable dossierId: UUID) {
         engagementService.detachDossier(dossierId)
     }
-
-    @ExceptionHandler(IllegalArgumentException::class)
-    fun handleBadRequest(e: IllegalArgumentException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.badRequest().body(mapOf("error" to (e.message ?: "Requete invalide")))
-
-    @ExceptionHandler(IllegalStateException::class)
-    fun handleConflict(e: IllegalStateException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.CONFLICT).body(mapOf("error" to (e.message ?: "Conflit")))
-
-    @ExceptionHandler(NoSuchElementException::class)
-    fun handleNotFound(e: NoSuchElementException): ResponseEntity<Map<String, String>> =
-        ResponseEntity.status(HttpStatus.NOT_FOUND).body(mapOf("error" to (e.message ?: "Non trouve")))
 }
