@@ -132,3 +132,44 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
   6. Merger uniquement quand tous les checks sont verts : `gh pr merge --squash --delete-branch`
 - Si on est deja sur une feature branch, rester dessus (ne pas en recreer une).
 - Les commits directs sur main sont reserves aux cas d'urgence explicitement autorises par le mainteneur.
+
+## Sub-agents spécialisés (persistés dans `.claude/agents/`)
+
+Quatre sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améliorent en continu pour : **meilleur résultat, moindre coût, meilleure performance**. À invoquer avec l'outil `Agent` en passant `subagent_type: "<name>"`.
+
+| Sub-agent | Mission | Quand l'invoquer |
+|-----------|---------|------------------|
+| `extraction-optimizer` | Optimiser chaîne OCR (Tika/Mistral/Tesseract) + Claude (classification + extraction). Coût / latence / précision. | "Réduire coût Claude", "OCR lent", "prompt caching", "split modèles classif/extract", "cache Mistral" |
+| `extraction-auditor` | Vérifier que l'extraction est complète (champs obligatoires, confidence validée, cohérence arithmétique). Score qualité composite + re-extraction ciblée. | "Champs manquants", "score qualité", "détecter extractions dégradées", "re-extraction auto" |
+| `controls-optimizer` | Optimiser le moteur de règles (R01-R20 + CUSTOM batch). Mémoïsation, pré-calcul features, profiling par règle, prompt caching batch. | "Règles lentes", "CUSTOM-XX cher", "instrumenter par règle", "memoïsation montants" |
+| `controls-auditor` | Auditer la justesse des contrôles (faux positifs/négatifs, couverture métier, drift). Proposer règles manquantes, jeu de dossiers golden. | "Auditer justesse contrôles", "trop de faux positifs", "règle manquante", "couverture métier" |
+
+### Règles d'intervention des sub-agents
+- **Frontières strictes**: chaque agent a un périmètre de fichiers explicité dans son fichier `.md`. Il ne sort pas de son scope.
+- **Un changement ROI par PR**: pas de refonte, pas d'optimisation cumulée. Une PR = un gain mesurable.
+- **Respect du git workflow**: feature branch + PR + CI verte. Jamais de commit direct sur `main`.
+- **Pas de régression**: les tests existants doivent continuer à passer. Ajout de tests obligatoire pour tout nouveau comportement.
+- **Mesure avant/après**: tout changement de perf/coût doit être mesuré et documenté dans la description de PR.
+- **Pas de commentaires AI**, texte humain, logs en français, conventions Kotlin/TS idiomatiques.
+
+### Plan d'amélioration continue (vision)
+
+**Sprint 1 — impact rapide (cible: -20% coût Claude)**
+- `extraction-optimizer`: split modèles (Haiku classif + Sonnet extract), `max_tokens` dynamique, header `anthropic-version` à jour, retry avec jitter.
+- `controls-optimizer`: pré-calcul `DossierFeatures` partagé, instrumentation `duration_ms` par règle.
+
+**Sprint 2 — qualité données**
+- `extraction-auditor`: `ExtractionQualityService` + `MandatoryFields` contract + score composite + re-extraction auto si <60.
+- `controls-auditor`: audit top 5 règles les plus NOK, jeu golden dossiers (10-15 cas).
+
+**Sprint 3 — scale & observabilité**
+- `extraction-optimizer`: cache OCR cross-dossier (SHA-256), prompt caching Anthropic, métriques Prometheus par engine.
+- `controls-optimizer`: prompt caching batch CUSTOM, chunking si >25 règles, graphe de dépendances runtime.
+- `controls-auditor`: règles proposées R21-R25 (anti-doublon, paiement post-réception, TVA/catégorie, complétude lignes, séparation pouvoirs).
+
+### KPIs globaux à surveiller
+- **Coût moyen par dossier validé** (€, tendance hebdo)
+- **Latence p95** upload → extraction terminée
+- **Taux d'extraction complète au 1er passage** (cible >85%)
+- **Taux de faux positifs par règle** (cible <20%)
+- **Disponibilité API Claude/Mistral** (taux d'erreur < 2%)
