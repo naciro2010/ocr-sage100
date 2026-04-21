@@ -18,7 +18,7 @@ import java.time.temporal.ChronoUnit
  * Le paiement suit l'echeancier defini par la periodicite contractuelle.
  */
 @Service
-class ContratValidator : EngagementValidator<EngagementContrat> {
+class ContratValidator : BaseEngagementValidator<EngagementContrat>() {
 
     override fun supports(): Class<EngagementContrat> = EngagementContrat::class.java
 
@@ -28,17 +28,13 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
         engagement: EngagementContrat,
         dossier: DossierPaiement,
         context: EngagementValidationContext
-    ): List<ResultatValidation> {
-        val results = mutableListOf<ResultatValidation>()
-
-        results += ruleC01(engagement, dossier, context)
-        results += ruleC02(engagement, dossier)
-        results += ruleC03(engagement, dossier, context)
-        results += ruleC04(engagement, dossier, context)
-        results += ruleC05(engagement, dossier, context)
-
-        return results
-    }
+    ): List<ResultatValidation> = listOf(
+        ruleC01(engagement, dossier, context),
+        ruleC02(engagement, dossier),
+        ruleC03(engagement, dossier, context),
+        ruleC04(engagement, dossier, context),
+        ruleC05(engagement, dossier, context)
+    )
 
     /** R-C01 : intervalle entre dossiers conforme a la periodicite. */
     private fun ruleC01(
@@ -64,7 +60,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
                 libelle = "Periodicite respectee ($periodicite)",
                 statut = StatutCheck.CONFORME,
                 detail = "Premier dossier du contrat, pas d'echeance precedente",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -86,7 +82,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
             detail = "Ecart: ${joursEcart}j / Attendu: ${joursAttendus}j ± ${tolerance}j (prec: $datePrec)",
             valeurAttendue = "${joursAttendus}j ± ${tolerance}j",
             valeurTrouvee = "${joursEcart}j",
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -115,7 +111,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
             detail = detail,
             valeurAttendue = "≤ $dateFin",
             valeurTrouvee = dateFacture.toString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -148,7 +144,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
             detail = "Dossiers rattaches: $nbDossiers / Echeances prevues: $nbEcheancesMax (periodicite: $periodicite)",
             valeurAttendue = "≤ $nbEcheancesMax",
             valeurTrouvee = nbDossiers.toString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -177,7 +173,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
                 libelle = "Revision tarifaire respectee (indice $indice)",
                 statut = StatutCheck.NON_APPLICABLE,
                 detail = "Premier paiement, pas de reference pour calculer la revision",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -199,7 +195,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
             detail = "Variation depuis dernier paiement: $ecartPct% ($montantPrecedent -> $montantActuel)",
             valeurAttendue = "≤ 10% (indice $indice)",
             valeurTrouvee = "$ecartPct%",
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -242,7 +238,7 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
             detail = "Montant facture: $montantFacture / Montant unitaire attendu: $montantUnitaire (± 5%)",
             valeurAttendue = "$montantUnitaire ± 5%",
             valeurTrouvee = montantFacture.toPlainString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -258,9 +254,4 @@ class ContratValidator : EngagementValidator<EngagementContrat> {
         return (jours / joursAttendus(p)).toInt() + 1
     }
 
-    private fun na(code: String, libelle: String, dossier: DossierPaiement, raison: String) =
-        ResultatValidation(
-            dossier = dossier, regle = code, libelle = libelle,
-            statut = StatutCheck.NON_APPLICABLE, detail = raison, source = "ENGAGEMENT"
-        )
 }

@@ -21,7 +21,7 @@ import java.math.RoundingMode
 @Service
 class CommonEngagementValidator(
     private val fournisseurMatching: FournisseurMatchingService
-) : EngagementValidator<Engagement> {
+) : BaseEngagementValidator<Engagement>() {
 
     override fun supports(): Class<Engagement> = Engagement::class.java
 
@@ -31,17 +31,13 @@ class CommonEngagementValidator(
         engagement: Engagement,
         dossier: DossierPaiement,
         context: EngagementValidationContext
-    ): List<ResultatValidation> {
-        val results = mutableListOf<ResultatValidation>()
-
-        results += ruleE01(engagement, dossier, context)
-        results += ruleE02(engagement, dossier)
-        results += ruleE03(engagement, dossier)
-        results += ruleE04(engagement, dossier)
-        results += ruleE05(engagement, dossier)
-
-        return results
-    }
+    ): List<ResultatValidation> = listOf(
+        ruleE01(engagement, dossier, context),
+        ruleE02(engagement, dossier),
+        ruleE03(engagement, dossier),
+        ruleE04(engagement, dossier),
+        ruleE05(engagement, dossier)
+    )
 
     /** R-E01 : Σ(dossiers.montantTtc) ≤ engagement.montantTtc (tolerance 2%). */
     private fun ruleE01(
@@ -50,34 +46,23 @@ class CommonEngagementValidator(
         context: EngagementValidationContext
     ): ResultatValidation {
         val plafond = engagement.montantTtc
-        val consomme = context.montantConsomme
+            ?: return na("R-E01", "Plafond engagement respecte", dossier,
+                "Pas de montant TTC renseigne sur l'engagement")
 
-        return if (plafond == null) {
-            ResultatValidation(
-                dossier = dossier, regle = "R-E01",
-                libelle = "Plafond engagement respecte",
-                statut = StatutCheck.NON_APPLICABLE,
-                detail = "Pas de montant TTC renseigne sur l'engagement",
-                source = "ENGAGEMENT"
-            )
-        } else {
-            val tolerance = plafond.multiply(BigDecimal("0.02"))
-            val depassement = consomme.subtract(plafond)
-            val statut = when {
-                depassement <= BigDecimal.ZERO -> StatutCheck.CONFORME
-                depassement <= tolerance -> StatutCheck.AVERTISSEMENT
-                else -> StatutCheck.NON_CONFORME
-            }
-            ResultatValidation(
-                dossier = dossier, regle = "R-E01",
-                libelle = "Somme dossiers ≤ plafond engagement",
-                statut = statut,
-                detail = "Consomme: ${consomme.setScale(2, RoundingMode.HALF_UP)} / Plafond: ${plafond.setScale(2, RoundingMode.HALF_UP)} (depassement: ${depassement.setScale(2, RoundingMode.HALF_UP)})",
-                valeurAttendue = plafond.toPlainString(),
-                valeurTrouvee = consomme.toPlainString(),
-                source = "ENGAGEMENT"
-            )
+        val consomme = context.montantConsomme
+        val tolerance = plafond.multiply(BigDecimal("0.02"))
+        val depassement = consomme.subtract(plafond)
+        val statut = when {
+            depassement <= BigDecimal.ZERO -> StatutCheck.CONFORME
+            depassement <= tolerance -> StatutCheck.AVERTISSEMENT
+            else -> StatutCheck.NON_CONFORME
         }
+        return result(
+            "R-E01", "Somme dossiers ≤ plafond engagement", dossier, statut,
+            detail = "Consomme: ${consomme.setScale(2, RoundingMode.HALF_UP)} / Plafond: ${plafond.setScale(2, RoundingMode.HALF_UP)} (depassement: ${depassement.setScale(2, RoundingMode.HALF_UP)})",
+            attendu = plafond.toPlainString(),
+            trouve = consomme.toPlainString()
+        )
     }
 
     /** R-E02 : coherence fournisseur engagement ↔ dossier. */
@@ -86,87 +71,70 @@ class CommonEngagementValidator(
         val dosFournisseur = dossier.fournisseur?.trim()?.takeIf { it.isNotEmpty() }
 
         if (engFournisseur == null || dosFournisseur == null) {
-            return ResultatValidation(
-                dossier = dossier, regle = "R-E02",
-                libelle = "Coherence fournisseur engagement ↔ dossier",
-                statut = StatutCheck.NON_APPLICABLE,
-                detail = "Fournisseur manquant sur ${if (engFournisseur == null) "engagement" else "dossier"}",
-                source = "ENGAGEMENT"
-            )
+            return na("R-E02", "Coherence fournisseur engagement ↔ dossier", dossier,
+                "Fournisseur manquant sur ${if (engFournisseur == null) "engagement" else "dossier"}")
         }
 
-        // Utilise le service de matching canonique existant pour tolerer variantes orthographiques
         val canoniqueEngagement = engagement.fournisseurCanonique?.id
         val canoniqueDossier = dossier.factures.firstOrNull()?.fournisseurCanonique?.id
-
         val match = when {
             canoniqueEngagement != null && canoniqueDossier != null -> canoniqueEngagement == canoniqueDossier
             else -> fournisseurMatching.normalize(engFournisseur) == fournisseurMatching.normalize(dosFournisseur)
         }
 
-        return ResultatValidation(
-            dossier = dossier, regle = "R-E02",
-            libelle = "Coherence fournisseur engagement ↔ dossier",
-            statut = if (match) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+        return result(
+            "R-E02", "Coherence fournisseur engagement ↔ dossier", dossier,
+            if (match) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
             detail = "Engagement: $engFournisseur / Dossier: $dosFournisseur",
-            valeurAttendue = engFournisseur,
-            valeurTrouvee = dosFournisseur,
-            source = "ENGAGEMENT"
+            attendu = engFournisseur, trouve = dosFournisseur
         )
     }
 
     /** R-E03 : engagement.statut = ACTIF au moment du paiement. */
-    private fun ruleE03(engagement: Engagement, dossier: DossierPaiement): ResultatValidation {
-        return ResultatValidation(
-            dossier = dossier, regle = "R-E03",
-            libelle = "Engagement actif au moment du paiement",
-            statut = when (engagement.statut) {
-                StatutEngagement.ACTIF -> StatutCheck.CONFORME
-                StatutEngagement.SUSPENDU -> StatutCheck.AVERTISSEMENT
-                StatutEngagement.CLOTURE -> StatutCheck.NON_CONFORME
-            },
-            detail = "Statut engagement: ${engagement.statut.name}",
-            source = "ENGAGEMENT"
-        )
-    }
+    private fun ruleE03(engagement: Engagement, dossier: DossierPaiement): ResultatValidation = result(
+        "R-E03", "Engagement actif au moment du paiement", dossier,
+        when (engagement.statut) {
+            StatutEngagement.ACTIF -> StatutCheck.CONFORME
+            StatutEngagement.SUSPENDU -> StatutCheck.AVERTISSEMENT
+            StatutEngagement.CLOTURE -> StatutCheck.NON_CONFORME
+        },
+        detail = "Statut engagement: ${engagement.statut.name}"
+    )
 
     /** R-E04 : reference engagement citee dans l'OP ou la facture du dossier. */
     private fun ruleE04(engagement: Engagement, dossier: DossierPaiement): ResultatValidation {
         val ref = engagement.reference.trim()
-        val opRefs = listOfNotNull(
-            dossier.ordrePaiement?.referenceBcOuContrat,
-            dossier.ordrePaiement?.referenceFacture,
-            dossier.ordrePaiement?.referenceSage
-        ).filter { it.isNotBlank() }
-        val factureRefs = dossier.factures.mapNotNull { it.referenceContrat?.takeIf { r -> r.isNotBlank() } }
-        val documentsMentions = (opRefs + factureRefs).map { it.trim() }
+        val mentions = collectReferences(dossier)
+        val cited = mentions.any { normalizeRef(it).contains(normalizeRef(ref)) }
 
-        val cited = documentsMentions.any { normalizeRef(it).contains(normalizeRef(ref)) }
-
-        return ResultatValidation(
-            dossier = dossier, regle = "R-E04",
-            libelle = "Reference engagement citee dans le dossier",
-            statut = if (cited) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+        return result(
+            "R-E04", "Reference engagement citee dans le dossier", dossier,
+            if (cited) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
             detail = if (cited) "Reference '$ref' trouvee dans le dossier"
-                else "Reference '$ref' non trouvee (citations: ${documentsMentions.joinToString(", ").ifEmpty { "aucune" }})",
-            valeurAttendue = ref,
-            valeurTrouvee = documentsMentions.firstOrNull(),
-            source = "ENGAGEMENT"
+                else "Reference '$ref' non trouvee (citations: ${mentions.joinToString(", ").ifEmpty { "aucune" }})",
+            attendu = ref, trouve = mentions.firstOrNull()
         )
     }
 
     /** R-E05 : aucun nouveau dossier ne peut etre attache a un engagement CLOTURE. */
     private fun ruleE05(engagement: Engagement, dossier: DossierPaiement): ResultatValidation {
-        return ResultatValidation(
-            dossier = dossier, regle = "R-E05",
-            libelle = "Rattachement autorise (engagement non cloture)",
-            statut = if (engagement.statut == StatutEngagement.CLOTURE) StatutCheck.NON_CONFORME else StatutCheck.CONFORME,
-            detail = if (engagement.statut == StatutEngagement.CLOTURE)
-                "Engagement CLOTURE : aucun dossier ne doit y etre rattache"
-            else "Engagement ${engagement.statut.name} : rattachement autorise",
-            source = "ENGAGEMENT"
+        val cloture = engagement.statut == StatutEngagement.CLOTURE
+        return result(
+            "R-E05", "Rattachement autorise (engagement non cloture)", dossier,
+            if (cloture) StatutCheck.NON_CONFORME else StatutCheck.CONFORME,
+            detail = if (cloture) "Engagement CLOTURE : aucun dossier ne doit y etre rattache"
+                else "Engagement ${engagement.statut.name} : rattachement autorise"
         )
     }
+
+    private fun collectReferences(dossier: DossierPaiement): List<String> = buildList {
+        dossier.ordrePaiement?.let {
+            add(it.referenceBcOuContrat)
+            add(it.referenceFacture)
+            add(it.referenceSage)
+        }
+        dossier.factures.forEach { add(it.referenceContrat) }
+    }.filterNotNull().map { it.trim() }.filter { it.isNotBlank() }
 
     private fun normalizeRef(s: String): String =
         s.lowercase().replace(Regex("[\\s\\-_/.']+"), "")

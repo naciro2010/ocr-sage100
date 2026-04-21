@@ -22,7 +22,7 @@ import java.time.LocalDate
 @Service
 class BonCommandeValidator(
     private val bcRepo: EngagementBonCommandeRepository
-) : EngagementValidator<EngagementBonCommande> {
+) : BaseEngagementValidator<EngagementBonCommande>() {
 
     override fun supports(): Class<EngagementBonCommande> = EngagementBonCommande::class.java
 
@@ -32,16 +32,12 @@ class BonCommandeValidator(
         engagement: EngagementBonCommande,
         dossier: DossierPaiement,
         context: EngagementValidationContext
-    ): List<ResultatValidation> {
-        val results = mutableListOf<ResultatValidation>()
-
-        results += ruleB01(engagement, dossier)
-        results += ruleB02(engagement, dossier)
-        results += ruleB03(engagement, dossier, context)
-        results += ruleB04(engagement, dossier)
-
-        return results
-    }
+    ): List<ResultatValidation> = listOf(
+        ruleB01(engagement, dossier),
+        ruleB02(engagement, dossier),
+        ruleB03(engagement, dossier, context),
+        ruleB04(engagement, dossier)
+    )
 
     /** R-B01 : date facture <= dateValiditeFin du BC. */
     private fun ruleB01(engagement: EngagementBonCommande, dossier: DossierPaiement): ResultatValidation {
@@ -61,7 +57,7 @@ class BonCommandeValidator(
                 else "Facture du $dateFacture apres expiration $dateFin",
             valeurAttendue = "≤ $dateFin",
             valeurTrouvee = dateFacture.toString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -93,7 +89,7 @@ class BonCommandeValidator(
             detail = "Cumul 12 mois fournisseur '$fournisseur' = ${nouveauCumul.setScale(2, RoundingMode.HALF_UP)} MAD (seuil: $seuil MAD)",
             valeurAttendue = "≤ $seuil",
             valeurTrouvee = nouveauCumul.toPlainString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -117,7 +113,7 @@ class BonCommandeValidator(
             libelle = "Un dossier = une livraison",
             statut = statut,
             detail = "Ce dossier contient $nbFactures facture(s), total BC: $totalFactures facture(s) sur ${context.dossiersRattaches.size} dossier(s)",
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -130,7 +126,7 @@ class BonCommandeValidator(
                 libelle = "Pas de retenue de garantie sur BC",
                 statut = StatutCheck.CONFORME,
                 detail = "Aucune retenue de garantie detectee (conforme au regime BC)",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         } else {
             ResultatValidation(
@@ -140,14 +136,9 @@ class BonCommandeValidator(
                 detail = "Retenue de garantie detectee (${retenueGarantie.montant} MAD) : reservee aux marches publics",
                 valeurAttendue = "0 (regime BC)",
                 valeurTrouvee = retenueGarantie.montant?.toPlainString(),
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
     }
 
-    private fun na(code: String, libelle: String, dossier: DossierPaiement, raison: String) =
-        ResultatValidation(
-            dossier = dossier, regle = code, libelle = libelle,
-            statut = StatutCheck.NON_APPLICABLE, detail = raison, source = "ENGAGEMENT"
-        )
 }

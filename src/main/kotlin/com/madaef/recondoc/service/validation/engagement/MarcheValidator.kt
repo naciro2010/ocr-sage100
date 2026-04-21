@@ -20,7 +20,7 @@ import java.time.temporal.ChronoUnit
  * - CPS (cahier des prescriptions speciales) : revision de prix
  */
 @Service
-class MarcheValidator : EngagementValidator<EngagementMarche> {
+class MarcheValidator : BaseEngagementValidator<EngagementMarche>() {
 
     override fun supports(): Class<EngagementMarche> = EngagementMarche::class.java
 
@@ -32,19 +32,15 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
         engagement: EngagementMarche,
         dossier: DossierPaiement,
         context: EngagementValidationContext
-    ): List<ResultatValidation> {
-        val results = mutableListOf<ResultatValidation>()
-
-        results += ruleM01(engagement, dossier)
-        results += ruleM02(engagement, dossier)
-        results += ruleM03(engagement, dossier)
-        results += ruleM04(engagement, dossier, context)
-        results += ruleM05(engagement, dossier)
-        results += ruleM06(engagement, dossier, context)
-        results += ruleM07(engagement, dossier)
-
-        return results
-    }
+    ): List<ResultatValidation> = listOf(
+        ruleM01(engagement, dossier),
+        ruleM02(engagement, dossier),
+        ruleM03(engagement, dossier),
+        ruleM04(engagement, dossier, context),
+        ruleM05(engagement, dossier),
+        ruleM06(engagement, dossier, context),
+        ruleM07(engagement, dossier)
+    )
 
     /** R-M01 : date decompte/facture ∈ [dateNotification ; dateNotification + delaiExecutionMois]. */
     private fun ruleM01(engagement: EngagementMarche, dossier: DossierPaiement): ResultatValidation {
@@ -71,7 +67,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
             detail = "Fenetre [$dateNotif ; $dateFin], date facture $dateFacture",
             valeurAttendue = "[$dateNotif ; $dateFin]",
             valeurTrouvee = dateFacture.toString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -92,7 +88,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 detail = "Aucune retenue de garantie detectee dans l'OP (taux marche: $tauxAttendu%)",
                 valeurAttendue = "$tauxAttendu%",
                 valeurTrouvee = "absente",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -107,7 +103,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
             detail = "Attendu: $tauxAttendu% / Trouve: $tauxReel%",
             valeurAttendue = tauxAttendu.toPlainString(),
             valeurTrouvee = tauxReel.toPlainString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -135,7 +131,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 libelle = "Penalites de retard calculees",
                 statut = StatutCheck.CONFORME,
                 detail = "Aucun retard detecte (reception $effectiveDate ≤ $dateFinPrevue)",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -163,7 +159,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
             detail = "Attendue: ${penaliteAttendue.toPlainString()} MAD / Appliquee: ${montantApplique.toPlainString()} MAD ($joursRetard j retard)",
             valeurAttendue = penaliteAttendue.toPlainString(),
             valeurTrouvee = montantApplique.toPlainString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -188,7 +184,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 else "Numero AO '$numeroAo' non trouve (${context.dossiersRattaches.size} dossier(s) rattache(s))",
             valeurAttendue = numeroAo,
             valeurTrouvee = citationsDossier.firstOrNull(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -207,7 +203,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 libelle = "Revision de prix autorisee par le marche",
                 statut = StatutCheck.CONFORME,
                 detail = "Revision de prix autorisee par le CPS",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -222,7 +218,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 else "Pas de depassement du montant marche",
             valeurAttendue = montantMarche.toPlainString(),
             valeurTrouvee = montantFacture.toPlainString(),
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -255,7 +251,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
             libelle = "Chronologie des decomptes",
             statut = statut,
             detail = "Decompte date $dateFacture, ${decomptesPrecedents.size} anterieur(s), ${decomptesPosterieurs.size} posterieur(s) incoherent(s)",
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -271,7 +267,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
                 libelle = "Caution definitive non requise",
                 statut = StatutCheck.CONFORME,
                 detail = "Taux caution = 0%, non requise",
-                source = "ENGAGEMENT"
+                source = SOURCE
             )
         }
 
@@ -285,7 +281,7 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
             statut = if (mentionCaution) StatutCheck.CONFORME else StatutCheck.AVERTISSEMENT,
             detail = if (mentionCaution) "Caution mentionnee dans le dossier"
                 else "Aucune mention de caution dans les documents (taux: $pctCaution%)",
-            source = "ENGAGEMENT"
+            source = SOURCE
         )
     }
 
@@ -295,10 +291,4 @@ class MarcheValidator : EngagementValidator<EngagementMarche> {
         dossier.ordrePaiement?.referenceSage,
         dossier.factures.firstOrNull()?.referenceContrat
     ).filter { it.isNotBlank() }
-
-    private fun na(code: String, libelle: String, dossier: DossierPaiement, raison: String) =
-        ResultatValidation(
-            dossier = dossier, regle = code, libelle = libelle,
-            statut = StatutCheck.NON_APPLICABLE, detail = raison, source = "ENGAGEMENT"
-        )
 }
