@@ -28,9 +28,9 @@ import { listDossiers } from '../api/dossierApi'
 import type { DossierListItem } from '../api/dossierTypes'
 
 const AI_MODELS = [
-  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', desc: 'Le plus precis, recommande pour dossiers' },
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, bon compromis' },
-  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Leger, economique' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Modele unifie pour extraction + controles' },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', desc: 'Precision max (plus couteux, plus lent)' },
+  { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Economique pour classification simple' },
 ]
 
 const MISTRAL_OCR_MODELS = [
@@ -92,7 +92,7 @@ export default function Settings() {
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
-  const [aiModel, setAiModel] = useState('claude-opus-4-7')
+  const [aiModel, setAiModel] = useState('claude-sonnet-4-6')
   const [aiBaseUrl, setAiBaseUrl] = useState('https://api.anthropic.com')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
