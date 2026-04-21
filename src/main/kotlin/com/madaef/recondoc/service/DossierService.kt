@@ -160,6 +160,51 @@ class DossierService(
     }
 
     @Transactional(readOnly = true)
+    fun getRequiredDocuments(dossierId: UUID): RequiredDocumentsResponse {
+        val dossier = getDossier(dossierId)
+        val defaults = validationEngine.resolveRequiredDocuments(
+            // Force l'utilisation des defaults (on prete une copie sans surcharge).
+            dossier.copyWithoutCustomRequired()
+        )
+        val selected = parseRequiredDocuments(dossier.requiredDocuments)
+            ?: defaults.map { it.first }
+        return RequiredDocumentsResponse(
+            defaults = defaults.map { RequiredDocumentEntry(it.first, it.second) },
+            selected = selected,
+            isCustom = dossier.requiredDocuments != null
+        )
+    }
+
+    @Transactional
+    fun updateRequiredDocuments(dossierId: UUID, types: List<TypeDocument>?): RequiredDocumentsResponse {
+        val dossier = getDossier(dossierId)
+        val old = dossier.requiredDocuments
+        dossier.requiredDocuments = types?.takeIf { it.isNotEmpty() }?.joinToString(",") { it.name }
+        audit(dossierId, "UPDATE_REQUIRED_DOCUMENTS",
+            if (dossier.requiredDocuments == null) "Retour aux pieces par defaut"
+            else "Pieces personnalisees: ${dossier.requiredDocuments}")
+        log.info("Dossier {} required documents: {} -> {}", dossier.reference, old, dossier.requiredDocuments)
+        return getRequiredDocuments(dossierId)
+    }
+
+    private fun parseRequiredDocuments(csv: String?): List<TypeDocument>? {
+        if (csv == null) return null
+        return csv.split(",").mapNotNull { raw ->
+            val trimmed = raw.trim()
+            if (trimmed.isEmpty()) null else runCatching { TypeDocument.valueOf(trimmed) }.getOrNull()
+        }
+    }
+
+    private fun DossierPaiement.copyWithoutCustomRequired(): DossierPaiement {
+        // Vue temporaire servant a recuperer la liste par defaut sans modifier
+        // l'entite persistee. On conserve uniquement le champ `type` utilise par
+        // resolveRequiredDocuments.
+        return DossierPaiement(
+            reference = this.reference, type = this.type, statut = this.statut
+        ).also { it.requiredDocuments = null }
+    }
+
+    @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
         val dossier = dossierRepo.findById(id)
             .orElseThrow { NoSuchElementException("Dossier not found: $id") }
@@ -530,22 +575,107 @@ class DossierService(
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         if (doc.dossier.id != dossierId) throw NoSuchElementException("Document does not belong to this dossier")
         log.info("Deleting document {} from dossier {}", doc.nomFichier, doc.dossier.reference)
-        documentStorage.delete(doc.cheminFichier)
-        doc.texteExtraitKey?.let { extractStorage.delete(it) }
+
+        val docName = doc.nomFichier
+        val pointer = doc.cheminFichier
+        val extractKey = doc.texteExtraitKey
+
+        // Detach typed child (Facture/BC/OP/...) first so orphanRemoval + DB CASCADE
+        // behave predictably, and the dossier's JPA collections are consistent.
+        clearTypedEntityForDocument(doc)
+        doc.dossier.documents.remove(doc)
         documentRepo.delete(doc)
-        audit(dossierId, "DELETE_DOCUMENT", doc.nomFichier)
+        documentRepo.flush()
+
+        // Storage cleanup is best-effort: never let a missing file on S3/disk abort
+        // the DB deletion. The underlying delete() already swallows IO exceptions.
+        documentStorage.delete(pointer)
+        extractKey?.let { extractStorage.delete(it) }
+
+        audit(dossierId, "DELETE_DOCUMENT", docName)
     }
 
     @Transactional
     fun changeDocumentType(documentId: UUID, newType: TypeDocument) {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
-        log.info("Changing document {} type from {} to {}", doc.nomFichier, doc.typeDocument, newType)
+        val oldType = doc.typeDocument
+        if (oldType == newType) {
+            log.info("Type unchanged for {} ({}), skipping re-extraction", doc.nomFichier, newType)
+            return
+        }
+        log.info("Changing document {} type from {} to {}", doc.nomFichier, oldType, newType)
+
+        // Drop the previously-typed entity (Facture/BC/...) so R20/R14/etc. don't
+        // keep matching against stale data when the user reclassifies.
+        clearTypedEntityForDocument(doc)
+
         doc.typeDocument = newType
         doc.statutExtraction = StatutExtraction.EN_ATTENTE
         doc.donneesExtraites = null
         doc.erreurExtraction = null
-        documentRepo.save(doc)
-        processDocument(documentId, skipClassification = true)
+        doc.extractionConfidence = -1.0
+        doc.extractionWarnings = null
+        doc.extractionQualityScore = null
+        doc.missingMandatoryFields = null
+        documentRepo.saveAndFlush(doc)
+        audit(doc.dossier.id, "CHANGE_DOCUMENT_TYPE", "${doc.nomFichier}: $oldType -> $newType")
+
+        // La re-extraction s'execute de maniere asynchrone apres le commit. Si elle
+        // echoue (OCR down, Claude indisponible, fichier introuvable), le type change
+        // reste persiste : l'operateur peut relancer depuis le bouton "Relancer" du
+        // card. Cf. DocumentEventListener.onDocumentUploaded.
+        eventPublisher.publishEvent(DocumentUploadedEvent(documentId, doc.dossier.id!!, skipClassification = true))
+    }
+
+    /**
+     * Remove the typed child entity (Facture / BonCommande / OrdrePaiement / ...)
+     * previously persisted for [doc]. Used when the document is deleted or
+     * reclassified so that validation rules (R20 completude, R14 fournisseur,
+     * cross-document montants) don't keep matching against the old type.
+     */
+    private fun clearTypedEntityForDocument(doc: Document) {
+        val docId = doc.id ?: return
+        val dossierId = doc.dossier.id ?: return
+        try {
+            when (doc.typeDocument) {
+                TypeDocument.FACTURE -> factureRepo.findByDocumentId(docId)?.let { existing ->
+                    doc.dossier.factures.remove(existing)
+                    factureRepo.delete(existing)
+                }
+                TypeDocument.BON_COMMANDE -> bcRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.bonCommande = null
+                    bcRepo.delete(it)
+                }
+                TypeDocument.CONTRAT_AVENANT -> contratRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.contratAvenant = null
+                    contratRepo.delete(it)
+                }
+                TypeDocument.ORDRE_PAIEMENT -> opRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.ordrePaiement = null
+                    opRepo.delete(it)
+                }
+                TypeDocument.CHECKLIST_AUTOCONTROLE -> checklistRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.checklistAutocontrole = null
+                    checklistRepo.delete(it)
+                }
+                TypeDocument.TABLEAU_CONTROLE -> tableauRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.tableauControle = null
+                    tableauRepo.delete(it)
+                }
+                TypeDocument.PV_RECEPTION -> pvRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.pvReception = null
+                    pvRepo.delete(it)
+                }
+                TypeDocument.ATTESTATION_FISCALE -> arfRepo.findByDossierId(dossierId)?.takeIf { it.document.id == docId }?.let {
+                    doc.dossier.attestationFiscale = null
+                    arfRepo.delete(it)
+                }
+                else -> Unit
+            }
+            entityManager.flush()
+        } catch (e: Exception) {
+            log.warn("Cleanup of typed entity for {} ({}) failed: {}", doc.nomFichier, doc.typeDocument, e.message)
+        }
     }
 
     @Transactional

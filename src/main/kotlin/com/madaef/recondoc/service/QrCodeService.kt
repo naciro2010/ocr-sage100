@@ -163,5 +163,57 @@ class QrCodeService(
             return h == "tax.gov.ma" || h.endsWith(".tax.gov.ma") ||
                 h == "www.tax.gov.ma"
         }
+
+        /**
+         * The DGI publishes the verification page at https://attestation.tax.gov.ma/
+         * (the "site des impots"). We treat that exact host as the canonical one and
+         * log a soft warning for other tax.gov.ma subdomains so reviewers notice
+         * when the DGI rotates the URL.
+         */
+        fun isCanonicalAttestationHost(host: String?): Boolean =
+            host?.lowercase()?.trim() == "attestation.tax.gov.ma"
+
+        /**
+         * Scheme-level safety check for the QR payload. The DGI encodes an HTTPS
+         * URL; anything else — `javascript:`, `data:`, `file:`, embedded
+         * credentials, or suspicious control characters — is almost certainly a
+         * tampered or malicious QR, and the rule must flag it NON_CONFORME
+         * regardless of whether the printed code happens to match.
+         */
+        fun assessPayloadSafety(payload: String?): PayloadSafety {
+            if (payload.isNullOrBlank()) return PayloadSafety(PayloadVerdict.ABSENT, null)
+            val trimmed = payload.trim()
+            if (trimmed.any { it.code in 0..31 && it != '\t' }) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Caracteres de controle detectes dans le QR")
+            }
+            // Bare hex code (no scheme) — accepted if it matches the printed code later.
+            if (!trimmed.contains(":") && !trimmed.contains("/")) {
+                return PayloadSafety(PayloadVerdict.SAFE, null)
+            }
+            val uri = try { URI(trimmed) } catch (_: Exception) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "URL du QR malformee: $trimmed")
+            }
+            val scheme = uri.scheme?.lowercase()
+            if (scheme in BLOCKED_SCHEMES) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Schema interdit dans le QR : $scheme")
+            }
+            if (scheme != null && scheme != "https" && scheme != "http") {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Schema non supporte : $scheme (attendu https)")
+            }
+            if (scheme == "http") {
+                return PayloadSafety(PayloadVerdict.UNSAFE, "URL non chiffree (http) : redirection possible")
+            }
+            if (!uri.userInfo.isNullOrBlank()) {
+                return PayloadSafety(PayloadVerdict.DANGEROUS, "Identifiants embarques dans l'URL du QR")
+            }
+            return PayloadSafety(PayloadVerdict.SAFE, null)
+        }
+
+        private val BLOCKED_SCHEMES = setOf(
+            "javascript", "data", "vbscript", "file", "jar", "ftp", "blob", "about"
+        )
+
+        enum class PayloadVerdict { SAFE, UNSAFE, DANGEROUS, ABSENT }
+        data class PayloadSafety(val verdict: PayloadVerdict, val reason: String?)
     }
 }
