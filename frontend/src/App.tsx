@@ -8,6 +8,9 @@ import Login from './pages/Login'
 const Dashboard = lazy(() => import('./pages/Dashboard'))
 const DossierList = lazy(() => import('./pages/DossierList'))
 const DossierDetail = lazy(() => import('./pages/DossierDetail'))
+const EngagementList = lazy(() => import('./pages/EngagementList'))
+const EngagementDetail = lazy(() => import('./pages/EngagementDetail'))
+const EngagementNew = lazy(() => import('./pages/EngagementNew'))
 const FournisseurList = lazy(() => import('./pages/FournisseurList'))
 const FournisseurDetail = lazy(() => import('./pages/FournisseurDetail'))
 const Settings = lazy(() => import('./pages/Settings'))
@@ -48,6 +51,9 @@ export default function App() {
                 <Route path="/dossiers" element={<DossierList />} />
                 <Route path="/dossiers/:id" element={<DossierDetail />} />
                 <Route path="/dossiers/:id/finalize" element={<Finalize />} />
+                <Route path="/engagements" element={<EngagementList />} />
+                <Route path="/engagements/nouveau" element={<EngagementNew />} />
+                <Route path="/engagements/:id" element={<EngagementDetail />} />
                 <Route path="/fournisseurs" element={<FournisseurList />} />
                 <Route path="/fournisseurs/:nom" element={<FournisseurDetail />} />
                 <Route path="/admin/claude-usage" element={<ClaudeUsage />} />
