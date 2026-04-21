@@ -27,10 +27,10 @@ class SettingsController(
     fun saveAiSettings(@RequestBody settings: AiSettingsRequest): AiSettingsResponse {
         appSettingsService.set("ai.enabled", settings.enabled.toString())
         if (settings.apiKey != null && !settings.apiKey.startsWith("sk-***")) {
-            appSettingsService.set("ai.api_key", settings.apiKey)
+            appSettingsService.set("ai.api_key", settings.apiKey.trim())
         }
-        settings.model?.let { appSettingsService.set("ai.model", it) }
-        settings.baseUrl?.let { appSettingsService.set("ai.base_url", it) }
+        settings.model?.let { appSettingsService.set("ai.model", it.trim()) }
+        settings.baseUrl?.let { appSettingsService.set("ai.base_url", it.trim()) }
         return getAiSettings()
     }
 
@@ -55,10 +55,10 @@ class SettingsController(
     fun saveOcrSettings(@RequestBody settings: OcrSettingsRequest): OcrSettingsResponse {
         settings.mistralEnabled?.let { appSettingsService.set("ocr.mistral.enabled", it.toString()) }
         if (settings.mistralApiKey != null && !settings.mistralApiKey.startsWith("***")) {
-            appSettingsService.set("ocr.mistral.api_key", settings.mistralApiKey)
+            appSettingsService.set("ocr.mistral.api_key", settings.mistralApiKey.trim())
         }
-        settings.mistralModel?.let { appSettingsService.set("ocr.mistral.model", it) }
-        settings.mistralBaseUrl?.let { appSettingsService.set("ocr.mistral.base_url", it) }
+        settings.mistralModel?.let { appSettingsService.set("ocr.mistral.model", it.trim()) }
+        settings.mistralBaseUrl?.let { appSettingsService.set("ocr.mistral.base_url", it.trim()) }
         return getOcrSettings()
     }
 
