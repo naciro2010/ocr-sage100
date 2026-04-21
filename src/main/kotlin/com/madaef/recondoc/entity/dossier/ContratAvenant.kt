@@ -25,6 +25,10 @@ class ContratAvenant(
     @Column(columnDefinition = "TEXT") var objet: String? = null,
     @Column(name = "date_effet") var dateEffet: LocalDate? = null,
 
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "fournisseur_canonique_id")
+    var fournisseurCanonique: FournisseurCanonique? = null,
+
     @OneToMany(mappedBy = "contratAvenant", cascade = [CascadeType.ALL], orphanRemoval = true)
     var grillesTarifaires: MutableList<GrilleTarifaire> = mutableListOf()
 )

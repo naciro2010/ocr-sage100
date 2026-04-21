@@ -171,6 +171,23 @@ interface FactureRepository : JpaRepository<Facture, UUID> {
         dateMax: java.time.LocalDate,
         excludeDossierId: UUID
     ): List<Facture>
+
+    @Query("""
+        SELECT f FROM Facture f
+        WHERE f.dossier.id <> :excludeDossierId
+        AND f.fournisseurCanonique.id = :canoniqueId
+        AND f.montantTtc IS NOT NULL
+        AND f.montantTtc BETWEEN :montantMin AND :montantMax
+        AND f.dateFacture BETWEEN :dateMin AND :dateMax
+    """)
+    fun findByMontantCanoniqueDate(
+        canoniqueId: UUID,
+        montantMin: java.math.BigDecimal,
+        montantMax: java.math.BigDecimal,
+        dateMin: java.time.LocalDate,
+        dateMax: java.time.LocalDate,
+        excludeDossierId: UUID
+    ): List<Facture>
 }
 
 interface BonCommandeRepository : JpaRepository<BonCommande, UUID> {
