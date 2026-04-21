@@ -86,11 +86,11 @@ class AppSettingsService(
     }
 
     fun getAiModel(): String {
-        return getOrDefault("ai.model", "claude-opus-4-7")
+        return getOrDefault("ai.model", "claude-sonnet-4-6")
     }
 
     fun getAiClassificationModel(): String {
-        return getOrDefault("ai.classification_model", "claude-haiku-4-5-20251001")
+        return get("ai.classification_model")?.takeIf { it.isNotBlank() } ?: getAiModel()
     }
 
     fun getAiExtractionModel(): String {

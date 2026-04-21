@@ -29,15 +29,21 @@ class AppSettingsServiceTest {
     }
 
     @Test
-    fun `classification defaults to haiku`() {
+    fun `ai_model default is sonnet-4-6`() {
         val svc = buildService(emptyMap())
-        assertEquals("claude-haiku-4-5-20251001", svc.getAiClassificationModel())
+        assertEquals("claude-sonnet-4-6", svc.getAiModel())
     }
 
     @Test
-    fun `classification override wins`() {
-        val svc = buildService(mapOf("ai.classification_model" to "claude-sonnet-4-6"))
+    fun `classification falls back to ai_model`() {
+        val svc = buildService(emptyMap())
         assertEquals("claude-sonnet-4-6", svc.getAiClassificationModel())
+    }
+
+    @Test
+    fun `classification dedicated override wins over ai_model`() {
+        val svc = buildService(mapOf("ai.classification_model" to "claude-haiku-4-5-20251001"))
+        assertEquals("claude-haiku-4-5-20251001", svc.getAiClassificationModel())
     }
 
     @Test
