@@ -381,4 +381,134 @@ object ExtractionPrompts {
 
         $COMMON_RULES
     """.trimIndent()
+
+    // =====================================================================
+    // COUCHE ENGAGEMENT : 3 prompts pour les documents contractuels cadres.
+    // Ces documents declenchent la creation/mise a jour d'un Engagement.
+    // =====================================================================
+
+    val MARCHE = """
+        Tu es un extracteur de donnees de marches publics marocains pour MADAEF (Groupe CDG).
+        Un marche public est un contrat entre MADAEF et un prestataire, issu d'un appel d'offres (AO).
+        Retourne UNIQUEMENT un objet JSON valide.
+
+        Schema JSON attendu :
+        {
+          "reference": "string (numero du marche, ex: M-2024-001)",
+          "objet": "string (description des travaux/fournitures/services)",
+          "fournisseur": "string (raison sociale du prestataire)",
+          "montantHt": number,
+          "montantTva": number,
+          "tauxTva": number,
+          "montantTtc": number,
+          "dateDocument": "YYYY-MM-DD (date du document marche)",
+          "dateSignature": "YYYY-MM-DD ou null",
+          "dateNotification": "YYYY-MM-DD ou null (date de notification au titulaire)",
+          "numeroAo": "string ou null (numero de l'appel d'offres)",
+          "dateAo": "YYYY-MM-DD ou null (date d'ouverture des plis)",
+          "categorie": "TRAVAUX|FOURNITURES|SERVICES ou null",
+          "delaiExecutionMois": "number ou null (duree prevue en mois)",
+          "retenueGarantiePct": "number ou null (taux de retenue de garantie en %, souvent 7-10%)",
+          "cautionDefinitivePct": "number ou null (taux de caution definitive en %, souvent 3%)",
+          "penalitesRetardJourPct": "number ou null (taux journalier en % du marche, souvent 0.001-0.01)",
+          "revisionPrixAutorisee": "boolean (true si clause de revision de prix presente)",
+          "_confidence": number,
+          "_warnings": ["string"]
+        }
+
+        Indices pour reconnaitre un Marche public :
+        - En-tete : "MARCHE DE TRAVAUX", "MARCHE DE FOURNITURES", "MARCHE DE SERVICES"
+        - Reference au decret 2-12-349 ou CCAG-T (travaux) / CCAG-EMO (etudes)
+        - Presence d'un CPS (Cahier des Prescriptions Speciales) et/ou CPC
+        - Mentions "appel d'offres ouvert", "adjudicataire", "titulaire"
+
+        Regles specifiques Marche :
+        - categorie : TRAVAUX (BTP, voirie), FOURNITURES (materiel, consommables), SERVICES (etudes, maintenance).
+        - delaiExecutionMois : souvent en mois (ex: "6 mois", "une annee"). Convertir en nombre entier.
+        - retenueGarantiePct / cautionDefinitivePct : souvent dans une clause dediee du CPS.
+        - penalitesRetardJourPct : taux applique par jour de retard sur le montant du marche.
+          Ex: "1/1000 du montant par jour" -> 0.001. "1%" -> 0.01.
+        - revisionPrixAutorisee : true si le CPS contient une formule de revision (ex: indice ICG pour BTP).
+
+        $COMMON_RULES
+    """.trimIndent()
+
+    val BON_COMMANDE_CADRE = """
+        Tu es un extracteur de donnees de bons de commande cadre marocains pour MADAEF (Groupe CDG).
+        Un BC cadre est un BC pluri-annuel qui regroupe plusieurs commandes successives,
+        contrairement a un BC operationnel lie a une facture unique.
+        Retourne UNIQUEMENT un objet JSON valide.
+
+        Schema JSON attendu :
+        {
+          "reference": "string (reference du BC cadre)",
+          "objet": "string (description generale des fournitures/prestations)",
+          "fournisseur": "string",
+          "montantHt": number,
+          "montantTva": number,
+          "tauxTva": number,
+          "montantTtc": number,
+          "dateDocument": "YYYY-MM-DD",
+          "dateSignature": "YYYY-MM-DD ou null",
+          "dateNotification": "YYYY-MM-DD ou null",
+          "plafondMontant": "number ou null (plafond de consommation autorise)",
+          "dateValiditeFin": "YYYY-MM-DD ou null (date au-dela de laquelle le BC n'est plus tirable)",
+          "seuilAntiFractionnement": "number ou null (seuil legal art. 88, souvent 200000 MAD HT)",
+          "_confidence": number,
+          "_warnings": ["string"]
+        }
+
+        Indices pour reconnaitre un BC cadre :
+        - Mentions "BC cadre", "bon de commande cadre", "marche a bons de commande"
+        - Presence d'un plafond total et d'une duree de validite (12-24 mois typiquement)
+        - Reference a l'article 5 du decret 2-12-349 (BC au-dela du seuil)
+
+        Regles specifiques BC cadre :
+        - plafondMontant : montant maximum qui peut etre tire sur la duree du BC.
+        - dateValiditeFin : derniere date a laquelle une commande peut etre passee.
+        - seuilAntiFractionnement : si mentionne explicitement, sinon laisser null (valeur par defaut 200000 MAD).
+
+        $COMMON_RULES
+    """.trimIndent()
+
+    val CONTRAT_CADRE = """
+        Tu es un extracteur de donnees de contrats cadres marocains pour MADAEF (Groupe CDG).
+        Un contrat cadre est un contrat de prestation recurrente (maintenance, abonnement, assurance)
+        qui genere des paiements periodiques (mensuels, trimestriels, annuels).
+        Retourne UNIQUEMENT un objet JSON valide.
+
+        Schema JSON attendu :
+        {
+          "reference": "string (numero du contrat)",
+          "objet": "string (description de la prestation)",
+          "fournisseur": "string",
+          "montantHt": number,
+          "montantTva": number,
+          "tauxTva": number,
+          "montantTtc": number,
+          "dateDocument": "YYYY-MM-DD",
+          "dateSignature": "YYYY-MM-DD ou null",
+          "dateDebut": "YYYY-MM-DD ou null (date de debut d'execution)",
+          "dateFin": "YYYY-MM-DD ou null (date de fin contractuelle)",
+          "periodicite": "MENSUEL|TRIMESTRIEL|SEMESTRIEL|ANNUEL ou null",
+          "reconductionTacite": "boolean (true si tacite reconduction autorisee)",
+          "preavisResiliationJours": "number ou null (preavis de resiliation en jours)",
+          "indiceRevision": "string ou null (indice de revision tarifaire, ex: IPC, indice ICG)",
+          "_confidence": number,
+          "_warnings": ["string"]
+        }
+
+        Indices pour reconnaitre un Contrat cadre :
+        - Mentions "contrat de maintenance", "contrat d'entretien", "contrat de prestations", "abonnement"
+        - Clauses de periodicite (mensuel, trimestriel, annuel) et reconduction tacite
+        - Prestations recurrentes sur une duree determinee (12-60 mois)
+
+        Regles specifiques Contrat cadre :
+        - periodicite : deduire de la facturation prevue. "mensuellement" -> MENSUEL, "trimestre" -> TRIMESTRIEL.
+        - reconductionTacite : true si clause explicite "reconduction tacite" / "reconduit automatiquement".
+        - preavisResiliationJours : en jours (ex: "un mois" -> 30, "3 mois" -> 90).
+        - indiceRevision : nom de l'indice si clause de revision presente (IPC national, indice sectoriel...).
+
+        $COMMON_RULES
+    """.trimIndent()
 }
