@@ -107,6 +107,7 @@ class ValidationEngine(
             "R19" to emptySet(),
             "R20" to emptySet(),
             "R21" to emptySet(),
+            "R22" to emptySet(),
             "R12" to emptySet(),
             "R13" to emptySet(),
         )
@@ -719,6 +720,52 @@ class ValidationEngine(
                             libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
                             statut = StatutCheck.CONFORME,
                             detail = "Aucun doublon detecte pour la facture ${f.numeroFacture ?: "(sans numero)"}"
+                        )
+                    }
+                }
+            }
+        }
+
+        if (isEnabled("R22") && op != null && pv != null) {
+            measureRule("R22", results) {
+                val dateReception = pv.dateReception ?: pv.periodeFin
+                val dateOp = op.dateEmission
+                val opDocLocal = opDoc
+                val pvDocLocal = pv.document
+                when {
+                    dateReception == null || dateOp == null -> {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R22",
+                            libelle = "Paiement posterieur a la reception",
+                            statut = StatutCheck.AVERTISSEMENT,
+                            detail = "Date OP (${dateOp}) ou date reception (${dateReception}) manquante"
+                        )
+                    }
+                    dateOp.isBefore(dateReception) -> {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R22",
+                            libelle = "Paiement posterieur a la reception",
+                            statut = StatutCheck.NON_CONFORME,
+                            detail = "OP emis le ${dateOp}, soit avant la reception du ${dateReception}. " +
+                                "Un paiement ne peut pas preceder la reception de la prestation.",
+                            valeurAttendue = ">= ${dateReception}",
+                            valeurTrouvee = dateOp.toString(),
+                            evidences = listOf(
+                                evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDocLocal, dateOp),
+                                evidence("attendu", "dateReception", "Date de reception du PV", pvDocLocal, dateReception)
+                            )
+                        )
+                    }
+                    else -> {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R22",
+                            libelle = "Paiement posterieur a la reception",
+                            statut = StatutCheck.CONFORME,
+                            detail = "OP du ${dateOp} posterieur a la reception du ${dateReception}",
+                            evidences = listOf(
+                                evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDocLocal, dateOp),
+                                evidence("source", "dateReception", "Date de reception du PV", pvDocLocal, dateReception)
+                            )
                         )
                     }
                 }
