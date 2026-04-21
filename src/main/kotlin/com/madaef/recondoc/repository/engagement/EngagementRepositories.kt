@@ -68,6 +68,36 @@ interface EngagementRepository : JpaRepository<Engagement, UUID> {
         ORDER BY d.dateCreation ASC
     """)
     fun findDossiersByEngagement(engagementId: UUID): List<com.madaef.recondoc.entity.dossier.DossierPaiement>
+
+    /**
+     * Projection [engagementId, nbDossiers, montantConsomme] en une requete.
+     * Evite le N+1 sur la liste des engagements.
+     */
+    @Query("""
+        SELECT d.engagement.id AS engId, COUNT(d) AS nb, COALESCE(SUM(d.montantTtc), 0) AS somme
+        FROM DossierPaiement d
+        WHERE d.engagement.id IN :ids
+        GROUP BY d.engagement.id
+    """)
+    fun aggregateDossiersByEngagements(ids: List<UUID>): List<Array<Any>>
+
+    /**
+     * Somme globale du montant consomme tous engagements confondus.
+     * Utilise par EngagementService.stats() (evite N+1).
+     */
+    @Query("""
+        SELECT COALESCE(SUM(d.montantTtc), 0)
+        FROM DossierPaiement d
+        WHERE d.engagement IS NOT NULL
+    """)
+    fun sumMontantConsommeTousEngagements(): java.math.BigDecimal
+
+    /**
+     * Somme globale du montant TTC de tous les engagements.
+     * Utilise par EngagementService.stats().
+     */
+    @Query("SELECT COALESCE(SUM(e.montantTtc), 0) FROM Engagement e")
+    fun sumMontantTtcTousEngagements(): java.math.BigDecimal
 }
 
 interface EngagementMarcheRepository : JpaRepository<EngagementMarche, UUID> {
