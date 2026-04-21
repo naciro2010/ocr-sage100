@@ -176,6 +176,19 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
     fun countByDossierIdAndStatut(dossierId: UUID, statut: StatutCheck): Long
     fun deleteByDossierId(dossierId: UUID)
     fun deleteByRegle(regle: String)
+
+    @Query("""
+        SELECT r.regle,
+               COUNT(r),
+               AVG(r.durationMs),
+               MAX(r.durationMs),
+               MIN(r.durationMs)
+        FROM ResultatValidation r
+        WHERE r.durationMs IS NOT NULL
+        GROUP BY r.regle
+        ORDER BY AVG(r.durationMs) DESC
+    """)
+    fun aggregateDurationByRule(): List<Array<Any?>>
 }
 
 interface AuditLogRepository : JpaRepository<AuditLog, UUID> {

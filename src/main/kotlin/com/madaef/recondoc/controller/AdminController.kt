@@ -1,6 +1,7 @@
 package com.madaef.recondoc.controller
 
 import com.madaef.recondoc.repository.ClaudeUsageRepository
+import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.service.AppSettingsService
 import org.springframework.web.bind.annotation.GetMapping
 import org.springframework.web.bind.annotation.PathVariable
@@ -21,8 +22,22 @@ import java.util.UUID
 @RequestMapping("/api/admin")
 class AdminController(
     private val claudeUsageRepository: ClaudeUsageRepository,
-    private val appSettings: AppSettingsService
+    private val appSettings: AppSettingsService,
+    private val resultatRepository: ResultatValidationRepository
 ) {
+
+    @GetMapping("/rules/performance")
+    fun rulesPerformance(): List<Map<String, Any?>> {
+        return resultatRepository.aggregateDurationByRule().map { row ->
+            mapOf(
+                "regle" to row[0],
+                "count" to (row[1] as? Number)?.toLong(),
+                "avgDurationMs" to (row[2] as? Number)?.toDouble(),
+                "maxDurationMs" to (row[3] as? Number)?.toLong(),
+                "minDurationMs" to (row[4] as? Number)?.toLong()
+            )
+        }
+    }
 
     @GetMapping("/claude-usage/dossier/{dossierId}")
     fun usageForDossier(@PathVariable dossierId: UUID): Map<String, Any> {

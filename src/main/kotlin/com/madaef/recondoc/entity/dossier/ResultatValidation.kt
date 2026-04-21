@@ -32,6 +32,8 @@ class ResultatValidation(
     @Column(name = "date_correction") var dateCorrection: LocalDateTime? = null,
     @Column(name = "document_ids", columnDefinition = "TEXT") var documentIds: String? = null,
 
+    @Column(name = "duration_ms") var durationMs: Long? = null,
+
     @JdbcTypeCode(SqlTypes.JSON)
     @Column(name = "evidences", columnDefinition = "jsonb")
     var evidences: List<ValidationEvidence>? = null
