@@ -1,11 +1,21 @@
-import { API_URL, apiFetch, handleResponse } from './http'
+import { API_URL, apiFetch, handleResponse, authHeaders } from './http'
 import type {
   EngagementListItem,
   EngagementResponse,
   EngagementStats,
   CreateEngagementRequest,
   StatutEngagement,
+  TypeEngagement,
 } from './engagementTypes'
+
+export interface UploadEngagementResponse {
+  engagementId: string
+  reference: string
+  type: TypeEngagement
+  created: boolean
+  confidence: number | null
+  warnings: string[]
+}
 
 interface Page<T> {
   content: T[]
@@ -82,4 +92,21 @@ export async function attachDossierToEngagement(engagementId: string, dossierId:
 export async function detachDossier(dossierId: string): Promise<void> {
   const res = await apiFetch(`${API_URL}/api/engagements/dossiers/${dossierId}`, { method: 'DELETE' })
   if (!res.ok) throw new Error(`HTTP ${res.status}`)
+}
+
+export async function uploadEngagementDocument(file: File): Promise<UploadEngagementResponse> {
+  const form = new FormData()
+  form.append('file', file)
+  // Do not use apiFetch -- FormData must not have Content-Type explicitly set
+  const res = await fetch(`${API_URL}/api/engagements/upload`, {
+    method: 'POST',
+    headers: authHeaders(),
+    body: form,
+  })
+  if (!res.ok) {
+    let msg = `HTTP ${res.status}`
+    try { const b = await res.json(); msg = b.error || b.message || msg } catch { /* ignore */ }
+    throw new Error(msg)
+  }
+  return res.json()
 }
