@@ -346,7 +346,7 @@ class DossierController(
         @PathVariable id: UUID,
         @RequestBody body: UpdateRequiredDocumentsRequest
     ): RequiredDocumentsResponse {
-        return dossierService.updateRequiredDocuments(id, body.types)
+        return dossierService.updateRequiredDocuments(id, body.selected)
     }
 
     @GetMapping("/{id}/rule-config")

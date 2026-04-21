@@ -9,8 +9,7 @@ import java.util.UUID
 data class DocumentUploadedEvent(
     val documentId: UUID,
     val dossierId: UUID,
-    // Ignorer la classification automatique et garder le type deja pose sur le
-    // document (cas du reclassement manuel apres correction par un operateur).
+    // true lors d'un reclassement manuel : preserver le type deja pose.
     val skipClassification: Boolean = false
 )
 

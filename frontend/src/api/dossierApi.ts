@@ -387,13 +387,13 @@ export async function getRequiredDocuments(dossierId: string): Promise<RequiredD
 }
 
 export async function updateRequiredDocuments(
-  dossierId: string, types: string[] | null
+  dossierId: string, selected: string[] | null
 ): Promise<RequiredDocumentsResponse> {
   invalidateCache(dossierId)
   const res = await apiFetch(`${BASE}/${dossierId}/required-documents`, {
     method: 'PATCH',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify({ types }),
+    body: JSON.stringify({ selected }),
   })
   return handleResponse(res)
 }

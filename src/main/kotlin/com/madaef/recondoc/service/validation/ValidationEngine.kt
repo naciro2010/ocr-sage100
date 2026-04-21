@@ -80,6 +80,37 @@ class ValidationEngine(
             else -> null
         }
 
+        val TYPE_LABELS: Map<TypeDocument, String> = mapOf(
+            TypeDocument.FACTURE to "Facture",
+            TypeDocument.BON_COMMANDE to "Bon de commande",
+            TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
+            TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement",
+            TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
+            TypeDocument.CHECKLIST_PIECES to "Checklist des pieces",
+            TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
+            TypeDocument.PV_RECEPTION to "PV de reception",
+            TypeDocument.ATTESTATION_FISCALE to "Attestation fiscale",
+            TypeDocument.FORMULAIRE_FOURNISSEUR to "Formulaire fournisseur",
+            TypeDocument.INCONNU to "A classer"
+        )
+
+        val DEFAULT_REQUIRED_BY_TYPE: Map<DossierType, List<TypeDocument>> = mapOf(
+            DossierType.BC to listOf(
+                TypeDocument.FACTURE,
+                TypeDocument.BON_COMMANDE,
+                TypeDocument.CHECKLIST_AUTOCONTROLE,
+                TypeDocument.TABLEAU_CONTROLE,
+                TypeDocument.ORDRE_PAIEMENT
+            ),
+            DossierType.CONTRACTUEL to listOf(
+                TypeDocument.FACTURE,
+                TypeDocument.CONTRAT_AVENANT,
+                TypeDocument.PV_RECEPTION,
+                TypeDocument.CHECKLIST_AUTOCONTROLE,
+                TypeDocument.ORDRE_PAIEMENT
+            )
+        )
+
         val RULE_DEPENDENCIES: Map<String, Set<String>> = mapOf(
             "R01" to setOf("R02", "R03", "R03b"),
             "R02" to setOf("R01", "R03", "R03b"),
@@ -264,7 +295,7 @@ class ValidationEngine(
 
         if (isEnabled("R20")) {
             val docTypes = dossier.documents.map { it.typeDocument }.toSet()
-            val required = resolveRequiredDocuments(dossier)
+            val required = resolveRequiredDocuments(dossier.type, dossier.requiredDocuments)
             val missing = required.filter { it.first !in docTypes }
             val present = required.size - missing.size
             val source = if (dossier.requiredDocuments.isNullOrBlank()) "defaut" else "personnalisee"
@@ -1623,15 +1654,10 @@ class ValidationEngine(
         else StatutCheck.CONFORME
     }
 
-    /**
-     * R19: Verify the QR code on the DGI "attestation de regularite fiscale".
-     * The attestation prints a "Code de verification" under the QR; the QR
-     * itself encodes a tax.gov.ma URL that carries the same code. A mismatch
-     * between them (or a missing/unreadable QR) suggests tampering or a
-     * photocopy of an outdated attestation. The rule also enforces QR safety
-     * (HTTPS + approved DGI host, no javascript:/data: payloads) so a tampered
-     * QR never gets a CONFORME just because the printed code happens to match.
-     */
+    // R19 : QR DGI doit encoder le meme "Code de verification" que celui imprime
+    // sous le QR ET etre servi par attestation.tax.gov.ma en HTTPS. Toute autre
+    // forme (javascript:, data:, host externe, URL malformee) = NON_CONFORME
+    // meme si le code hex coincide par hasard.
     private fun checkAttestationQr(arf: AttestationFiscale, arfDoc: Document?, dossier: DossierPaiement): ResultatValidation {
         val printedCode = arf.codeVerification?.trim()?.takeIf { it.isNotBlank() }
         val qrCode = arf.qrCodeExtrait?.trim()?.takeIf { it.isNotBlank() }
@@ -1683,12 +1709,7 @@ class ValidationEngine(
         )
     }
 
-    /**
-     * R23: l'attestation doit declarer que le contribuable est en situation
-     * reguliere. Si le champ `estEnRegle` est faux (ou une mention "non en
-     * regle" a ete lue), le dossier est NON_CONFORME ; si le champ est absent
-     * (LLM incertain), on reste sur un AVERTISSEMENT pour inviter a la relecture.
-     */
+    // R23 : estEnRegle=true requis. null = AVERTISSEMENT (relecture humaine).
     private fun checkAttestationRegularite(arf: AttestationFiscale, arfDoc: Document?, dossier: DossierPaiement): ResultatValidation {
         val estEnRegle = arf.estEnRegle
         val (statut, detail) = when (estEnRegle) {
@@ -1713,49 +1734,21 @@ class ValidationEngine(
         code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
 
     /**
-     * Retourne la liste des pieces obligatoires pour R20.
-     * - Si `dossier.requiredDocuments` est renseigne (CSV de TypeDocument), c'est la liste du controleur.
-     * - Sinon, fallback sur la liste figee par type de dossier (BC / CONTRACTUEL).
-     * La liste de surcharge peut contenir des types inconnus (config heritee) qui sont silencieusement ignores.
+     * Liste des pieces obligatoires pour R20.
+     * `customRequired` (CSV de TypeDocument) prime ; null = defauts par type.
+     * Les types inconnus dans la config heritee sont ignores silencieusement.
      */
-    internal fun resolveRequiredDocuments(dossier: DossierPaiement): List<Pair<TypeDocument, String>> {
-        val custom = dossier.requiredDocuments?.split(",")?.mapNotNull { raw ->
+    fun resolveRequiredDocuments(type: DossierType, customRequired: String?): List<Pair<TypeDocument, String>> {
+        val selection = parseCustomTypes(customRequired) ?: DEFAULT_REQUIRED_BY_TYPE.getValue(type)
+        return selection.map { it to TYPE_LABELS.getValue(it) }
+    }
+
+    private fun parseCustomTypes(csv: String?): List<TypeDocument>? {
+        if (csv == null) return null
+        return csv.split(",").mapNotNull { raw ->
             val trimmed = raw.trim()
             if (trimmed.isEmpty()) null else runCatching { TypeDocument.valueOf(trimmed) }.getOrNull()
         }
-        if (custom != null) {
-            return custom.map { it to humanLabel(it) }
-        }
-        return when (dossier.type) {
-            DossierType.BC -> listOf(
-                TypeDocument.FACTURE to "Facture",
-                TypeDocument.BON_COMMANDE to "Bon de commande",
-                TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
-                TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
-                TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
-            )
-            DossierType.CONTRACTUEL -> listOf(
-                TypeDocument.FACTURE to "Facture",
-                TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
-                TypeDocument.PV_RECEPTION to "PV de reception",
-                TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
-                TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement"
-            )
-        }
-    }
-
-    private fun humanLabel(type: TypeDocument): String = when (type) {
-        TypeDocument.FACTURE -> "Facture"
-        TypeDocument.BON_COMMANDE -> "Bon de commande"
-        TypeDocument.CONTRAT_AVENANT -> "Contrat / Avenant"
-        TypeDocument.ORDRE_PAIEMENT -> "Ordre de paiement"
-        TypeDocument.CHECKLIST_AUTOCONTROLE -> "Checklist autocontrole"
-        TypeDocument.CHECKLIST_PIECES -> "Checklist des pieces"
-        TypeDocument.TABLEAU_CONTROLE -> "Tableau de controle"
-        TypeDocument.PV_RECEPTION -> "PV de reception"
-        TypeDocument.ATTESTATION_FISCALE -> "Attestation fiscale"
-        TypeDocument.FORMULAIRE_FOURNISSEUR -> "Formulaire fournisseur"
-        TypeDocument.INCONNU -> "A classer"
     }
 
     private data class BcLigne(

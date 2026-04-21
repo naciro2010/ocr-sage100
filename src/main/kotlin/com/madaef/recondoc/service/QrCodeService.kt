@@ -164,29 +164,20 @@ class QrCodeService(
                 h == "www.tax.gov.ma"
         }
 
-        /**
-         * The DGI publishes the verification page at https://attestation.tax.gov.ma/
-         * (the "site des impots"). We treat that exact host as the canonical one and
-         * log a soft warning for other tax.gov.ma subdomains so reviewers notice
-         * when the DGI rotates the URL.
-         */
+        // Host canonique de verification DGI (https://attestation.tax.gov.ma/).
+        // Autres sous-domaines tax.gov.ma = AVERTISSEMENT seulement.
         fun isCanonicalAttestationHost(host: String?): Boolean =
             host?.lowercase()?.trim() == "attestation.tax.gov.ma"
 
-        /**
-         * Scheme-level safety check for the QR payload. The DGI encodes an HTTPS
-         * URL; anything else — `javascript:`, `data:`, `file:`, embedded
-         * credentials, or suspicious control characters — is almost certainly a
-         * tampered or malicious QR, and the rule must flag it NON_CONFORME
-         * regardless of whether the printed code happens to match.
-         */
+        // Safety scheme-level du payload QR : seul https + host DGI est valide.
+        // javascript:/data:/file:/credentials embarquees = NON_CONFORME.
         fun assessPayloadSafety(payload: String?): PayloadSafety {
             if (payload.isNullOrBlank()) return PayloadSafety(PayloadVerdict.ABSENT, null)
             val trimmed = payload.trim()
             if (trimmed.any { it.code in 0..31 && it != '\t' }) {
                 return PayloadSafety(PayloadVerdict.DANGEROUS, "Caracteres de controle detectes dans le QR")
             }
-            // Bare hex code (no scheme) — accepted if it matches the printed code later.
+            // Code hex nu (sans schema) : sera confronte au code imprime plus tard.
             if (!trimmed.contains(":") && !trimmed.contains("/")) {
                 return PayloadSafety(PayloadVerdict.SAFE, null)
             }

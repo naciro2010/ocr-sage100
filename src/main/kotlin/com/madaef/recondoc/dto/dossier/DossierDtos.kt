@@ -80,7 +80,7 @@ data class RequiredDocumentEntry(
 )
 
 data class UpdateRequiredDocumentsRequest(
-    val types: List<TypeDocument>? = null
+    val selected: List<TypeDocument>? = null
 )
 
 data class DossierResponse(

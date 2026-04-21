@@ -9,8 +9,7 @@ interface Props {
   onChanged?: () => void
 }
 
-// Types that can sensibly be required as part of a dossier de paiement.
-// INCONNU / FORMULAIRE_FOURNISSEUR sont exclus : ce sont des states transitoires.
+// INCONNU / FORMULAIRE_FOURNISSEUR sont transitoires, exclus du choix.
 const SELECTABLE: TypeDocument[] = [
   'FACTURE', 'BON_COMMANDE', 'CONTRAT_AVENANT', 'ORDRE_PAIEMENT',
   'CHECKLIST_AUTOCONTROLE', 'CHECKLIST_PIECES', 'TABLEAU_CONTROLE',
@@ -78,9 +77,8 @@ export default function RequiredDocumentsConfig({ dossierId, onChanged }: Props)
 
   if (!config) return null
 
-  const currentSelected = new Set(config.selected)
-  const dirty = currentSelected.size !== pending.size ||
-    !Array.from(pending).every(t => currentSelected.has(t))
+  const dirty = config.selected.length !== pending.size ||
+    config.selected.some(t => !pending.has(t))
 
   return (
     <div className="card" style={{ padding: '12px 18px' }}>
