@@ -1014,9 +1014,6 @@ class ValidationEngine(
             }
         if (selected.isEmpty()) return emptyList()
 
-        // One Claude call for all applicable custom rules (batch). The service
-        // falls back to per-rule evaluation automatically if the LLM answers
-        // with a malformed JSON, so we keep per-rule crash isolation too.
         return try {
             customRuleService.evaluateBatch(selected, dossier)
         } catch (e: Exception) {

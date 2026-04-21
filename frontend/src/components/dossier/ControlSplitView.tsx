@@ -50,11 +50,13 @@ interface RuleItem {
   custom?: CustomRule
 }
 
+/** Sources backend qui identifient un jugement IA (vs deterministe / humain). */
+const AI_SOURCES = new Set(['llm', 'ia', 'custom', 'custom_batch'])
+
 /**
- * Classe un controle par moteur d'execution pour que l'utilisateur comprenne
- * immediatement ce qui est calcule par le code (reproducible, 0 $) et ce qui
- * est delegue a Claude (batch, jugement). "human" = checklist d'autocontrole
- * renseignee par un operateur.
+ * Classe un controle par moteur d'execution : system (calcul local), ai (Claude)
+ * ou human (saisie autocontrole). Source de verite unique utilisee par les badges,
+ * les filtres et la provenance du verdict.
  */
 function deriveEngine(item: {
   category: 'system' | 'checklist' | 'custom'
@@ -62,9 +64,7 @@ function deriveEngine(item: {
 }): ControlEngine {
   if (item.category === 'checklist') return 'human'
   if (item.category === 'custom') return 'ai'
-  const src = (item.result?.source || '').toLowerCase()
-  if (src === 'llm' || src === 'ia' || src === 'custom' || src === 'custom_batch') return 'ai'
-  return 'system'
+  return AI_SOURCES.has((item.result?.source || '').toLowerCase()) ? 'ai' : 'system'
 }
 
 const ENGINE_LABEL: Record<ControlEngine, { short: string; long: string; hint: string }> = {
@@ -85,55 +85,27 @@ const ENGINE_LABEL: Record<ControlEngine, { short: string; long: string; hint: s
   },
 }
 
+type Provenance = { label: string; hint: string; tone: 'info' | 'success' | 'warning' | 'neutral' }
+
+const PROVENANCE_BY_SOURCE: Record<string, Provenance> = {
+  deterministe: { label: 'Calcul deterministe', hint: 'Execute cote backend a partir des donnees extraites. Resultat reproductible.', tone: 'info' },
+  regex: { label: 'Calcul deterministe', hint: 'Execute cote backend a partir des donnees extraites. Resultat reproductible.', tone: 'info' },
+  llm: { label: 'Jugement IA (Claude)', hint: 'Le modele Claude a ete sollicite pour trancher. A croiser avec les documents sources en cas de doute.', tone: 'warning' },
+  ia: { label: 'Jugement IA (Claude)', hint: 'Le modele Claude a ete sollicite pour trancher. A croiser avec les documents sources en cas de doute.', tone: 'warning' },
+  custom_batch: { label: 'Jugement IA (Claude, appel groupe)', hint: 'Evalue par Claude dans un appel unique couvrant toutes les regles personnalisees du dossier. A croiser avec les documents sources si critique.', tone: 'warning' },
+  custom: { label: 'Jugement IA (Claude, regle personnalisee)', hint: 'Regle personnalisee evaluee par Claude. A croiser avec les documents sources en cas de doute.', tone: 'warning' },
+  checklist: { label: 'Saisie humaine', hint: 'Valeur issue de la checklist autocontrole ou d\'une correction manuelle. Depend de l\'operateur qui l\'a renseignee.', tone: 'warning' },
+}
+
 /**
- * Etiquette humaine de la methode d'obtention du verdict, sans pourcentage magique.
- * Le chiffre de confiance affiche jusqu'ici etait fabrique cote front (85%, 60%, 70%, 90%)
- * et pouvait faire croire a une metrique calibree. Remplace par un label explicite.
+ * Etiquette de la methode d'obtention du verdict, sans pourcentage magique.
+ * Le chiffre de confiance affiche jusqu'ici etait fabrique cote front et pouvait
+ * faire croire a une metrique calibree — remplace par un label explicite.
  */
-function verdictProvenance(r: ValidationResult): { label: string; hint: string; tone: 'info' | 'success' | 'warning' | 'neutral' } {
-  const src = (r.source || '').toLowerCase()
-  if (src === 'deterministe' || src === 'regex') {
-    return {
-      label: 'Calcul deterministe',
-      hint: 'Execute cote backend a partir des donnees extraites. Resultat reproductible.',
-      tone: 'info',
-    }
-  }
-  if (src === 'llm' || src === 'ia') {
-    return {
-      label: 'Jugement IA (Claude)',
-      hint: 'Le modele Claude a ete sollicite pour trancher. A croiser avec les documents sources en cas de doute.',
-      tone: 'warning',
-    }
-  }
-  if (src === 'custom_batch') {
-    return {
-      label: 'Jugement IA (Claude, appel groupe)',
-      hint: 'Evalue par Claude dans un appel unique couvrant toutes les regles personnalisees du dossier. A croiser avec les documents sources si critique.',
-      tone: 'warning',
-    }
-  }
-  if (src === 'custom') {
-    return {
-      label: 'Jugement IA (Claude, regle personnalisee)',
-      hint: 'Regle personnalisee evaluee par Claude. A croiser avec les documents sources en cas de doute.',
-      tone: 'warning',
-    }
-  }
-  if (src === 'checklist') {
-    return {
-      label: 'Saisie humaine',
-      hint: 'Valeur issue de la checklist autocontrole ou d\'une correction manuelle. Depend de l\'operateur qui l\'a renseignee.',
-      tone: 'warning',
-    }
-  }
-  if (r.corrigePar) {
-    return {
-      label: `Corrige par ${r.corrigePar}`,
-      hint: 'Statut force manuellement apres analyse humaine.',
-      tone: 'neutral',
-    }
-  }
+function verdictProvenance(r: ValidationResult): Provenance {
+  const hit = PROVENANCE_BY_SOURCE[(r.source || '').toLowerCase()]
+  if (hit) return hit
+  if (r.corrigePar) return { label: `Corrige par ${r.corrigePar}`, hint: 'Statut force manuellement apres analyse humaine.', tone: 'neutral' }
   return { label: 'Source inconnue', hint: 'La provenance du verdict n\'est pas tracee.', tone: 'neutral' }
 }
 

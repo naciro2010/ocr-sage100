@@ -42,6 +42,50 @@ const SHORTCUTS = [
   { keys: 'Esc', desc: 'Fermer modale/recherche' },
 ]
 
+const RULE_LEGEND: Array<{ engine: 'system' | 'ai' | 'human'; label: string; hint: string }> = [
+  { engine: 'system', label: 'Systeme', hint: 'calcule en local, deterministe, 0 $' },
+  { engine: 'ai', label: 'IA', hint: 'Claude, un seul appel par dossier (batch)' },
+  { engine: 'human', label: 'Humain', hint: "saisi dans l'autocontrole CCF-EN-04" },
+]
+
+const CONTROL_LAYERS: Array<{
+  engine: 'system' | 'ai' | 'human'
+  tag: string
+  title: string
+  desc: React.ReactNode
+  icon: React.ReactNode
+  metaLeft: string
+  metaRight: string
+}> = [
+  {
+    engine: 'system',
+    tag: 'Couche 1',
+    title: 'Systeme · deterministe',
+    desc: `22 regles codees en Kotlin : arithmetique, concordances de montants, verification d'ICE / IF / RIB (15 ou 24 chiffres), chronologie, completude du dossier, validite 6 mois de l'attestation fiscale. Zero appel externe, moins de 100 ms, strictement reproducible.`,
+    icon: <Zap size={11} />,
+    metaLeft: 'local · 0 $',
+    metaRight: 'R01-R20 + CK01-CK10',
+  },
+  {
+    engine: 'ai',
+    tag: 'Couche 2',
+    title: 'IA · jugement Claude',
+    desc: <>Regles personnalisees ecrites en francais dans l'onglet <strong>Regles</strong>. Toutes les regles applicables au dossier sont evaluees en <strong>un seul appel Claude</strong> (batch) pour partager le contexte et reduire cout + latence. Chaque verdict cite les valeurs observees et les documents source.</>,
+    icon: <Brain size={11} />,
+    metaLeft: 'Claude · 1 appel / dossier',
+    metaRight: 'CUSTOM-XX',
+  },
+  {
+    engine: 'human',
+    tag: 'Couche 3',
+    title: 'Humain · autocontrole',
+    desc: <>Les 10 points CK01-CK10 de la checklist MADAEF (CCF-EN-04) sont renseignes par un operateur : signatures, habilitations, PV de reception. Le systeme <strong>lit le statut saisi</strong> mais ne le recalcule pas.</>,
+    icon: <ShieldCheck size={11} />,
+    metaLeft: 'Saisie controleur',
+    metaRight: 'CK01-CK10',
+  },
+]
+
 export default function Settings() {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<'pipeline' | 'cles' | 'health' | 'rules' | 'about'>('pipeline')
@@ -242,56 +286,22 @@ export default function Settings() {
           </div>
 
           <div className="card">
-            <div className="section-title-rail">Deux couches de controles · ce qui est calcule, ce qui est juge</div>
+            <div className="section-title-rail">Trois couches de controles · ce qui est calcule, ce qui est juge</div>
             <div className="control-layer-grid">
-              <div className="control-layer-card layer-system">
-                <div className="control-layer-head">
-                  <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
-                  <span className="control-layer-tag">Couche 1</span>
-                  <span className="control-layer-title">Systeme · deterministe</span>
+              {CONTROL_LAYERS.map(layer => (
+                <div key={layer.engine} className={`control-layer-card layer-${layer.engine}`}>
+                  <div className="control-layer-head">
+                    <span className={`ctrl-engine-chip-dot dot-${layer.engine}`} aria-hidden="true" />
+                    <span className="control-layer-tag">{layer.tag}</span>
+                    <span className="control-layer-title">{layer.title}</span>
+                  </div>
+                  <div className="control-layer-desc">{layer.desc}</div>
+                  <div className="control-layer-meta">
+                    <span>{layer.icon} {layer.metaLeft}</span>
+                    <span>{layer.metaRight}</span>
+                  </div>
                 </div>
-                <div className="control-layer-desc">
-                  22 regles codees en Kotlin : arithmetique, concordances de montants, verification d'ICE / IF / RIB (15 ou 24 chiffres),
-                  chronologie, completude du dossier, validite 6 mois de l'attestation fiscale. Zero appel externe, moins de 100 ms,
-                  strictement reproducible.
-                </div>
-                <div className="control-layer-meta">
-                  <span><Zap size={11} /> local · 0 $</span>
-                  <span>R01-R20 + CK01-CK10</span>
-                </div>
-              </div>
-              <div className="control-layer-card layer-ai">
-                <div className="control-layer-head">
-                  <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
-                  <span className="control-layer-tag">Couche 2</span>
-                  <span className="control-layer-title">IA · jugement Claude</span>
-                </div>
-                <div className="control-layer-desc">
-                  Regles personnalisees ecrites en francais dans l'onglet <strong>Regles</strong>. Toutes les regles applicables
-                  au dossier sont evaluees en <strong>un seul appel Claude</strong> (batch) pour partager le contexte et reduire cout + latence.
-                  Chaque verdict cite les valeurs observees et les documents source.
-                </div>
-                <div className="control-layer-meta">
-                  <span><Brain size={11} /> Claude · 1 appel / dossier</span>
-                  <span>CUSTOM-XX</span>
-                </div>
-              </div>
-              <div className="control-layer-card layer-human">
-                <div className="control-layer-head">
-                  <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
-                  <span className="control-layer-tag">Couche 3</span>
-                  <span className="control-layer-title">Humain · autocontrole</span>
-                </div>
-                <div className="control-layer-desc">
-                  Les 10 points CK01-CK10 de la checklist MADAEF (CCF-EN-04) sont renseignes par un operateur :
-                  signatures, habilitations, PV de reception. Le systeme <strong>lit le statut saisi</strong> mais
-                  ne le recalcule pas.
-                </div>
-                <div className="control-layer-meta">
-                  <span><ShieldCheck size={11} /> Saisie controleur</span>
-                  <span>CK01-CK10</span>
-                </div>
-              </div>
+              ))}
             </div>
             <div className="alert alert-info" style={{ marginTop: 14 }}>
               <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
@@ -1229,18 +1239,12 @@ function ValidationRulesSection() {
   return (
     <div className="card">
       <div className="rule-legend" aria-label="Legende des moteurs de controle">
-        <span className="rule-legend-item layer-system">
-          <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
-          <strong>Systeme</strong> · calcule en local, deterministe, 0 $
-        </span>
-        <span className="rule-legend-item layer-ai">
-          <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
-          <strong>IA</strong> · Claude, un seul appel par dossier (batch)
-        </span>
-        <span className="rule-legend-item layer-human">
-          <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
-          <strong>Humain</strong> · saisi dans l'autocontrole CCF-EN-04
-        </span>
+        {RULE_LEGEND.map(l => (
+          <span key={l.engine} className={`rule-legend-item layer-${l.engine}`}>
+            <span className={`ctrl-engine-chip-dot dot-${l.engine}`} aria-hidden="true" />
+            <strong>{l.label}</strong> · {l.hint}
+          </span>
+        ))}
       </div>
 
       <div className="section-title-rail">

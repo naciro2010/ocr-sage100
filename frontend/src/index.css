@@ -57,6 +57,20 @@
   --ctrl-ok-halo: rgba(4, 120, 87, 0.12);
   --ctrl-ko-halo: rgba(185, 28, 28, 0.12);
   --ctrl-warn-halo: rgba(180, 83, 9, 0.12);
+
+  /* Engine palette : systeme (deterministe) / IA (Claude) / humain (autocontrole) */
+  --engine-system-fg: #475569;
+  --engine-system-dot: #64748b;
+  --engine-system-bg: rgba(100, 116, 139, 0.08);
+  --engine-system-border: rgba(100, 116, 139, 0.22);
+  --engine-ai-fg: #6d28d9;
+  --engine-ai-dot: #8b5cf6;
+  --engine-ai-bg: rgba(139, 92, 246, 0.08);
+  --engine-ai-border: rgba(139, 92, 246, 0.22);
+  --engine-human-fg: #b45309;
+  --engine-human-dot: #f59e0b;
+  --engine-human-bg: rgba(245, 158, 11, 0.08);
+  --engine-human-border: rgba(245, 158, 11, 0.22);
 }
 
 * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -3498,9 +3512,9 @@ body {
   border-color: var(--ink-30);
   color: var(--ink-90);
 }
-.ctrl-engine-chip.active.engine-system { border-color: #94a3b8; color: #475569; }
-.ctrl-engine-chip.active.engine-ai     { border-color: #a78bfa; color: #6d28d9; background: rgba(167,139,250,0.07); }
-.ctrl-engine-chip.active.engine-human  { border-color: #f59e0b; color: #b45309; background: rgba(245,158,11,0.07); }
+.ctrl-engine-chip.active.engine-system { border-color: var(--engine-system-border); color: var(--engine-system-fg); background: var(--engine-system-bg); }
+.ctrl-engine-chip.active.engine-ai     { border-color: var(--engine-ai-border);     color: var(--engine-ai-fg);     background: var(--engine-ai-bg); }
+.ctrl-engine-chip.active.engine-human  { border-color: var(--engine-human-border);  color: var(--engine-human-fg);  background: var(--engine-human-bg); }
 .ctrl-engine-chip-num {
   font-size: 9px;
   padding: 0 4px;
@@ -3514,13 +3528,12 @@ body {
   display: inline-block;
   flex-shrink: 0;
 }
-.ctrl-engine-chip-dot.dot-system { background: #64748b; }
-.ctrl-engine-chip-dot.dot-ai     { background: #8b5cf6; }
-.ctrl-engine-chip-dot.dot-human  { background: #f59e0b; }
+.ctrl-engine-chip-dot.dot-system { background: var(--engine-system-dot); }
+.ctrl-engine-chip-dot.dot-ai     { background: var(--engine-ai-dot); }
+.ctrl-engine-chip-dot.dot-human  { background: var(--engine-human-dot); }
 
-/* Tiny trailing badge in the rules list */
+/* Tiny trailing badge in the rules list (grid column 4 handles alignment) */
 .ctrl-rule-engine {
-  margin-left: auto;
   font-family: var(--font-mono);
   font-size: 9px;
   font-weight: 700;
@@ -3535,18 +3548,10 @@ body {
   cursor: help;
   flex-shrink: 0;
 }
-.ctrl-rule-engine.engine-system {
-  color: #475569; background: rgba(100,116,139,0.07); border-color: rgba(100,116,139,0.15);
-}
-.ctrl-rule-engine.engine-ai {
-  color: #6d28d9; background: rgba(139,92,246,0.07); border-color: rgba(139,92,246,0.18);
-}
-.ctrl-rule-engine.engine-human {
-  color: #b45309; background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.2);
-}
-.ctrl-rule-row.selected .ctrl-rule-engine {
-  filter: saturate(1.2);
-}
+.ctrl-rule-engine.engine-system { color: var(--engine-system-fg); background: var(--engine-system-bg); border-color: var(--engine-system-border); }
+.ctrl-rule-engine.engine-ai     { color: var(--engine-ai-fg);     background: var(--engine-ai-bg);     border-color: var(--engine-ai-border); }
+.ctrl-rule-engine.engine-human  { color: var(--engine-human-fg);  background: var(--engine-human-bg);  border-color: var(--engine-human-border); }
+.ctrl-rule-row.selected .ctrl-rule-engine { filter: saturate(1.2); }
 
 /* Hero : repartition par moteur sous les pastilles de statut */
 .ctrl-hero-engines {
@@ -3563,9 +3568,9 @@ body {
   display: inline-flex; align-items: center; gap: 6px;
   cursor: help;
 }
-.ctrl-hero-engine.engine-system { color: #475569; }
-.ctrl-hero-engine.engine-ai     { color: #6d28d9; }
-.ctrl-hero-engine.engine-human  { color: #b45309; }
+.ctrl-hero-engine.engine-system { color: var(--engine-system-fg); }
+.ctrl-hero-engine.engine-ai     { color: var(--engine-ai-fg); }
+.ctrl-hero-engine.engine-human  { color: var(--engine-human-fg); }
 
 /* Detail header : petit tag moteur a droite du statut */
 .ctrl-detail-engine {
@@ -3579,15 +3584,9 @@ body {
   border-radius: 3px;
   cursor: help;
 }
-.ctrl-detail-engine.engine-system {
-  color: #475569; background: rgba(100,116,139,0.07); border: 1px solid rgba(100,116,139,0.18);
-}
-.ctrl-detail-engine.engine-ai {
-  color: #6d28d9; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.22);
-}
-.ctrl-detail-engine.engine-human {
-  color: #b45309; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.22);
-}
+.ctrl-detail-engine.engine-system { color: var(--engine-system-fg); background: var(--engine-system-bg); border: 1px solid var(--engine-system-border); }
+.ctrl-detail-engine.engine-ai     { color: var(--engine-ai-fg);     background: var(--engine-ai-bg);     border: 1px solid var(--engine-ai-border); }
+.ctrl-detail-engine.engine-human  { color: var(--engine-human-fg);  background: var(--engine-human-bg);  border: 1px solid var(--engine-human-border); }
 
 /* Settings : explication des 3 couches de controles */
 .control-layer-grid {
@@ -3603,18 +3602,9 @@ body {
   background: var(--ink-02);
   display: flex; flex-direction: column; gap: 8px;
 }
-.control-layer-card.layer-system {
-  border-color: rgba(100,116,139,0.25);
-  background: linear-gradient(180deg, rgba(100,116,139,0.05) 0%, transparent 100%);
-}
-.control-layer-card.layer-ai {
-  border-color: rgba(139,92,246,0.25);
-  background: linear-gradient(180deg, rgba(139,92,246,0.06) 0%, transparent 100%);
-}
-.control-layer-card.layer-human {
-  border-color: rgba(245,158,11,0.25);
-  background: linear-gradient(180deg, rgba(245,158,11,0.05) 0%, transparent 100%);
-}
+.control-layer-card.layer-system { border-color: var(--engine-system-border); background: linear-gradient(180deg, var(--engine-system-bg) 0%, transparent 100%); }
+.control-layer-card.layer-ai     { border-color: var(--engine-ai-border);     background: linear-gradient(180deg, var(--engine-ai-bg) 0%, transparent 100%); }
+.control-layer-card.layer-human  { border-color: var(--engine-human-border);  background: linear-gradient(180deg, var(--engine-human-bg) 0%, transparent 100%); }
 .control-layer-head {
   display: flex; align-items: center; gap: 8px;
   font-family: var(--font-mono);
@@ -3678,12 +3668,6 @@ body {
   cursor: help;
   white-space: nowrap;
 }
-.rule-engine-tag.tag-system {
-  color: #475569; background: rgba(100,116,139,0.08); border: 1px solid rgba(100,116,139,0.18);
-}
-.rule-engine-tag.tag-ai {
-  color: #6d28d9; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.22);
-}
-.rule-engine-tag.tag-human {
-  color: #b45309; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.22);
-}
+.rule-engine-tag.tag-system { color: var(--engine-system-fg); background: var(--engine-system-bg); border: 1px solid var(--engine-system-border); }
+.rule-engine-tag.tag-ai     { color: var(--engine-ai-fg);     background: var(--engine-ai-bg);     border: 1px solid var(--engine-ai-border); }
+.rule-engine-tag.tag-human  { color: var(--engine-human-fg);  background: var(--engine-human-bg);  border: 1px solid var(--engine-human-border); }
