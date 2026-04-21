@@ -113,6 +113,70 @@ class CustomRuleService(
     }
 
     /**
+     * Evaluate several applicable rules against the same dossier in a SINGLE
+     * Claude call. The dossier payload is serialised once and shared across
+     * all rules, which divides the cost and latency by N compared to calling
+     * [evaluate] in a loop. Falls back gracefully to per-rule evaluation if
+     * the batch response is malformed or the LLM times out.
+     */
+    fun evaluateBatch(rules: List<CustomValidationRule>, dossier: DossierPaiement): List<ResultatValidation> {
+        if (rules.isEmpty()) return emptyList()
+        if (rules.size == 1) return listOf(evaluate(rules.first(), dossier))
+
+        val applicable = rules.filter {
+            when (dossier.type) {
+                DossierType.BC -> it.appliesToBC
+                DossierType.CONTRACTUEL -> it.appliesToContractuel
+            }
+        }
+        val notApplicable = rules - applicable.toSet()
+        val skipped = notApplicable.map {
+            ResultatValidation(
+                dossier = dossier, regle = it.code, libelle = it.libelle,
+                statut = StatutCheck.NON_APPLICABLE,
+                detail = "Regle non applicable au type de dossier ${dossier.type}",
+                source = "CUSTOM_BATCH"
+            )
+        }
+        if (applicable.isEmpty()) return skipped
+
+        if (!llm.isAvailable) {
+            return skipped + applicable.map {
+                ResultatValidation(
+                    dossier = dossier, regle = it.code, libelle = it.libelle,
+                    statut = StatutCheck.AVERTISSEMENT,
+                    detail = "Regle custom ignoree: cle API Claude non configuree",
+                    source = "CUSTOM_BATCH"
+                )
+            }
+        }
+
+        // Payload is built once, with ALL documents referenced by any rule,
+        // so each rule in the batch sees the relevant extracted data.
+        val allDocs = dossier.documents.toList()
+        val payload = buildDossierPayload(dossier, allDocs)
+        val involvedIds = allDocs.mapNotNull { it.id?.toString() }
+
+        return try {
+            val raw = llm.callClaude(BATCH_SYSTEM_PROMPT, buildBatchUserPrompt(applicable, payload))
+            val verdicts = parseBatchResponse(raw)
+            val results = applicable.map { rule ->
+                val verdict = verdicts[rule.code]
+                if (verdict == null) {
+                    log.warn("Batch response missing verdict for {} — falling back to per-rule eval", rule.code)
+                    evaluate(rule, dossier)
+                } else {
+                    buildResultFromVerdict(rule, dossier, verdict, involvedIds)
+                }
+            }
+            skipped + results
+        } catch (e: Exception) {
+            log.warn("Batch custom-rule evaluation failed ({}): falling back to per-rule calls", e.message)
+            skipped + applicable.map { evaluate(it, dossier) }
+        }
+    }
+
+    /**
      * Evaluate a single rule against a dossier. Returns a detached
      * [ResultatValidation] (caller is responsible for association + persistence).
      * If the LLM is unavailable or misbehaves we surface AVERTISSEMENT rather
@@ -297,6 +361,112 @@ $payloadJson
         )
     }
 
+    // ---------------- Batch helpers ----------------
+
+    private data class BatchVerdict(
+        val statut: String,
+        val detail: String?,
+        val evidences: List<ValidationEvidence>?,
+        val needsMoreInfo: Boolean,
+        val questions: List<String>,
+        val documentIds: List<String>?
+    )
+
+    private fun buildBatchUserPrompt(rules: List<CustomValidationRule>, payload: Map<String, Any?>): String {
+        val rulesBlock = rules.joinToString("\n\n") { rule ->
+            val required = rule.requiredFields
+                ?.split(",")
+                ?.map { it.trim() }
+                ?.filter { it.isNotBlank() }
+                ?: emptyList()
+            val reqLine = if (required.isEmpty()) "" else
+                "Champs requis: ${required.joinToString(", ")}. Si l'un manque, mets needsMoreInfo=true et liste dans questions.\n"
+            """
+[REGLE ${rule.code}] ${rule.libelle}
+${if (!rule.description.isNullOrBlank()) "Description: ${rule.description}\n" else ""}Severite demandee: ${rule.severity}
+Applicabilite: BC=${rule.appliesToBC}, CONTRACTUEL=${rule.appliesToContractuel}
+$reqLine
+Critere (a appliquer litteralement):
+${rule.prompt}
+            """.trimIndent()
+        }
+        val payloadJson = objectMapper.writeValueAsString(payload)
+        return """
+Voici ${rules.size} regles a evaluer CONTRE LE MEME dossier. Reponds UNIQUEMENT par un JSON
+de la forme { "verdicts": [ { "code": "CUSTOM-01", ... }, ... ] } avec une entree par regle,
+codes cites ci-dessous. Pas de texte autour. Pas de markdown.
+
+REGLES:
+$rulesBlock
+
+DONNEES DU DOSSIER (JSON):
+$payloadJson
+        """.trimIndent()
+    }
+
+    private fun parseBatchResponse(raw: String): Map<String, BatchVerdict> {
+        val root = objectMapper.readTree(raw)
+        val arr = root.path("verdicts").takeIf { it.isArray } ?: return emptyMap()
+        val out = mutableMapOf<String, BatchVerdict>()
+        for (node in arr) {
+            val code = node.path("code").asText(null)?.takeIf { it.isNotBlank() } ?: continue
+            val evidences = node.path("evidences").takeIf { it.isArray }?.mapNotNull { ev ->
+                val champ = ev.path("champ").asText(null) ?: return@mapNotNull null
+                ValidationEvidence(
+                    role = ev.path("role").asText("trouve").ifBlank { "trouve" },
+                    champ = champ,
+                    libelle = ev.path("libelle").asText(null)?.takeIf { it.isNotBlank() },
+                    documentId = ev.path("documentId").asText(null)?.takeIf { it.isNotBlank() },
+                    documentType = ev.path("documentType").asText(null)?.takeIf { it.isNotBlank() },
+                    valeur = ev.path("valeur").asText(null)?.takeIf { it.isNotBlank() }
+                )
+            }
+            val docIds = node.path("documentIds").takeIf { it.isArray }
+                ?.mapNotNull { it.asText(null)?.takeIf { s -> s.isNotBlank() } }
+            out[code] = BatchVerdict(
+                statut = node.path("statut").asText("AVERTISSEMENT").uppercase(),
+                detail = node.path("detail").asText(null)?.takeIf { it.isNotBlank() },
+                evidences = evidences?.takeIf { it.isNotEmpty() },
+                needsMoreInfo = node.path("needsMoreInfo").asBoolean(false),
+                questions = node.path("questions").takeIf { it.isArray }
+                    ?.mapNotNull { it.asText(null)?.takeIf { s -> s.isNotBlank() } } ?: emptyList(),
+                documentIds = docIds
+            )
+        }
+        return out
+    }
+
+    private fun buildResultFromVerdict(
+        rule: CustomValidationRule,
+        dossier: DossierPaiement,
+        v: BatchVerdict,
+        fallbackDocIds: List<String>
+    ): ResultatValidation {
+        if (v.needsMoreInfo) {
+            val q = if (v.questions.isEmpty()) "Informations manquantes dans les documents."
+                    else "Informations manquantes: " + v.questions.joinToString(" | ")
+            return ResultatValidation(
+                dossier = dossier, regle = rule.code, libelle = rule.libelle,
+                statut = StatutCheck.NON_APPLICABLE,
+                detail = v.detail?.let { "$it — $q" } ?: q,
+                source = "CUSTOM_BATCH",
+                documentIds = (v.documentIds ?: fallbackDocIds).joinToString(",").ifBlank { null }
+            )
+        }
+        var statut = runCatching { StatutCheck.valueOf(v.statut) }.getOrDefault(StatutCheck.AVERTISSEMENT)
+        if (statut == StatutCheck.NON_CONFORME && rule.severity == "AVERTISSEMENT") {
+            statut = StatutCheck.AVERTISSEMENT
+        }
+        return ResultatValidation(
+            dossier = dossier, regle = rule.code, libelle = rule.libelle,
+            statut = statut,
+            detail = v.detail,
+            source = "CUSTOM_BATCH",
+            evidences = v.evidences,
+            documentIds = (v.documentIds ?: fallbackDocIds).joinToString(",").ifBlank { null }
+        )
+    }
+
     companion object {
         private val SYSTEM_PROMPT = """
 Tu es un controleur financier specialise dans la reconciliation de dossiers de paiement au Maroc (TVA, ICE, IF, RIB).
@@ -320,6 +490,37 @@ REGLES STRICTES:
 - N'invente pas de valeurs. Appuie-toi uniquement sur les donnees fournies.
 - Les montants sont en MAD sauf mention contraire. Les dates sont au format ISO.
 - Ta reponse DOIT etre un JSON parsable. Pas de markdown, pas de prefixe, pas de suffixe.
+        """.trimIndent()
+
+        private val BATCH_SYSTEM_PROMPT = """
+Tu es un controleur financier specialise dans la reconciliation de dossiers de paiement au Maroc (TVA, ICE, IF, RIB).
+On te fournit UN dossier (facture, BC, contrat, OP, attestations...) et PLUSIEURS regles personnalisees a evaluer.
+Ta mission: evaluer chaque regle INDEPENDAMMENT contre les memes donnees et retourner UNIQUEMENT un JSON valide de la forme:
+{
+  "verdicts": [
+    {
+      "code": "CUSTOM-XX",
+      "statut": "CONFORME" | "NON_CONFORME" | "AVERTISSEMENT" | "NON_APPLICABLE",
+      "detail": "explication courte (<= 300 caracteres) factuelle, citant les valeurs observees",
+      "evidences": [
+        { "role": "attendu"|"trouve"|"source"|"calcule", "champ": "nomChamp",
+          "libelle": "libelle humain", "documentId": "uuid", "documentType": "FACTURE",
+          "valeur": "stringifiee" }
+      ],
+      "documentIds": ["uuid", "uuid"],
+      "needsMoreInfo": false,
+      "questions": []
+    }
+  ]
+}
+
+REGLES STRICTES:
+- Un verdict PAR regle listee, code exact (CUSTOM-XX).
+- Evalue chaque regle separement ; ne deduis pas une regle d'une autre.
+- Si tu manques d'informations pour juger, mets needsMoreInfo=true et liste les champs manquants dans questions.
+- N'invente aucune valeur. Appuie-toi uniquement sur le dossier fourni.
+- Les montants sont en MAD sauf mention contraire. Les dates sont au format ISO.
+- Ta reponse DOIT etre un JSON parsable, PAS de markdown, PAS de prefixe ni suffixe.
         """.trimIndent()
     }
 }

@@ -13,7 +13,7 @@ import {
   FileText, RefreshCw, Edit3, Save, X,
   MessageSquare, ChevronLeft, ChevronRight, Download,
   Zap as ZapIcon, MousePointer, Search, CheckCircle2,
-  XCircle, AlertCircle, MinusCircle, Clock
+  XCircle, AlertCircle, MinusCircle, Clock, Play, Sparkles
 } from 'lucide-react'
 
 type FilterMode = 'all' | 'problems' | 'conforme' | 'pending'
@@ -34,6 +34,9 @@ interface Props {
   customRules?: CustomRule[]
 }
 
+type ControlEngine = 'system' | 'ai' | 'human'
+type EngineFilter = 'any' | ControlEngine
+
 interface RuleItem {
   key: string
   code: string
@@ -43,7 +46,43 @@ interface RuleItem {
   status: ItemStatus
   group: string
   category: 'system' | 'checklist' | 'custom'
+  engine: ControlEngine
   custom?: CustomRule
+}
+
+/**
+ * Classe un controle par moteur d'execution pour que l'utilisateur comprenne
+ * immediatement ce qui est calcule par le code (reproducible, 0 $) et ce qui
+ * est delegue a Claude (batch, jugement). "human" = checklist d'autocontrole
+ * renseignee par un operateur.
+ */
+function deriveEngine(item: {
+  category: 'system' | 'checklist' | 'custom'
+  result: ValidationResult | undefined
+}): ControlEngine {
+  if (item.category === 'checklist') return 'human'
+  if (item.category === 'custom') return 'ai'
+  const src = (item.result?.source || '').toLowerCase()
+  if (src === 'llm' || src === 'ia' || src === 'custom' || src === 'custom_batch') return 'ai'
+  return 'system'
+}
+
+const ENGINE_LABEL: Record<ControlEngine, { short: string; long: string; hint: string }> = {
+  system: {
+    short: 'Systeme',
+    long: 'Controle systeme (deterministe)',
+    hint: 'Execute en local par le backend. Reproducible, zero appel IA, moins de 100 ms.',
+  },
+  ai: {
+    short: 'IA',
+    long: 'Controle IA (Claude)',
+    hint: 'Delegue a Claude en un appel groupe par dossier. Jugement a verifier si critique.',
+  },
+  human: {
+    short: 'Humain',
+    long: 'Saisie humaine',
+    hint: 'Point renseigne dans la checklist autocontrole (CCF-EN-04). Valeur saisie par un operateur.',
+  },
 }
 
 /**
@@ -64,6 +103,20 @@ function verdictProvenance(r: ValidationResult): { label: string; hint: string; 
     return {
       label: 'Jugement IA (Claude)',
       hint: 'Le modele Claude a ete sollicite pour trancher. A croiser avec les documents sources en cas de doute.',
+      tone: 'warning',
+    }
+  }
+  if (src === 'custom_batch') {
+    return {
+      label: 'Jugement IA (Claude, appel groupe)',
+      hint: 'Evalue par Claude dans un appel unique couvrant toutes les regles personnalisees du dossier. A croiser avec les documents sources si critique.',
+      tone: 'warning',
+    }
+  }
+  if (src === 'custom') {
+    return {
+      label: 'Jugement IA (Claude, regle personnalisee)',
+      hint: 'Regle personnalisee evaluee par Claude. A croiser avec les documents sources en cas de doute.',
       tone: 'warning',
     }
   }
@@ -163,13 +216,16 @@ function useBlobUrl(apiUrl: string | null) {
 }
 
 /* ===== LEFT PANEL ===== */
-function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, counts, search, onSearchChange }: {
+function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, counts, engineFilter, onEngineFilterChange, engineCounts, search, onSearchChange }: {
   items: RuleItem[]
   selectedKey: string | null
   onSelect: (key: string) => void
   filterMode: FilterMode
   onFilterChange: (m: FilterMode) => void
   counts: { ok: number; ko: number; warn: number; pending: number; total: number }
+  engineFilter: EngineFilter
+  onEngineFilterChange: (f: EngineFilter) => void
+  engineCounts: Record<ControlEngine, number>
   search: string
   onSearchChange: (q: string) => void
 }) {
@@ -179,6 +235,7 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
     if (filterMode === 'problems') list = list.filter(i => i.status === 'ko' || i.status === 'warn')
     else if (filterMode === 'conforme') list = list.filter(i => i.status === 'ok')
     else if (filterMode === 'pending') list = list.filter(i => i.status === 'pending' || i.status === 'na')
+    if (engineFilter !== 'any') list = list.filter(i => i.engine === engineFilter)
     if (search.trim()) {
       const q = search.trim().toLowerCase()
       list = list.filter(i =>
@@ -188,7 +245,7 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
       )
     }
     return list
-  }, [items, filterMode, search])
+  }, [items, filterMode, engineFilter, search])
 
   const STATUS_PRIORITY: Record<ItemStatus, number> = {
     ko: 0, warn: 1, pending: 2, na: 3, ok: 4,
@@ -249,6 +306,34 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
             </button>
           )}
         </div>
+        <div className="ctrl-left-engine-tabs" role="group" aria-label="Filtrer par moteur d'execution">
+          <button className={`ctrl-engine-chip ${engineFilter === 'any' ? 'active' : ''}`}
+            onClick={() => onEngineFilterChange('any')}
+            title="Tous les moteurs (systeme, IA, humain)">
+            Tous moteurs
+          </button>
+          <button className={`ctrl-engine-chip engine-system ${engineFilter === 'system' ? 'active' : ''}`}
+            onClick={() => onEngineFilterChange(engineFilter === 'system' ? 'any' : 'system')}
+            disabled={engineCounts.system === 0}
+            title="Controles deterministes executes en local par le backend (0 $)">
+            <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
+            Systeme <span className="ctrl-engine-chip-num">{engineCounts.system}</span>
+          </button>
+          <button className={`ctrl-engine-chip engine-ai ${engineFilter === 'ai' ? 'active' : ''}`}
+            onClick={() => onEngineFilterChange(engineFilter === 'ai' ? 'any' : 'ai')}
+            disabled={engineCounts.ai === 0}
+            title="Regles personnalisees evaluees par Claude en un appel groupe">
+            <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
+            IA <span className="ctrl-engine-chip-num">{engineCounts.ai}</span>
+          </button>
+          <button className={`ctrl-engine-chip engine-human ${engineFilter === 'human' ? 'active' : ''}`}
+            onClick={() => onEngineFilterChange(engineFilter === 'human' ? 'any' : 'human')}
+            disabled={engineCounts.human === 0}
+            title="Points de l'autocontrole (CCF-EN-04) renseignes par un operateur">
+            <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
+            Humain <span className="ctrl-engine-chip-num">{engineCounts.human}</span>
+          </button>
+        </div>
       </div>
 
       <div className="ctrl-split-left-list" role="listbox" aria-label="Liste des controles">
@@ -278,20 +363,60 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
                 <button
                   key={item.key}
                   type="button"
-                  className={`ctrl-rule-row status-${item.status} ${isSelected ? 'selected' : ''}`}
+                  className={`ctrl-rule-row status-${item.status} engine-${item.engine} ${isSelected ? 'selected' : ''}`}
                   onClick={() => onSelect(item.key)}
                   role="option"
                   aria-selected={isSelected}
-                  aria-label={`${item.code} - ${item.label} - ${sd.label}`}
+                  aria-label={`${item.code} - ${item.label} - ${sd.label} - ${ENGINE_LABEL[item.engine].long}`}
                 >
                   <StatusIcon status={item.status} size={14} />
                   <span className="ctrl-rule-code">{item.code}</span>
                   <span className="ctrl-rule-label">{item.label}</span>
+                  <span className={`ctrl-rule-engine engine-${item.engine}`} title={ENGINE_LABEL[item.engine].hint} aria-hidden="true">
+                    {ENGINE_LABEL[item.engine].short}
+                  </span>
                 </button>
               )
             })}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/* Circular score ring — visual anchor of the controls section */
+function ConformityGauge({ pct, tone, ok, total, pending }: {
+  pct: number
+  tone: 'ok' | 'warn' | 'ko' | 'pending'
+  ok: number
+  total: number
+  pending: number
+}) {
+  const size = 76
+  const stroke = 7
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const hasRun = total - pending > 0
+  const shownPct = hasRun ? pct : 0
+  const dash = (shownPct / 100) * c
+  const label = tone === 'pending' ? '—' : `${pct}%`
+  return (
+    <div className={`ctrl-gauge tone-${tone}`} aria-label={`Conformite ${pct}%`} role="img">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r}
+          fill="none" stroke="var(--ink-05)" strokeWidth={stroke} />
+        {hasRun && (
+          <circle cx={size / 2} cy={size / 2} r={r}
+            fill="none" className="ctrl-gauge-arc"
+            strokeWidth={stroke} strokeLinecap="round"
+            strokeDasharray={`${dash} ${c}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+        )}
+      </svg>
+      <div className="ctrl-gauge-value">
+        <strong>{label}</strong>
+        <span>{ok}/{total}</span>
       </div>
     </div>
   )
@@ -448,6 +573,10 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
           <span className="ctrl-detail-group">{item.group}</span>
           <span className="ctrl-detail-dot" aria-hidden="true" />
           <span className={`ctrl-detail-status-label status-${item.status}`}>{sd.label}</span>
+          <span className={`ctrl-detail-engine engine-${item.engine}`} title={ENGINE_LABEL[item.engine].hint}>
+            <span className={`ctrl-engine-chip-dot dot-${item.engine}`} aria-hidden="true" />
+            {ENGINE_LABEL[item.engine].long}
+          </span>
           {stale && <span className="ctrl-chip-neutral">Obsolete</span>}
           {r && !editing && (
             <div className="ctrl-detail-header-actions">
@@ -783,6 +912,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
   const { toast } = useToast()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
+  const [engineFilter, setEngineFilter] = useState<EngineFilter>('any')
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
   const [highlightField, setHighlightField] = useState<string | null>(null)
   const [rerunning, setRerunning] = useState<string | null>(null)
@@ -808,7 +938,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         const status: ItemStatus = result
           ? statutToItemStatus(result.statut)
           : 'pending'
-        list.push({ key: code, code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result, status, group: g.label, category: 'system' })
+        list.push({ key: code, code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result, status, group: g.label, category: 'system', engine: deriveEngine({ category: 'system', result }) })
       }
     }
 
@@ -817,7 +947,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         const rCode = `R12.${String(pt.num).padStart(2, '0')}`
         const result = results.find(r => r.regle === rCode) || undefined
         const status = result ? statutToItemStatus(result.statut) : estValideToItemStatus(pt.estValide, results.length > 0)
-        list.push({ key: `ck-${pt.num}`, code: rCode, label: pt.desc, desc: '', result, status, group: 'Autocontrole', category: 'checklist' })
+        list.push({ key: `ck-${pt.num}`, code: rCode, label: pt.desc, desc: '', result, status, group: 'Autocontrole', category: 'checklist', engine: 'human' })
       }
     }
 
@@ -836,7 +966,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         list.push({
           key: `custom-${cr.code}`, code: cr.code, label: cr.libelle,
           desc: cr.description ?? '', result, status,
-          group: 'Regles personnalisees', category: 'custom', custom: cr
+          group: 'Regles personnalisees (IA)', category: 'custom', engine: 'ai', custom: cr
         })
       }
     }
@@ -852,6 +982,12 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
       else if (item.status === 'pending' || item.status === 'na') pending++
     }
     return { ok, ko, warn, pending, total: items.length }
+  }, [items])
+
+  const engineCounts = useMemo<Record<ControlEngine, number>>(() => {
+    const acc: Record<ControlEngine, number> = { system: 0, ai: 0, human: 0 }
+    for (const item of items) acc[item.engine]++
+    return acc
   }, [items])
 
   const pctOk = counts.total > 0 ? Math.round((counts.ok / counts.total) * 100) : 0
@@ -971,35 +1107,104 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     if (first) setSelectedKey(first.key)
   }
 
+  const filterByStatus = (mode: FilterMode, fallback?: ItemStatus) => {
+    setFilterMode(mode)
+    const target = fallback
+      ? items.find(i => i.status === fallback)
+      : items.find(i => i.status === 'ko') || items.find(i => i.status === 'warn')
+    if (target) setSelectedKey(target.key)
+  }
+
   return (
     <div className="ctrl-view">
-      {/* Compact hero — single band */}
-      <section className="ctrl-hero">
+      {/* Hero — element central, ancre visuelle du dossier */}
+      <section className={`ctrl-hero ctrl-hero-featured tone-${healthTone}`}>
+        <div className="ctrl-hero-accent" aria-hidden="true" />
         <div className="ctrl-hero-main">
+          <ConformityGauge pct={pctOk} tone={healthTone}
+            ok={counts.ok} total={counts.total} pending={counts.pending} />
+
           <div className="ctrl-hero-text">
+            <div className="ctrl-hero-eyebrow">
+              <ShieldCheck size={12} />
+              <span>Controles du dossier</span>
+              {lastRunLabel && (
+                <>
+                  <span className="ctrl-hero-eyebrow-dot" aria-hidden="true" />
+                  <span className="ctrl-hero-eyebrow-time">Verifie {lastRunLabel}</span>
+                </>
+              )}
+            </div>
             <h2 className="ctrl-hero-title">{headline}</h2>
             {hasResults ? (
               <div className="ctrl-hero-stats-inline">
-                <span><strong>{counts.ok}</strong>/<span className="ctrl-hero-total">{counts.total}</span> conformes</span>
-                {counts.ko > 0 && <span className="ctrl-hero-pill pill-ko">{counts.ko} KO</span>}
-                {counts.warn > 0 && <span className="ctrl-hero-pill pill-warn">{counts.warn} avertissements</span>}
-                {counts.pending > 0 && <span className="ctrl-hero-muted">{counts.pending} en attente</span>}
-                {lastRunLabel && <span className="ctrl-hero-muted">Derniere verification {lastRunLabel}</span>}
+                <button type="button"
+                  className={`ctrl-hero-pill pill-ok ${filterMode === 'conforme' ? 'is-active' : ''}`}
+                  onClick={() => filterByStatus('conforme', 'ok')}
+                  aria-label={`${counts.ok} controles conformes, filtrer`}>
+                  <CheckCircle2 size={11} /> {counts.ok} conformes
+                </button>
+                {counts.ko > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-ko ${filterMode === 'problems' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('problems')}
+                    aria-label={`${counts.ko} non conformes, filtrer`}>
+                    <XCircle size={11} /> {counts.ko} non conformes
+                  </button>
+                )}
+                {counts.warn > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-warn ${filterMode === 'problems' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('problems', 'warn')}
+                    aria-label={`${counts.warn} avertissements, filtrer`}>
+                    <AlertCircle size={11} /> {counts.warn} avertissements
+                  </button>
+                )}
+                {counts.pending > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-pending ${filterMode === 'pending' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('pending', 'pending')}
+                    aria-label={`${counts.pending} en attente, filtrer`}>
+                    <Clock size={11} /> {counts.pending} en attente
+                  </button>
+                )}
               </div>
             ) : (
-              <div className="ctrl-hero-stats-inline ctrl-hero-muted">
-                Lancez la verification pour executer les controles systeme et la checklist autocontrole.
+              <div className="ctrl-hero-empty">
+                <Sparkles size={13} />
+                <span>Lancez la verification pour executer les {counts.total} controles systeme et l'autocontrole.</span>
               </div>
             )}
+            <div className="ctrl-hero-engines" aria-label="Repartition par moteur">
+              {engineCounts.system > 0 && (
+                <span className="ctrl-hero-engine engine-system" title={ENGINE_LABEL.system.hint}>
+                  <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
+                  {engineCounts.system} systeme
+                </span>
+              )}
+              {engineCounts.ai > 0 && (
+                <span className="ctrl-hero-engine engine-ai" title={ENGINE_LABEL.ai.hint}>
+                  <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
+                  {engineCounts.ai} IA (Claude, 1 appel groupe)
+                </span>
+              )}
+              {engineCounts.human > 0 && (
+                <span className="ctrl-hero-engine engine-human" title={ENGINE_LABEL.human.hint}>
+                  <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
+                  {engineCounts.human} humain
+                </span>
+              )}
+            </div>
           </div>
+
           <div className="ctrl-hero-actions-top">
             {counts.ko + counts.warn > 0 && (
               <button className="ctrl-btn-ghost" onClick={jumpToFirstProblem}>
-                Aller au probleme →
+                Aller au probleme <ChevronRight size={13} />
               </button>
             )}
             <button className="ctrl-btn-primary" onClick={onValidate} disabled={validating}>
-              {validating ? <Loader2 size={13} className="spin" /> : null}
+              {validating ? <Loader2 size={13} className="spin" /> : hasResults ? <RefreshCw size={13} /> : <Play size={13} />}
               {hasResults ? 'Relancer' : 'Lancer la verification'}
             </button>
           </div>
@@ -1025,6 +1230,8 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
       >
         <LeftPanel items={items} selectedKey={selectedKey} onSelect={setSelectedKey}
           filterMode={filterMode} onFilterChange={setFilterMode} counts={counts}
+          engineFilter={engineFilter} onEngineFilterChange={setEngineFilter}
+          engineCounts={engineCounts}
           search={search} onSearchChange={setSearch} />
 
         <div

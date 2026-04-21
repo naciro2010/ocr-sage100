@@ -1004,7 +1004,7 @@ class ValidationEngine(
         }
         if (customRules.isEmpty()) return emptyList()
 
-        return customRules
+        val selected = customRules
             .filter { isEnabled(it.code) }
             .filter {
                 when (dossier.type) {
@@ -1012,19 +1012,29 @@ class ValidationEngine(
                     DossierType.CONTRACTUEL -> it.appliesToContractuel
                 }
             }
-            .map { rule ->
+        if (selected.isEmpty()) return emptyList()
+
+        // One Claude call for all applicable custom rules (batch). The service
+        // falls back to per-rule evaluation automatically if the LLM answers
+        // with a malformed JSON, so we keep per-rule crash isolation too.
+        return try {
+            customRuleService.evaluateBatch(selected, dossier)
+        } catch (e: Exception) {
+            log.warn("Batch custom-rule evaluation crashed ({}): falling back to per-rule", e.message)
+            selected.map { rule ->
                 try {
                     customRuleService.evaluate(rule, dossier)
-                } catch (e: Exception) {
-                    log.warn("Custom rule {} crashed: {}", rule.code, e.message)
+                } catch (ex: Exception) {
+                    log.warn("Custom rule {} crashed: {}", rule.code, ex.message)
                     ResultatValidation(
                         dossier = dossier, regle = rule.code, libelle = rule.libelle,
                         statut = StatutCheck.AVERTISSEMENT,
-                        detail = "Erreur interne evaluation: ${e.message?.take(200)}",
+                        detail = "Erreur interne evaluation: ${ex.message?.take(200)}",
                         source = "CUSTOM"
                     )
                 }
             }
+        }
     }
 
     private fun checkMontant(

@@ -413,23 +413,11 @@ export default function DossierDetail() {
           </>
         ) : <DocsSkeleton />)}
 
-        {/* Block 4: Documents — independent load */}
-        {docsError ? (
-          <BlockError message={docsError} onRetry={loadDocs} />
-        ) : !docsData ? (
-          <DocsSkeleton />
-        ) : dossierCompat ? (
-          <div className="block-loaded" style={{ animationDelay: '0.1s' }}>
-            <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
-              onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
-          </div>
-        ) : null}
-
-        {/* Block 5: Verification — split-view 3 colonnes */}
+        {/* Block 4: Verification — split-view, element central de la page */}
         {validationError ? (
           <BlockError message={validationError} onRetry={loadValidation} />
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
-          <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
+          <div className="block-loaded" style={{ animationDelay: '0.1s' }}>
             <ControlSplitView
               dossier={dossierCompat}
               dossierId={id!}
@@ -448,6 +436,18 @@ export default function DossierDetail() {
             />
           </div>
         ) : (docsData === null && !docsError) ? <VerifSkeleton /> : null}
+
+        {/* Block 5: Documents — reference, sous les controles */}
+        {docsError ? (
+          <BlockError message={docsError} onRetry={loadDocs} />
+        ) : !docsData ? (
+          <DocsSkeleton />
+        ) : dossierCompat ? (
+          <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
+            <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
+              onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
+          </div>
+        ) : null}
 
         {/* Block 6: Audit */}
         {audit.length > 0 && (
