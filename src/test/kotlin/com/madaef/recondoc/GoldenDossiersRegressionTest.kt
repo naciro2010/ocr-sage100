@@ -219,4 +219,204 @@ class GoldenDossiersRegressionTest {
         assertEquals(StatutCheck.CONFORME, r22.statut,
             "R22 doit etre CONFORME: OP du 15/03 posterieur a PV reception du 01/03")
     }
+
+    @Test
+    fun `golden 08 R09 NON_CONFORME si ICE different entre facture et attestation`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "ACME"
+            ice = "001509176000008"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "ACME"; ice = "999999999999999"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r09 = results.firstOrNull { it.regle == "R09" }
+        assertTrue(r09 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r09.statut,
+            "R09 doit etre NON_CONFORME quand ICE facture != ICE attestation")
+    }
+
+    @Test
+    fun `golden 09 R10 NON_CONFORME si IF different entre facture et attestation`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "ACME"
+            ice = "001509176000008"; identifiantFiscal = "123456"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "ACME"; ice = "001509176000008"; identifiantFiscal = "999999"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r10 = results.firstOrNull { it.regle == "R10" }
+        assertTrue(r10 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r10.statut,
+            "R10 doit etre NON_CONFORME quand IF facture != IF attestation")
+    }
+
+    @Test
+    fun `golden 10 R04 NON_CONFORME si OP superieur au TTC facture sans retenues`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("2500.00")
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r04 = results.firstOrNull { it.regle == "R04" }
+        assertTrue(r04 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r04.statut,
+            "R04 doit etre NON_CONFORME quand OP > TTC facture (sans retenues)")
+    }
+
+    @Test
+    fun `golden 11 R06 NON_CONFORME si retenue base x taux ne correspond pas au montant`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("120000.00"); fournisseur = "X"
+        })
+        val op = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("95000.00")
+        }
+        op.retenues.add(Retenue(ordrePaiement = op, type = TypeRetenue.TVA_SOURCE).apply {
+            base = BigDecimal("20000.00"); taux = BigDecimal("75")
+            montant = BigDecimal("5000.00")
+        })
+        dossier.ordrePaiement = op
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r06 = results.firstOrNull { it.regle == "R06" }
+        assertTrue(r06 != null, "R06 doit s'executer quand il y a une retenue")
+        assertEquals(StatutCheck.NON_CONFORME, r06.statut,
+            "R06 doit etre NON_CONFORME quand base x taux (15000) != montant declare (5000)")
+    }
+
+    @Test
+    fun `golden 12 R14 CONFORME quand les noms fournisseurs sont des variantes du meme (matching semantique)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val bcDoc = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        dossier.documents.addAll(listOf(fDoc, bcDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantHt = BigDecimal("1000.00"); montantTva = BigDecimal("200.00")
+            montantTtc = BigDecimal("1200.00"); tauxTva = BigDecimal("20")
+            fournisseur = "Maymana Patisserie"; ice = "001509176000008"
+        })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = bcDoc).apply {
+            reference = "BC-1"; dateBc = LocalDate.of(2026, 2, 1)
+            montantHt = BigDecimal("1000.00"); montantTva = BigDecimal("200.00")
+            montantTtc = BigDecimal("1200.00"); tauxTva = BigDecimal("20")
+            fournisseur = "Maymana Patisse"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r14 = results.firstOrNull { it.regle == "R14" }
+        assertTrue(r14 != null)
+        assertTrue(r14.statut == StatutCheck.CONFORME || r14.statut == StatutCheck.AVERTISSEMENT,
+            "R14 ne doit pas etre NON_CONFORME pour des variantes orthographiques du meme fournisseur (got ${r14.statut})")
+    }
+
+    @Test
+    fun `golden 13 R16 NON_CONFORME si HT zero avec montant TTC positif`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        dossier.documents.add(fDoc)
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-ZERO"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantHt = BigDecimal("0.00"); montantTva = BigDecimal("100.00")
+            montantTtc = BigDecimal("1000.00"); tauxTva = BigDecimal("20")
+            fournisseur = "X"
+        })
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r16 = results.firstOrNull { it.regle == "R16" }
+        assertTrue(r16 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r16.statut,
+            "R16 doit etre NON_CONFORME pour HT=0 + TVA=100 != TTC=1000")
+    }
+
+    @Test
+    fun `golden 14 R14 AVERTISSEMENT si fournisseurs vraiment differents entre facture et BC`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val bcDoc = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        dossier.documents.addAll(listOf(fDoc, bcDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "Maymana Patisserie"
+        })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = bcDoc).apply {
+            reference = "BC-1"; dateBc = LocalDate.of(2026, 2, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "SOCIETE NOUVELLE PAPETERIE CARDONE SARL"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r14 = results.firstOrNull { it.regle == "R14" }
+        assertTrue(r14 != null)
+        assertEquals(StatutCheck.AVERTISSEMENT, r14.statut,
+            "R14 doit etre AVERTISSEMENT quand fournisseurs reellement differents")
+    }
+
+    @Test
+    fun `golden 15 R11 NON_CONFORME si RIB facture et OP differents`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"
+            rib = "011810000011111111111193"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("1000.00")
+            rib = "011820000022222222222273"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r11 = results.firstOrNull { it.regle == "R11" }
+        assertTrue(r11 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r11.statut,
+            "R11 doit etre NON_CONFORME quand RIB facture != RIB OP")
+    }
 }
