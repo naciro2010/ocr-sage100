@@ -7,6 +7,7 @@ import com.madaef.recondoc.repository.dossier.CustomValidationRuleRepository
 import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository
 import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.repository.dossier.RuleConfigRepository
+import com.madaef.recondoc.service.extraction.CallKind
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
@@ -141,7 +142,7 @@ class CustomRuleService(
         val involvedIds = docs.mapNotNull { it.id?.toString() }
 
         return try {
-            val raw = llm.callClaude(BATCH_SYSTEM_PROMPT, buildBatchUserPrompt(applicable, payload))
+            val raw = llm.callClaude(BATCH_SYSTEM_PROMPT, buildBatchUserPrompt(applicable, payload), CallKind.RULES_BATCH)
             val verdicts = parseBatchResponse(raw)
             val missing = applicable.filter { verdicts[it.code] == null }.map { it.code }
             if (missing.isNotEmpty()) {
@@ -214,7 +215,7 @@ class CustomRuleService(
         val involvedIds = docs.mapNotNull { it.id?.toString() }
 
         return try {
-            val raw = llm.callClaude(SYSTEM_PROMPT, buildUserPrompt(rule, payload, requiredFields))
+            val raw = llm.callClaude(SYSTEM_PROMPT, buildUserPrompt(rule, payload, requiredFields), CallKind.RULES_BATCH)
             parseResponse(rule, dossier, raw, involvedIds)
         } catch (e: Exception) {
             log.warn("Custom rule {} failed for dossier {}: {}", rule.code, dossier.id, e.message)

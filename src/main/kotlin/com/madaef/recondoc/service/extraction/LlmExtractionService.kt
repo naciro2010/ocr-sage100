@@ -21,6 +21,12 @@ import java.time.Duration
 import java.util.UUID
 import java.util.concurrent.ConcurrentHashMap
 
+enum class CallKind(val key: String) {
+    CLASSIFICATION("classification"),
+    EXTRACTION("extraction"),
+    RULES_BATCH("rules_batch")
+}
+
 @Service
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
@@ -31,6 +37,12 @@ class LlmExtractionService(
     private val clientCache = ConcurrentHashMap<String, WebClient>()
 
     val isAvailable: Boolean get() = appSettingsService.getAiApiKey().isNotBlank()
+
+    private fun modelFor(kind: CallKind): String = when (kind) {
+        CallKind.CLASSIFICATION -> appSettingsService.getAiClassificationModel()
+        CallKind.EXTRACTION -> appSettingsService.getAiExtractionModel()
+        CallKind.RULES_BATCH -> appSettingsService.getAiRulesBatchModel()
+    }
 
     private fun getClient(): WebClient {
         val apiKey = appSettingsService.getAiApiKey()
@@ -53,16 +65,24 @@ class LlmExtractionService(
     @CircuitBreaker(name = "claude", fallbackMethod = "claudeFallback")
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
-    fun callClaude(systemPrompt: String, userContent: String): String {
+    fun callClaude(systemPrompt: String, userContent: String): String =
+        callClaude(systemPrompt, userContent, CallKind.EXTRACTION)
+
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeFallbackKind")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaude(systemPrompt: String, userContent: String, kind: CallKind): String {
         if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
 
-        val model = appSettingsService.getAiModel()
+        val model = modelFor(kind)
+        val maxTokens = appSettingsService.getAiMaxTokens(kind.key)
         val started = System.currentTimeMillis()
-        log.info("Calling Claude API (model={}, text={}chars)", model, userContent.length)
+        log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
+            kind, model, maxTokens, userContent.length)
 
         val requestBody = mapOf(
             "model" to model,
-            "max_tokens" to 8192,
+            "max_tokens" to maxTokens,
             "temperature" to 0,
             "system" to systemPrompt,
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
@@ -89,8 +109,12 @@ class LlmExtractionService(
                 }
                 .bodyToMono(Map::class.java)
                 .timeout(Duration.ofSeconds(120))
-                .retryWhen(reactor.util.retry.Retry.max(1)
-                    .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException })
+                .retryWhen(
+                    reactor.util.retry.Retry
+                        .backoff(1, Duration.ofMillis(500))
+                        .jitter(0.5)
+                        .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException }
+                )
                 .block() ?: throw RuntimeException("Empty response from Claude API")
         } catch (e: Exception) {
             recordUsage(model, null, started, false, e.message)
@@ -138,18 +162,20 @@ class LlmExtractionService(
     }
 
     fun <T> extractStructured(systemPrompt: String, rawText: String, clazz: Class<T>): T {
-        val json = callClaude(systemPrompt, rawText)
+        val json = callClaude(systemPrompt, rawText, CallKind.EXTRACTION)
         log.debug("LLM response: {}", json.take(500))
         return objectMapper.readValue(json, clazz)
     }
 
-    /**
-     * Resilience4j fallback. Signature must match callClaude + one trailing Throwable.
-     * We don't silently swallow — we surface a user-friendly error so the extraction
-     * pipeline marks the document as ERREUR instead of looping.
-     */
     @Suppress("unused", "UNUSED_PARAMETER")
-    private fun claudeFallback(systemPrompt: String, userContent: String, t: Throwable): String {
+    private fun claudeFallback(systemPrompt: String, userContent: String, t: Throwable): String =
+        fallbackMessage(t)
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeFallbackKind(systemPrompt: String, userContent: String, kind: CallKind, t: Throwable): String =
+        fallbackMessage(t)
+
+    private fun fallbackMessage(t: Throwable): String {
         val msg = when (t) {
             is CallNotPermittedException ->
                 "Service d'extraction IA indisponible (circuit ouvert). Reessayez dans quelques instants."
