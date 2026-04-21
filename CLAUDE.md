@@ -2,6 +2,19 @@
 
 This file provides guidance to Claude Code (claude.ai/code) when working with code in this repository.
 
+## OBJECTIF #1 : FIABILITE 100%
+
+**La mission du projet est d'avoir des donnees extraites et des verdicts de controles fiables a 100%.** Le cout, la performance et la latence sont secondaires. Toute optimisation doit preserver (ou ameliorer) la justesse des donnees et des verdicts.
+
+Regles appliquees a toute modification de code :
+- **Avant** un changement sur l'extraction ou les controles : lancer `./gradlew test --tests "*.GoldenDossiersRegressionTest"`. Tests rouges = bloquant.
+- **Apres** un changement : relancer + verifier qu'aucun verdict n'a change sur le jeu golden.
+- **Pas de valeur inventee** : si la confidence Claude est < 0.6 ou si le schema est invalide, le champ est `null` + warning explicite.
+- **Validation schema/regex** apres chaque extraction IA : ICE 15 chiffres, RIB 24 chiffres, dates ISO, montants positifs.
+- **Re-extraction automatique** si `extractionQualityScore < 70` (max 2 essais), puis revue humaine.
+- **Toute nouvelle regle** doit venir avec au moins 2 scenarios golden (cas conforme + cas non conforme).
+- **Faux negatifs** (laisser passer une erreur) = critique. **Faux positifs** = a reduire mais priorite moindre.
+
 ## Project Overview
 Plateforme de reconciliation documentaire des dossiers de paiement MADAEF (Groupe CDG). Upload de documents PDF/images, extraction OCR + IA (Claude API), verification croisee entre documents, et validation des dossiers fournisseurs.
 
