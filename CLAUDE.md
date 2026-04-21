@@ -130,6 +130,7 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 - R17a-R17b: Coherence temporelle (BC/Contrat → Facture → OP)
 - R18: Validite attestation fiscale (fenetre 6 mois)
 - R20: Completude dossier (documents requis presents)
+- R21: Anti-doublon facture (meme numero OU meme fournisseur+montant+date +/-3j sur 12 mois glissants)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL

@@ -23,7 +23,11 @@ class ValidationEngine(
     private val overrideRepo: DossierRuleOverrideRepository,
     private val ruleConfigCache: RuleConfigCache,
     private val customRuleService: CustomRuleService,
-    @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String
+    private val factureRepository: com.madaef.recondoc.repository.dossier.FactureRepository,
+    @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
+    @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
+    @Value("\${app.anti-doublon.date-tolerance-days:3}") private val antiDoublonDateToleranceDays: Long,
+    @Value("\${app.anti-doublon.montant-tolerance-pct:0.01}") private val antiDoublonMontantTolerancePct: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -101,6 +105,7 @@ class ValidationEngine(
             "R18" to emptySet(),
             "R19" to emptySet(),
             "R20" to emptySet(),
+            "R21" to emptySet(),
             "R12" to emptySet(),
             "R13" to emptySet(),
         )
@@ -630,6 +635,67 @@ class ValidationEngine(
                 valeurTrouvee = arfRaison,
                 evidences = r14bEvidences.ifEmpty { null }
             )
+        }
+
+        if (isEnabled("R21") && allFactures.isNotEmpty()) {
+            measureRule("R21", results) {
+                val tolPct = BigDecimal(antiDoublonMontantTolerancePct)
+                val today = LocalDate.now()
+                val lookbackFrom = today.minusMonths(antiDoublonLookbackMonths)
+                val dossierId = dossier.id!!
+                for (f in allFactures) {
+                    val doublons = mutableListOf<String>()
+                    val r21Evidences = mutableListOf<ValidationEvidence>()
+
+                    val numero = f.numeroFacture?.takeIf { it.isNotBlank() }
+                    if (numero != null) {
+                        val byNumero = factureRepository.findByNumeroFacture(numero, lookbackFrom, dossierId)
+                        byNumero.forEach { d ->
+                            doublons += "Meme numero '${numero}' dans dossier ${d.dossier.reference}" +
+                                (d.dateFacture?.let { " du ${it}" } ?: "")
+                            r21Evidences += evidence("doublon", "numeroFacture",
+                                "Doublon par numero - dossier ${d.dossier.reference}", f.document, numero)
+                        }
+                    }
+
+                    val ttc = f.montantTtc
+                    val date = f.dateFacture
+                    val fournisseur = f.fournisseur?.takeIf { it.isNotBlank() }
+                    if (ttc != null && date != null && fournisseur != null) {
+                        val delta = ttc.multiply(tolPct)
+                        val mMin = ttc.subtract(delta)
+                        val mMax = ttc.add(delta)
+                        val dMin = date.minusDays(antiDoublonDateToleranceDays)
+                        val dMax = date.plusDays(antiDoublonDateToleranceDays)
+                        val byCombo = factureRepository.findByMontantFournisseurDate(
+                            fournisseur, mMin, mMax, dMin, dMax, dossierId)
+                        byCombo.filter { it.numeroFacture?.equals(numero, ignoreCase = true) != true }
+                            .forEach { d ->
+                                doublons += "Meme fournisseur/montant/date (+/- ${antiDoublonDateToleranceDays}j) dans dossier ${d.dossier.reference}"
+                                r21Evidences += evidence("doublon", "combo",
+                                    "Doublon fournisseur+montant+date - dossier ${d.dossier.reference}",
+                                    f.document, "${fournisseur} / ${ttc} / ${date}")
+                            }
+                    }
+
+                    if (doublons.isNotEmpty()) {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R21",
+                            libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
+                            statut = StatutCheck.NON_CONFORME,
+                            detail = doublons.joinToString(" | "),
+                            evidences = r21Evidences.ifEmpty { null }
+                        )
+                    } else {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R21",
+                            libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
+                            statut = StatutCheck.CONFORME,
+                            detail = "Aucun doublon detecte pour la facture ${f.numeroFacture ?: "(sans numero)"}"
+                        )
+                    }
+                }
+            }
         }
 
         if (isEnabled("R12")) {

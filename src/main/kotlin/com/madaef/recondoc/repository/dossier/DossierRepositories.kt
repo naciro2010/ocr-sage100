@@ -140,6 +140,37 @@ interface FactureRepository : JpaRepository<Facture, UUID> {
     fun findByDossierId(dossierId: UUID): Facture?
     fun findAllByDossierId(dossierId: UUID): List<Facture>
     fun findByDocumentId(documentId: UUID): Facture?
+
+    @Query("""
+        SELECT f FROM Facture f
+        WHERE f.dossier.id <> :excludeDossierId
+        AND f.numeroFacture IS NOT NULL
+        AND LOWER(TRIM(f.numeroFacture)) = LOWER(TRIM(:numeroFacture))
+        AND (f.dateFacture IS NULL OR f.dateFacture >= :dateFrom)
+    """)
+    fun findByNumeroFacture(
+        numeroFacture: String,
+        dateFrom: java.time.LocalDate,
+        excludeDossierId: UUID
+    ): List<Facture>
+
+    @Query("""
+        SELECT f FROM Facture f
+        WHERE f.dossier.id <> :excludeDossierId
+        AND f.fournisseur IS NOT NULL
+        AND LOWER(TRIM(f.fournisseur)) = LOWER(TRIM(:fournisseur))
+        AND f.montantTtc IS NOT NULL
+        AND f.montantTtc BETWEEN :montantMin AND :montantMax
+        AND f.dateFacture BETWEEN :dateMin AND :dateMax
+    """)
+    fun findByMontantFournisseurDate(
+        fournisseur: String,
+        montantMin: java.math.BigDecimal,
+        montantMax: java.math.BigDecimal,
+        dateMin: java.time.LocalDate,
+        dateMax: java.time.LocalDate,
+        excludeDossierId: UUID
+    ): List<Facture>
 }
 
 interface BonCommandeRepository : JpaRepository<BonCommande, UUID> {
