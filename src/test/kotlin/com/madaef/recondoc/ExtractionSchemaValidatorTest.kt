@@ -44,7 +44,7 @@ class ExtractionSchemaValidatorTest {
     fun `RIB non conforme est strip mais non critique par defaut`() {
         val r = validator.validate(TypeDocument.FACTURE, mapOf(
             "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
-            "fournisseur" to "X", "ice" to "001509176000008",
+            "fournisseur" to "ACME", "ice" to "001509176000008",
             "montantTTC" to 100, "rib" to "0000"
         ))
         assertTrue(r.valid, "RIB non critique invalide n'invalide pas le result")
@@ -108,9 +108,85 @@ class ExtractionSchemaValidatorTest {
     fun `ICE avec espaces internes est accepte apres nettoyage`() {
         val r = validator.validate(TypeDocument.FACTURE, mapOf(
             "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
-            "fournisseur" to "X", "ice" to "001 509 176 000 008",
+            "fournisseur" to "ACME", "ice" to "001 509 176 000 008",
             "montantTTC" to 100
         ))
         assertTrue(r.violations.none { it.field == "ice" })
+    }
+
+    // --- Durcissement NON_VIDE : placeholders, ponctuation seule, strings trop courtes ---
+
+    @Test
+    fun `fournisseur N slash A refuse comme placeholder`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "N/A", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertFalse(r.valid)
+        assertTrue(r.violations.any { it.field == "fournisseur" && it.reason.contains("placeholder") })
+    }
+
+    @Test
+    fun `fournisseur inconnu refuse comme placeholder`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "Inconnu", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.any { it.field == "fournisseur" && it.reason.contains("placeholder") })
+    }
+
+    @Test
+    fun `fournisseur point d'interrogation seul refuse`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "?", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.any { it.field == "fournisseur" })
+    }
+
+    @Test
+    fun `numeroFacture d'un seul caractere refuse (trop court)`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.any { it.field == "numeroFacture" && it.reason.contains("trop courte") })
+    }
+
+    @Test
+    fun `fournisseur compose uniquement de ponctuation refuse`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "---", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.any { it.field == "fournisseur" })
+    }
+
+    @Test
+    fun `fournisseur reel (longueur et contenu) accepte`() {
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+            "fournisseur" to "ACME SARL", "ice" to "001509176000008",
+            "montantTTC" to 100
+        ))
+        assertTrue(r.violations.none { it.field == "fournisseur" })
+    }
+
+    @Test
+    fun `placeholder insensible a la casse (NA, Na, na) refuse`() {
+        for (v in listOf("NA", "Na", "na", "n.a.", "NONE", "TBD")) {
+            val r = validator.validate(TypeDocument.FACTURE, mapOf(
+                "numeroFacture" to "F-1", "dateFacture" to "2026-01-01",
+                "fournisseur" to v, "ice" to "001509176000008",
+                "montantTTC" to 100
+            ))
+            assertTrue(r.violations.any { it.field == "fournisseur" },
+                "'$v' devrait etre refuse comme placeholder")
+        }
     }
 }

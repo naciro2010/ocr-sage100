@@ -27,6 +27,16 @@ enum class CallKind(val key: String) {
     RULES_BATCH("rules_batch")
 }
 
+/**
+ * Reponse complete de Claude. Expose stop_reason pour que les callers
+ * puissent detecter une reponse tronquee (max_tokens atteint) et basculer
+ * le document en revue humaine plutot que de consommer un JSON incomplet.
+ */
+data class ClaudeResponse(
+    val text: String,
+    val stopReason: String?
+)
+
 @Service
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
@@ -66,12 +76,27 @@ class LlmExtractionService(
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
     fun callClaude(systemPrompt: String, userContent: String): String =
-        callClaude(systemPrompt, userContent, CallKind.EXTRACTION)
+        executeClaudeCall(systemPrompt, userContent, CallKind.EXTRACTION).text
 
     @CircuitBreaker(name = "claude", fallbackMethod = "claudeFallbackKind")
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
-    fun callClaude(systemPrompt: String, userContent: String, kind: CallKind): String {
+    fun callClaude(systemPrompt: String, userContent: String, kind: CallKind): String =
+        executeClaudeCall(systemPrompt, userContent, kind).text
+
+    /**
+     * Variante qui expose la reponse complete (texte + stop_reason). A utiliser
+     * cote extraction quand il faut savoir si la reponse a ete tronquee par
+     * max_tokens — dans ce cas le JSON est incomplet et le document doit
+     * partir en revue humaine.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeFullFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeFull(systemPrompt: String, userContent: String, kind: CallKind): ClaudeResponse =
+        executeClaudeCall(systemPrompt, userContent, kind)
+
+    private fun executeClaudeCall(systemPrompt: String, userContent: String, kind: CallKind): ClaudeResponse {
         if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
 
         val model = modelFor(kind)
@@ -134,10 +159,17 @@ class LlmExtractionService(
         val text = content.firstOrNull { it["type"] == "text" }?.get("text") as? String
             ?: throw RuntimeException("No text content in response")
 
-        return text
+        val stopReason = response["stop_reason"] as? String
+        if (stopReason != null && stopReason != "end_turn" && stopReason != "stop_sequence") {
+            log.warn("Claude call (kind={}) ended with stop_reason={} — output may be truncated or partial", kind, stopReason)
+        }
+
+        val cleanedText = text
             .replace(Regex("^```json\\s*", RegexOption.MULTILINE), "")
             .replace(Regex("^```\\s*$", RegexOption.MULTILINE), "")
             .trim()
+
+        return ClaudeResponse(text = cleanedText, stopReason = stopReason)
     }
 
     /**
@@ -177,6 +209,12 @@ class LlmExtractionService(
     @Suppress("unused", "UNUSED_PARAMETER")
     private fun claudeFallbackKind(systemPrompt: String, userContent: String, kind: CallKind, t: Throwable): String =
         fallbackMessage(t)
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeFullFallback(systemPrompt: String, userContent: String, kind: CallKind, t: Throwable): ClaudeResponse {
+        fallbackMessage(t) // always throws
+        throw IllegalStateException("unreachable")
+    }
 
     private fun fallbackMessage(t: Throwable): String {
         val msg = when (t) {

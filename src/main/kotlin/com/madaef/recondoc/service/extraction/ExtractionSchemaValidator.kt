@@ -45,6 +45,17 @@ class ExtractionSchemaValidator {
         private val ALLOWED_TVA = listOf(
             BigDecimal.ZERO, BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20")
         )
+
+        // Placeholders OCR frequemment generes par Claude quand il ne trouve pas
+        // la donnee et ne met pas null. Ces valeurs doivent etre traitees comme
+        // "champ absent" pour ne pas polluer les donnees metier.
+        private val NON_VIDE_PLACEHOLDERS = setOf(
+            "n/a", "na", "n.a", "n.a.", "nc", "null", "none",
+            "inconnu", "inconnue", "unknown", "-", "--", "?", "??",
+            "non renseigne", "non renseignee", "non communique",
+            "non specifie", "non specifiee", "tbd"
+        )
+        private val PUNCTUATION_ONLY_RE = Regex("^[\\p{Punct}\\s]+$")
     }
 
     private val rules: Map<TypeDocument, List<FieldRule>> = mapOf(
@@ -130,6 +141,23 @@ class ExtractionSchemaValidator {
             return if (rule.kind == FieldKind.NON_VIDE)
                 FieldViolation(rule.name, str, "champ obligatoire vide")
             else null
+        }
+
+        // NON_VIDE durci : on refuse aussi les placeholders ("N/A", "inconnu",
+        // "?", "-"), les strings composees uniquement de ponctuation, et les
+        // chaines < 2 caracteres significatifs. Un vrai numero ou nom metier
+        // fait toujours >= 2 caracteres.
+        if (rule.kind == FieldKind.NON_VIDE) {
+            val lower = str.lowercase().trim()
+            if (lower in NON_VIDE_PLACEHOLDERS) {
+                return FieldViolation(rule.name, str, "valeur placeholder ('$str') refusee")
+            }
+            if (PUNCTUATION_ONLY_RE.matches(str)) {
+                return FieldViolation(rule.name, str, "valeur composee uniquement de ponctuation")
+            }
+            if (str.length < 2) {
+                return FieldViolation(rule.name, str, "valeur trop courte (< 2 caracteres)")
+            }
         }
 
         return when (rule.kind) {
