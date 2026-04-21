@@ -15,6 +15,33 @@ object RuleCatalog {
     )
 
     private val DEFS: List<Def> = listOf(
+        // === Couche Engagement (R-E communes + R-M Marche + R-B BC + R-C Contrat) ===
+        Def("R-E01", "Plafond engagement respecte", "Somme des dossiers rattaches <= plafond engagement (tolerance 2%)", "engagement", categorie = "engagement"),
+        Def("R-E02", "Coherence fournisseur engagement", "Fournisseur engagement = fournisseur dossier (matching canonique)", "engagement", categorie = "engagement"),
+        Def("R-E03", "Engagement actif", "L'engagement est ACTIF au moment du paiement", "engagement", categorie = "engagement"),
+        Def("R-E04", "Reference engagement citee", "La reference engagement est citee dans l'OP ou la facture", "engagement", categorie = "engagement"),
+        Def("R-E05", "Rattachement autorise", "Aucun rattachement possible si l'engagement est CLOTURE", "engagement", categorie = "engagement"),
+
+        Def("R-M01", "Delai d'execution marche", "Date facture/decompte dans [dateNotification ; +delaiExecution]", "engagement-marche", categorie = "engagement"),
+        Def("R-M02", "Retenue de garantie", "Retenue de garantie appliquee au taux du marche", "engagement-marche", categorie = "engagement"),
+        Def("R-M03", "Penalites de retard", "Penalites de retard calculees sur les jours de depassement", "engagement-marche", categorie = "engagement"),
+        Def("R-M04", "Numero AO cite", "Numero de l'appel d'offres cite dans le dossier", "engagement-marche", categorie = "engagement"),
+        Def("R-M05", "Revision de prix respectee", "Revision de prix conforme au CPS", "engagement-marche", categorie = "engagement"),
+        Def("R-M06", "Chronologie des decomptes", "Decomptes ordonnes chronologiquement", "engagement-marche", categorie = "engagement"),
+        Def("R-M07", "Caution definitive", "Caution definitive mentionnee si taux > 0", "engagement-marche", categorie = "engagement"),
+
+        Def("R-B01", "Validite BC", "Date facture <= dateValiditeFin du BC", "engagement-bc", categorie = "engagement"),
+        Def("R-B02", "Anti-fractionnement", "Cumul BC fournisseur 12 mois <= seuil legal (art. 88)", "engagement-bc", categorie = "engagement"),
+        Def("R-B03", "Une livraison par dossier", "Un dossier = une livraison (alerte si factures multiples)", "engagement-bc", categorie = "engagement"),
+        Def("R-B04", "Pas de garantie sur BC", "Pas de retenue de garantie attendue (reservee aux marches)", "engagement-bc", categorie = "engagement"),
+
+        Def("R-C01", "Periodicite respectee", "Intervalle entre paiements conforme a la periodicite (± 20%)", "engagement-contrat", categorie = "engagement"),
+        Def("R-C02", "Duree contrat respectee", "Pas de paiement apres dateFin sauf reconduction tacite", "engagement-contrat", categorie = "engagement"),
+        Def("R-C03", "Nombre paiements coherent", "Nombre de dossiers <= duree/periodicite", "engagement-contrat", categorie = "engagement"),
+        Def("R-C04", "Revision tarifaire", "Variation de prix <= indice contractuel", "engagement-contrat", categorie = "engagement"),
+        Def("R-C05", "Montant coherent echeancier", "Montant facture ± 5% du montant unitaire prevu", "engagement-contrat", categorie = "engagement"),
+
+        // === Couche Dossier (R01-R22, existantes) ===
         Def("R20", "Completude du dossier", "Verifie que toutes les pieces obligatoires sont presentes", "completude"),
         Def("R16", "Verification arithmetique HT+TVA=TTC", "Verifie que HT + TVA = TTC sur la facture", "montants"),
         Def("R01", "Concordance montant TTC", "Compare le TTC de la facture avec le BC", "montants", appliesToContractuel = false),

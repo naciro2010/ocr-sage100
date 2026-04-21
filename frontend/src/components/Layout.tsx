@@ -1,6 +1,6 @@
 import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
-import { Activity, BarChart3, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle, Users } from 'lucide-react'
+import { Activity, BarChart3, Briefcase, FolderOpen, Settings, Shield, Search, LogOut, Moon, Sun, CheckCircle, Users } from 'lucide-react'
 import SearchPanel from './SearchPanel'
 
 interface Props {
@@ -47,6 +47,13 @@ export default function Layout({ user, onLogout }: Props) {
           <li>
             <NavLink to="/" end>
               <BarChart3 size={16} /> <span>Tableau de bord</span>
+            </NavLink>
+          </li>
+          <li>
+            <NavLink to="/engagements" className={() => {
+              return location.pathname.startsWith('/engagements') ? 'active' : ''
+            }}>
+              <Briefcase size={16} /> <span>Engagements</span>
             </NavLink>
           </li>
           <li>
