@@ -123,51 +123,39 @@ class CustomRuleService(
         if (rules.isEmpty()) return emptyList()
         if (rules.size == 1) return listOf(evaluate(rules.first(), dossier))
 
-        val applicable = rules.filter {
-            when (dossier.type) {
-                DossierType.BC -> it.appliesToBC
-                DossierType.CONTRACTUEL -> it.appliesToContractuel
-            }
-        }
-        val notApplicable = rules - applicable.toSet()
-        val skipped = notApplicable.map {
-            ResultatValidation(
-                dossier = dossier, regle = it.code, libelle = it.libelle,
-                statut = StatutCheck.NON_APPLICABLE,
-                detail = "Regle non applicable au type de dossier ${dossier.type}",
-                source = "CUSTOM_BATCH"
-            )
-        }
+        val (applicable, notApplicable) = rules.partition { it.isApplicableTo(dossier.type) }
+        val skipped = notApplicable.map { nonApplicableResult(it, dossier, "CUSTOM_BATCH") }
         if (applicable.isEmpty()) return skipped
 
         if (!llm.isAvailable) {
-            return skipped + applicable.map {
-                ResultatValidation(
-                    dossier = dossier, regle = it.code, libelle = it.libelle,
-                    statut = StatutCheck.AVERTISSEMENT,
-                    detail = "Regle custom ignoree: cle API Claude non configuree",
-                    source = "CUSTOM_BATCH"
-                )
-            }
+            return skipped + applicable.map { missingKeyResult(it, dossier, "CUSTOM_BATCH") }
         }
 
-        // Payload is built once, with ALL documents referenced by any rule,
-        // so each rule in the batch sees the relevant extracted data.
-        val allDocs = dossier.documents.toList()
-        val payload = buildDossierPayload(dossier, allDocs)
-        val involvedIds = allDocs.mapNotNull { it.id?.toString() }
+        // Restrict the shared payload to document types actually referenced by at least
+        // one rule in the batch — keeps the single-serialisation win while honouring
+        // the per-rule `documentTypes` visibility that evaluate() applies individually.
+        val neededTypes = applicable.flatMap { it.targetDocumentTypes() ?: emptyList() }.toSet()
+        val docs = if (neededTypes.isEmpty()) dossier.documents.toList()
+                   else dossier.documents.filter { it.typeDocument in neededTypes }
+        val payload = buildDossierPayload(dossier, docs)
+        val involvedIds = docs.mapNotNull { it.id?.toString() }
 
         return try {
             val raw = llm.callClaude(BATCH_SYSTEM_PROMPT, buildBatchUserPrompt(applicable, payload))
             val verdicts = parseBatchResponse(raw)
+            val missing = applicable.filter { verdicts[it.code] == null }.map { it.code }
+            if (missing.isNotEmpty()) {
+                log.warn("Batch returned partial results: missing verdicts for {} (dossier={})", missing, dossier.id)
+            }
             val results = applicable.map { rule ->
-                val verdict = verdicts[rule.code]
-                if (verdict == null) {
-                    log.warn("Batch response missing verdict for {} — falling back to per-rule eval", rule.code)
-                    evaluate(rule, dossier)
-                } else {
-                    buildResultFromVerdict(rule, dossier, verdict, involvedIds)
-                }
+                verdicts[rule.code]?.let { buildResultFromVerdict(rule, dossier, it, involvedIds) }
+                    ?: ResultatValidation(
+                        dossier = dossier, regle = rule.code, libelle = rule.libelle,
+                        statut = StatutCheck.AVERTISSEMENT,
+                        detail = "Verdict manquant dans la reponse IA groupee. Relancer ou corriger manuellement.",
+                        source = "CUSTOM_BATCH",
+                        documentIds = involvedIds.joinToString(",").ifBlank { null }
+                    )
             }
             skipped + results
         } catch (e: Exception) {
@@ -176,6 +164,33 @@ class CustomRuleService(
         }
     }
 
+    private fun CustomValidationRule.isApplicableTo(type: DossierType): Boolean = when (type) {
+        DossierType.BC -> appliesToBC
+        DossierType.CONTRACTUEL -> appliesToContractuel
+    }
+
+    private fun CustomValidationRule.targetDocumentTypes(): Set<TypeDocument>? = documentTypes
+        ?.split(",")
+        ?.mapNotNull { runCatching { TypeDocument.valueOf(it.trim()) }.getOrNull() }
+        ?.toSet()
+        ?.takeIf { it.isNotEmpty() }
+
+    private fun nonApplicableResult(rule: CustomValidationRule, dossier: DossierPaiement, source: String) =
+        ResultatValidation(
+            dossier = dossier, regle = rule.code, libelle = rule.libelle,
+            statut = StatutCheck.NON_APPLICABLE,
+            detail = "Regle non applicable au type de dossier ${dossier.type}",
+            source = source
+        )
+
+    private fun missingKeyResult(rule: CustomValidationRule, dossier: DossierPaiement, source: String) =
+        ResultatValidation(
+            dossier = dossier, regle = rule.code, libelle = rule.libelle,
+            statut = StatutCheck.AVERTISSEMENT,
+            detail = "Regle custom ignoree: cle API Claude non configuree",
+            source = source
+        )
+
     /**
      * Evaluate a single rule against a dossier. Returns a detached
      * [ResultatValidation] (caller is responsible for association + persistence).
@@ -183,33 +198,10 @@ class CustomRuleService(
      * than crashing the whole validation pass.
      */
     fun evaluate(rule: CustomValidationRule, dossier: DossierPaiement): ResultatValidation {
-        val applicable = when (dossier.type) {
-            DossierType.BC -> rule.appliesToBC
-            DossierType.CONTRACTUEL -> rule.appliesToContractuel
-        }
-        if (!applicable) {
-            return ResultatValidation(
-                dossier = dossier, regle = rule.code, libelle = rule.libelle,
-                statut = StatutCheck.NON_APPLICABLE,
-                detail = "Regle non applicable au type de dossier ${dossier.type}",
-                source = "CUSTOM"
-            )
-        }
+        if (!rule.isApplicableTo(dossier.type)) return nonApplicableResult(rule, dossier, "CUSTOM")
+        if (!llm.isAvailable) return missingKeyResult(rule, dossier, "CUSTOM")
 
-        if (!llm.isAvailable) {
-            return ResultatValidation(
-                dossier = dossier, regle = rule.code, libelle = rule.libelle,
-                statut = StatutCheck.AVERTISSEMENT,
-                detail = "Regle custom ignoree: cle API Claude non configuree",
-                source = "CUSTOM"
-            )
-        }
-
-        val targetTypes: Set<TypeDocument>? = rule.documentTypes
-            ?.split(",")
-            ?.mapNotNull { runCatching { TypeDocument.valueOf(it.trim()) }.getOrNull() }
-            ?.toSet()
-            ?.takeIf { it.isNotEmpty() }
+        val targetTypes = rule.targetDocumentTypes()
         val docs = dossier.documents.filter { targetTypes == null || it.typeDocument in targetTypes }
 
         val requiredFields = rule.requiredFields
@@ -320,26 +312,28 @@ $payloadJson
         val detailIa = node.path("detail").asText(null)?.takeIf { it.isNotBlank() }
 
         if (needsMoreInfo) {
-            val q = if (questions.isEmpty()) "Informations manquantes dans les documents."
-                    else "Informations manquantes: " + questions.joinToString(" | ")
             return ResultatValidation(
                 dossier = dossier, regle = rule.code, libelle = rule.libelle,
                 statut = StatutCheck.NON_APPLICABLE,
-                detail = detailIa?.let { "$it — $q" } ?: q,
+                detail = needsMoreInfoDetail(detailIa, questions),
                 source = "CUSTOM",
                 documentIds = involvedIds.joinToString(",").ifBlank { null }
             )
         }
 
-        val statutRaw = node.path("statut").asText("AVERTISSEMENT").uppercase()
-        var statut = runCatching { StatutCheck.valueOf(statutRaw) }.getOrDefault(StatutCheck.AVERTISSEMENT)
-        // User-chosen severity caps NON_CONFORME — if they asked for AVERTISSEMENT only,
-        // downgrade IA-reported NON_CONFORME to stay aligned with their intent.
-        if (statut == StatutCheck.NON_CONFORME && rule.severity == "AVERTISSEMENT") {
-            statut = StatutCheck.AVERTISSEMENT
-        }
+        return ResultatValidation(
+            dossier = dossier, regle = rule.code, libelle = rule.libelle,
+            statut = parseStatut(node.path("statut"), rule),
+            detail = detailIa,
+            source = "CUSTOM",
+            evidences = parseEvidences(node.path("evidences")),
+            documentIds = involvedIds.joinToString(",").ifBlank { null }
+        )
+    }
 
-        val evidences = node.path("evidences").takeIf { it.isArray }?.mapNotNull { ev ->
+    private fun parseEvidences(arrNode: JsonNode): List<ValidationEvidence>? {
+        if (!arrNode.isArray) return null
+        return arrNode.mapNotNull { ev ->
             val champ = ev.path("champ").asText(null) ?: return@mapNotNull null
             ValidationEvidence(
                 role = ev.path("role").asText("trouve").ifBlank { "trouve" },
@@ -349,22 +343,30 @@ $payloadJson
                 documentType = ev.path("documentType").asText(null)?.takeIf { it.isNotBlank() },
                 valeur = ev.path("valeur").asText(null)?.takeIf { it.isNotBlank() }
             )
-        }?.takeIf { it.isNotEmpty() }
+        }.takeIf { it.isNotEmpty() }
+    }
 
-        return ResultatValidation(
-            dossier = dossier, regle = rule.code, libelle = rule.libelle,
-            statut = statut,
-            detail = detailIa,
-            source = "CUSTOM",
-            evidences = evidences,
-            documentIds = involvedIds.joinToString(",").ifBlank { null }
-        )
+    /**
+     * User-chosen severity caps NON_CONFORME — if the rule only wants AVERTISSEMENT,
+     * we downgrade any IA-reported NON_CONFORME to stay aligned with their intent.
+     */
+    private fun parseStatut(statutNode: JsonNode, rule: CustomValidationRule): StatutCheck {
+        val raw = statutNode.asText("AVERTISSEMENT").uppercase()
+        val parsed = runCatching { StatutCheck.valueOf(raw) }.getOrDefault(StatutCheck.AVERTISSEMENT)
+        return if (parsed == StatutCheck.NON_CONFORME && rule.severity == "AVERTISSEMENT")
+            StatutCheck.AVERTISSEMENT else parsed
+    }
+
+    private fun needsMoreInfoDetail(detailIa: String?, questions: List<String>): String {
+        val q = if (questions.isEmpty()) "Informations manquantes dans les documents."
+                else "Informations manquantes: " + questions.joinToString(" | ")
+        return detailIa?.let { "$it — $q" } ?: q
     }
 
     // ---------------- Batch helpers ----------------
 
     private data class BatchVerdict(
-        val statut: String,
+        val statutNode: JsonNode,
         val detail: String?,
         val evidences: List<ValidationEvidence>?,
         val needsMoreInfo: Boolean,
@@ -410,23 +412,12 @@ $payloadJson
         val out = mutableMapOf<String, BatchVerdict>()
         for (node in arr) {
             val code = node.path("code").asText(null)?.takeIf { it.isNotBlank() } ?: continue
-            val evidences = node.path("evidences").takeIf { it.isArray }?.mapNotNull { ev ->
-                val champ = ev.path("champ").asText(null) ?: return@mapNotNull null
-                ValidationEvidence(
-                    role = ev.path("role").asText("trouve").ifBlank { "trouve" },
-                    champ = champ,
-                    libelle = ev.path("libelle").asText(null)?.takeIf { it.isNotBlank() },
-                    documentId = ev.path("documentId").asText(null)?.takeIf { it.isNotBlank() },
-                    documentType = ev.path("documentType").asText(null)?.takeIf { it.isNotBlank() },
-                    valeur = ev.path("valeur").asText(null)?.takeIf { it.isNotBlank() }
-                )
-            }
             val docIds = node.path("documentIds").takeIf { it.isArray }
                 ?.mapNotNull { it.asText(null)?.takeIf { s -> s.isNotBlank() } }
             out[code] = BatchVerdict(
-                statut = node.path("statut").asText("AVERTISSEMENT").uppercase(),
+                statutNode = node.path("statut"),
                 detail = node.path("detail").asText(null)?.takeIf { it.isNotBlank() },
-                evidences = evidences?.takeIf { it.isNotEmpty() },
+                evidences = parseEvidences(node.path("evidences")),
                 needsMoreInfo = node.path("needsMoreInfo").asBoolean(false),
                 questions = node.path("questions").takeIf { it.isArray }
                     ?.mapNotNull { it.asText(null)?.takeIf { s -> s.isNotBlank() } } ?: emptyList(),
@@ -442,24 +433,19 @@ $payloadJson
         v: BatchVerdict,
         fallbackDocIds: List<String>
     ): ResultatValidation {
+        val docIdsCsv = (v.documentIds ?: fallbackDocIds).joinToString(",").ifBlank { null }
         if (v.needsMoreInfo) {
-            val q = if (v.questions.isEmpty()) "Informations manquantes dans les documents."
-                    else "Informations manquantes: " + v.questions.joinToString(" | ")
             return ResultatValidation(
                 dossier = dossier, regle = rule.code, libelle = rule.libelle,
                 statut = StatutCheck.NON_APPLICABLE,
-                detail = v.detail?.let { "$it — $q" } ?: q,
+                detail = needsMoreInfoDetail(v.detail, v.questions),
                 source = "CUSTOM_BATCH",
-                documentIds = (v.documentIds ?: fallbackDocIds).joinToString(",").ifBlank { null }
+                documentIds = docIdsCsv
             )
-        }
-        var statut = runCatching { StatutCheck.valueOf(v.statut) }.getOrDefault(StatutCheck.AVERTISSEMENT)
-        if (statut == StatutCheck.NON_CONFORME && rule.severity == "AVERTISSEMENT") {
-            statut = StatutCheck.AVERTISSEMENT
         }
         return ResultatValidation(
             dossier = dossier, regle = rule.code, libelle = rule.libelle,
-            statut = statut,
+            statut = parseStatut(v.statutNode, rule),
             detail = v.detail,
             source = "CUSTOM_BATCH",
             evidences = v.evidences,
