@@ -131,6 +131,7 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 - R18: Validite attestation fiscale (fenetre 6 mois)
 - R20: Completude dossier (documents requis presents)
 - R21: Anti-doublon facture (meme numero OU meme fournisseur+montant+date +/-3j sur 12 mois glissants)
+- R22: Paiement posterieur a la reception (date OP >= date PV_RECEPTION ; CONTRACTUEL uniquement)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL

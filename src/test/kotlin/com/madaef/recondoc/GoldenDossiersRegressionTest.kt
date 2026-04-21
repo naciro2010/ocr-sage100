@@ -171,4 +171,52 @@ class GoldenDossiersRegressionTest {
         assertTrue(r21.detail!!.contains(shared) || r21.detail!!.contains("numero"),
             "Le detail doit mentionner le conflit: ${r21.detail}")
     }
+
+    @Test
+    fun `golden 06 R22 NON_CONFORME si OP emis avant reception`() {
+        val dossier = newDossier(DossierType.CONTRACTUEL)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val pvDoc = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(opDoc, pvDoc))
+
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-001"
+            dateEmission = LocalDate.of(2026, 2, 1)
+            montantOperation = BigDecimal("1000.00")
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = pvDoc).apply {
+            dateReception = LocalDate.of(2026, 3, 1)
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r22 = results.firstOrNull { it.regle == "R22" }
+        assertTrue(r22 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r22.statut,
+            "R22 doit etre NON_CONFORME: OP du 01/02 precede PV reception du 01/03")
+    }
+
+    @Test
+    fun `golden 07 R22 CONFORME si OP emis apres reception`() {
+        val dossier = newDossier(DossierType.CONTRACTUEL)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val pvDoc = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(opDoc, pvDoc))
+
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-002"
+            dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("1000.00")
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = pvDoc).apply {
+            dateReception = LocalDate.of(2026, 3, 1)
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r22 = results.firstOrNull { it.regle == "R22" }
+        assertTrue(r22 != null)
+        assertEquals(StatutCheck.CONFORME, r22.statut,
+            "R22 doit etre CONFORME: OP du 15/03 posterieur a PV reception du 01/03")
+    }
 }
