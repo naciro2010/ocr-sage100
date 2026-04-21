@@ -203,8 +203,8 @@ class QrCodeService(
         private val BLOCKED_SCHEMES = setOf(
             "javascript", "data", "vbscript", "file", "jar", "ftp", "blob", "about"
         )
-
-        enum class PayloadVerdict { SAFE, UNSAFE, DANGEROUS, ABSENT }
-        data class PayloadSafety(val verdict: PayloadVerdict, val reason: String?)
     }
+
+    enum class PayloadVerdict { SAFE, UNSAFE, DANGEROUS, ABSENT }
+    data class PayloadSafety(val verdict: PayloadVerdict, val reason: String?)
 }
