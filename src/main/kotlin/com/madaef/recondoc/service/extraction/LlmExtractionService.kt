@@ -80,9 +80,13 @@ class LlmExtractionService(
         log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
             kind, model, maxTokens, userContent.length)
 
+        // temperature=0 : extraction structuree, reponse deterministe.
+        // Evite que deux appels identiques produisent des valeurs differentes
+        // et stabilise les tests golden.
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
+            "temperature" to 0,
             "system" to systemPrompt,
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
