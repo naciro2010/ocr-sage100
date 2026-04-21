@@ -9,6 +9,7 @@ import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
+import com.madaef.recondoc.service.extraction.ExtractionSchemas
 import com.madaef.recondoc.service.extraction.FieldViolation
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.fournisseur.FournisseurMatchingService
@@ -67,7 +68,8 @@ class DossierService(
     private val fournisseurMatchingService: FournisseurMatchingService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
-    @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
+    @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int,
+    @Value("\${extraction.tool-use.enabled:true}") private val toolUseEnabled: Boolean
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
@@ -677,9 +679,31 @@ class DossierService(
                         append(rawText)
                         append("\n</document_content>")
                     }
-                    val firstCall = llmService.callClaudeFull(prompt, ocrContext, CallKind.EXTRACTION)
-                    if (firstCall.stopReason == "max_tokens") truncatedByMaxTokens = true
-                    var data = parseLlmResponse(firstCall.text)
+                    // tool_use Anthropic : si un schema est defini pour ce type ET le
+                    // feature flag est on, on force Claude a appeler un outil JSON
+                    // conforme au schema. Pas de parse regex, champs garantis au type,
+                    // plus de JSON tronque parsable. Fallback automatique sur texte
+                    // libre en cas d'echec du tool_use (schema refuse, etc).
+                    val schema = if (toolUseEnabled) ExtractionSchemas.forType(detectedType) else null
+                    var data: Map<String, Any?>? = null
+                    if (schema != null) {
+                        try {
+                            val toolResp = llmService.callClaudeTool(
+                                prompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                            )
+                            if (toolResp.stopReason == "max_tokens") truncatedByMaxTokens = true
+                            data = toolResp.toolInput
+                            log.info("Extraction via tool_use for {} ({})", doc.nomFichier, schema.name)
+                        } catch (e: Exception) {
+                            log.warn("tool_use failed for {} ({}), falling back to text mode: {}",
+                                doc.nomFichier, schema.name, e.message)
+                        }
+                    }
+                    if (data == null) {
+                        val firstCall = llmService.callClaudeFull(prompt, ocrContext, CallKind.EXTRACTION)
+                        if (firstCall.stopReason == "max_tokens") truncatedByMaxTokens = true
+                        data = parseLlmResponse(firstCall.text)
+                    }
 
                     // Retry with reinforced prompt if confidence is low (consomme 1 essai)
                     if (data != null && retriesLeft > 0) {
