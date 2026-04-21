@@ -58,7 +58,7 @@ class ClassificationService(
         // Fallback to LLM classification with confidence scoring
         try {
             val wrapped = "<document_content>\n$rawText\n</document_content>"
-            val result = llmExtractionService.callClaude(CLASSIFICATION_PROMPT, wrapped)
+            val result = llmExtractionService.callClaude(CLASSIFICATION_PROMPT, wrapped, CallKind.CLASSIFICATION)
             val cleaned = result.trim()
 
             // Try JSON format first: {"categorie":"...", "confidence": 0.95}

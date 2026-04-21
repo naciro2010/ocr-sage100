@@ -85,6 +85,28 @@ class AppSettingsService(
         return getOrDefault("ai.model", "claude-opus-4-7")
     }
 
+    fun getAiClassificationModel(): String {
+        return getOrDefault("ai.classification_model", "claude-haiku-4-5-20251001")
+    }
+
+    fun getAiExtractionModel(): String {
+        return get("ai.extraction_model")?.takeIf { it.isNotBlank() } ?: getAiModel()
+    }
+
+    fun getAiRulesBatchModel(): String {
+        return get("ai.rules_batch_model")?.takeIf { it.isNotBlank() } ?: getAiModel()
+    }
+
+    fun getAiMaxTokens(kind: String): Int {
+        val default = when (kind) {
+            "classification" -> 256
+            "extraction" -> 8192
+            "rules_batch" -> 4096
+            else -> 4096
+        }
+        return get("ai.max_tokens.$kind")?.toIntOrNull()?.takeIf { it > 0 } ?: default
+    }
+
     fun getAiBaseUrl(): String {
         return getOrDefault("ai.base_url", "https://api.anthropic.com")
     }
