@@ -116,4 +116,59 @@ class GoldenDossiersRegressionTest {
         assertEquals(StatutCheck.NON_CONFORME, r18.statut,
             "R18 doit etre NON_CONFORME pour une attestation emise il y a plus de 6 mois")
     }
+
+    @Test
+    fun `golden 04 anti-doublon R21 CONFORME quand aucun doublon`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-UNIQUE-${System.nanoTime()}"
+            dateFacture = LocalDate.of(2026, 3, 15)
+            fournisseur = "Fournisseur Unique SARL"
+            montantTtc = BigDecimal("12345.67")
+        })
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r21 = results.firstOrNull { it.regle == "R21" }
+        assertTrue(r21 != null, "R21 doit s'executer quand il y a une facture")
+        assertEquals(StatutCheck.CONFORME, r21.statut,
+            "R21 doit etre CONFORME quand aucun doublon detecte")
+    }
+
+    @Test
+    fun `golden 05 anti-doublon R21 NON_CONFORME si meme numero sur 2 dossiers`() {
+        val shared = "F-DUP-${System.nanoTime()}"
+
+        val dossier1 = newDossier()
+        val fDoc1 = doc(dossier1, TypeDocument.FACTURE, "f1.pdf")
+        dossier1.documents.add(fDoc1)
+        dossier1.factures.add(Facture(dossier = dossier1, document = fDoc1).apply {
+            numeroFacture = shared
+            dateFacture = LocalDate.of(2026, 2, 1)
+            fournisseur = "ACME SARL"
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.saveAndFlush(dossier1)
+
+        val dossier2 = newDossier()
+        val fDoc2 = doc(dossier2, TypeDocument.FACTURE, "f2.pdf")
+        dossier2.documents.add(fDoc2)
+        dossier2.factures.add(Facture(dossier = dossier2, document = fDoc2).apply {
+            numeroFacture = shared
+            dateFacture = LocalDate.of(2026, 3, 1)
+            fournisseur = "ACME SARL"
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.saveAndFlush(dossier2)
+
+        val results = validationEngine.validate(dossier2)
+        val r21 = results.firstOrNull { it.regle == "R21" }
+        assertTrue(r21 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r21.statut,
+            "R21 doit detecter le meme numero facture sur un autre dossier")
+        assertTrue(r21.detail!!.contains(shared) || r21.detail!!.contains("numero"),
+            "Le detail doit mentionner le conflit: ${r21.detail}")
+    }
 }
