@@ -65,6 +65,7 @@ class DossierService(
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
+    private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
     @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
@@ -1037,6 +1038,9 @@ class DossierService(
                 TypeDocument.PV_RECEPTION -> savePvReception(dossier, doc, data)
                 TypeDocument.ATTESTATION_FISCALE -> saveAttestationFiscale(dossier, doc, data)
                 TypeDocument.CHECKLIST_PIECES -> log.info("CHECKLIST_PIECES stored in donneesExtraites for dossier {}", dossier.reference)
+                TypeDocument.MARCHE,
+                TypeDocument.BON_COMMANDE_CADRE,
+                TypeDocument.CONTRAT_CADRE -> upsertEngagementAndAttach(dossier, doc, type, data)
                 else -> log.debug("No entity mapping for type {}", type)
             }
         } catch (e: Exception) {
@@ -1299,6 +1303,38 @@ class DossierService(
             "error" to arf.qrScanError
         )
         doc.donneesExtraites = mutable
+    }
+
+    /**
+     * Un document contractuel (MARCHE/BC_CADRE/CONTRAT_CADRE) a ete uploade
+     * dans un dossier. On cree/met a jour l'Engagement correspondant et on
+     * rattache le dossier a cet engagement (si pas deja rattache).
+     *
+     * Permet le flow "unifie" : l'utilisateur uploade tous les documents
+     * d'un dossier (marche + facture + OP + ...) sans avoir a creer manuellement
+     * l'engagement d'abord.
+     */
+    private fun upsertEngagementAndAttach(
+        dossier: DossierPaiement,
+        doc: Document,
+        type: TypeDocument,
+        data: Map<String, Any?>
+    ) {
+        val engagement = engagementExtractionService.upsertFromExtractedData(
+            type = type,
+            data = data,
+            sourceDocumentPath = doc.cheminFichier,
+            sourceDocumentName = doc.nomFichier,
+            sourceDocumentHash = doc.fileHash
+        ) ?: return
+
+        if (dossier.engagement == null) {
+            dossier.engagement = engagement
+            log.info("Dossier {} rattache automatiquement a l'engagement {} (via upload document contractuel)",
+                dossier.reference, engagement.reference)
+            audit(dossier.id, "AUTO_ATTACH_ENGAGEMENT",
+                "Rattache a l'engagement ${engagement.reference} cree depuis le document ${doc.nomFichier}")
+        }
     }
 
     private fun updateDossierFromFacture(dossier: DossierPaiement) {

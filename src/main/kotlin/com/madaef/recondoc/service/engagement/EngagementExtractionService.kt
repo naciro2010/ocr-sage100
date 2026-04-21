@@ -132,6 +132,37 @@ class EngagementExtractionService(
         )
     }
 
+    /**
+     * Upsert d'un engagement a partir de donnees deja extraites (pas de OCR/LLM).
+     * Utilise par DossierService quand un document contractuel est uploade dans
+     * le flow dossier : extraction faite par le pipeline standard, puis ici on
+     * cree/met a jour l'engagement et on retourne son id pour rattachement.
+     */
+    @Transactional
+    fun upsertFromExtractedData(
+        type: TypeDocument,
+        data: Map<String, Any?>,
+        sourceDocumentPath: String? = null,
+        sourceDocumentName: String? = null,
+        sourceDocumentHash: String? = null
+    ): Engagement? {
+        require(type in CONTRACTUAL_TYPES) { "Type non contractuel : $type" }
+        val reference = (data["reference"] as? String)?.trim()
+        if (reference.isNullOrBlank()) {
+            log.warn("Impossible de creer un engagement : champ reference manquant")
+            return null
+        }
+
+        val existing = engagementRepo.findByReference(reference)
+        val engagement = existing ?: buildNew(type).apply { this.reference = reference }
+        applyData(engagement, data, type)
+        sourceDocumentPath?.let { engagement.sourceDocumentPath = it }
+        sourceDocumentName?.let { engagement.sourceDocumentName = it }
+        sourceDocumentHash?.let { engagement.sourceDocumentHash = it }
+        if (existing != null) engagement.dateModification = LocalDateTime.now()
+        return engagementRepo.save(engagement)
+    }
+
     // === Helpers ===
 
     private fun promptFor(type: TypeDocument): String = when (type) {
