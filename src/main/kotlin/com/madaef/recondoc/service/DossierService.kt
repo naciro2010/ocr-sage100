@@ -1017,6 +1017,9 @@ class DossierService(
         TypeDocument.PV_RECEPTION -> ExtractionPrompts.PV_RECEPTION
         TypeDocument.ATTESTATION_FISCALE -> ExtractionPrompts.ATTESTATION_FISCALE
         TypeDocument.CHECKLIST_PIECES -> ExtractionPrompts.CHECKLIST_PIECES
+        TypeDocument.MARCHE -> ExtractionPrompts.MARCHE
+        TypeDocument.BON_COMMANDE_CADRE -> ExtractionPrompts.BON_COMMANDE_CADRE
+        TypeDocument.CONTRAT_CADRE -> ExtractionPrompts.CONTRAT_CADRE
         else -> null
     }
 
