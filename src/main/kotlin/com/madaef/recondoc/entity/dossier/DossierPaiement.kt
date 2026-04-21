@@ -1,5 +1,6 @@
 package com.madaef.recondoc.entity.dossier
 
+import com.madaef.recondoc.entity.engagement.Engagement
 import jakarta.persistence.*
 import java.math.BigDecimal
 import java.time.LocalDateTime
@@ -12,7 +13,8 @@ import java.util.UUID
         Index(name = "idx_dossier_statut", columnList = "statut"),
         Index(name = "idx_dossier_reference", columnList = "reference"),
         Index(name = "idx_dossier_type", columnList = "type"),
-        Index(name = "idx_dossier_date_creation", columnList = "date_creation")
+        Index(name = "idx_dossier_date_creation", columnList = "date_creation"),
+        Index(name = "idx_dossier_engagement", columnList = "engagement_id")
     ]
 )
 class DossierPaiement(
@@ -77,5 +79,9 @@ class DossierPaiement(
 
     @OneToMany(mappedBy = "dossier", cascade = [CascadeType.ALL], orphanRemoval = true, fetch = FetchType.LAZY)
     @OrderBy("dateExecution ASC")
-    var resultatsValidation: MutableSet<ResultatValidation> = mutableSetOf()
+    var resultatsValidation: MutableSet<ResultatValidation> = mutableSetOf(),
+
+    @ManyToOne(fetch = FetchType.LAZY)
+    @JoinColumn(name = "engagement_id")
+    var engagement: Engagement? = null
 )
