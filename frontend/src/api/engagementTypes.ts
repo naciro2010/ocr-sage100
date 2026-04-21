@@ -123,14 +123,59 @@ export interface CreateEngagementRequest {
   indiceRevision?: string | null
 }
 
-export const TYPE_CONFIG: Record<TypeEngagement, { label: string; shortLabel: string; color: string; bg: string }> = {
-  MARCHE: { label: 'Marche public', shortLabel: 'Marche', color: '#5b21b6', bg: '#ede9fe' },
-  BON_COMMANDE: { label: 'Bon de commande cadre', shortLabel: 'BC cadre', color: '#1e40af', bg: '#dbeafe' },
-  CONTRAT: { label: 'Contrat', shortLabel: 'Contrat', color: '#065f46', bg: '#d1fae5' },
+import { CheckCircle, Clock, FileText, Package, ScrollText, XCircle } from 'lucide-react'
+import type { ComponentType } from 'react'
+
+type IconComponent = ComponentType<{ size?: number; style?: React.CSSProperties }>
+
+export interface TypeConfig {
+  label: string
+  shortLabel: string
+  color: string
+  bg: string
+  icon: IconComponent
 }
 
-export const STATUT_ENG_CONFIG: Record<StatutEngagement, { label: string; color: string; bg: string }> = {
-  ACTIF: { label: 'Actif', color: '#065f46', bg: '#d1fae5' },
-  CLOTURE: { label: 'Cloture', color: '#64748b', bg: '#f1f5f9' },
-  SUSPENDU: { label: 'Suspendu', color: '#92400e', bg: '#fef3c7' },
+export interface StatutConfig {
+  label: string
+  color: string
+  bg: string
+  icon: IconComponent
+}
+
+export const TYPE_CONFIG: Record<TypeEngagement, TypeConfig> = {
+  MARCHE: { label: 'Marche public', shortLabel: 'Marche', color: '#5b21b6', bg: '#ede9fe', icon: ScrollText },
+  BON_COMMANDE: { label: 'Bon de commande cadre', shortLabel: 'BC cadre', color: '#1e40af', bg: '#dbeafe', icon: Package },
+  CONTRAT: { label: 'Contrat', shortLabel: 'Contrat', color: '#065f46', bg: '#d1fae5', icon: FileText },
+}
+
+export const STATUT_ENG_CONFIG: Record<StatutEngagement, StatutConfig> = {
+  ACTIF: { label: 'Actif', color: '#065f46', bg: '#d1fae5', icon: CheckCircle },
+  CLOTURE: { label: 'Cloture', color: '#64748b', bg: '#f1f5f9', icon: XCircle },
+  SUSPENDU: { label: 'Suspendu', color: '#92400e', bg: '#fef3c7', icon: Clock },
+}
+
+export const TYPE_OPTIONS: TypeEngagement[] = ['MARCHE', 'BON_COMMANDE', 'CONTRAT']
+export const STATUT_OPTIONS: StatutEngagement[] = ['ACTIF', 'SUSPENDU', 'CLOTURE']
+
+export function fmtMad(n: number | null | undefined): string {
+  if (n == null) return '—'
+  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
+}
+
+export function fmtCompact(n: number | null | undefined): string {
+  if (n == null || n === 0) return '0'
+  if (n >= 1_000_000) return `${(n / 1_000_000).toFixed(1)} M`
+  if (n >= 1_000) return `${(n / 1_000).toFixed(1)} k`
+  return String(Math.round(n))
+}
+
+export function fmtDate(d: string | null | undefined): string {
+  return d ? new Date(d).toLocaleDateString('fr-FR') : '—'
+}
+
+export function consumptionColor(tauxPct: number): string {
+  if (tauxPct > 95) return 'var(--danger)'
+  if (tauxPct > 80) return 'var(--warning)'
+  return 'var(--success)'
 }

@@ -3,7 +3,7 @@ import { Link, useNavigate } from 'react-router-dom'
 import { ArrowLeft, Briefcase, Save } from 'lucide-react'
 import { createEngagement } from '../api/engagementApi'
 import type { CreateEngagementRequest, TypeEngagement, CategorieMarche, PeriodiciteContrat } from '../api/engagementTypes'
-import { TYPE_CONFIG } from '../api/engagementTypes'
+import { TYPE_CONFIG, TYPE_OPTIONS } from '../api/engagementTypes'
 
 export default function EngagementNew() {
   const navigate = useNavigate()
@@ -55,7 +55,7 @@ export default function EngagementNew() {
         <div className="card" style={{ marginBottom: 12 }}>
           <h2 style={{ marginBottom: 12 }}>Type</h2>
           <div className="dossier-chips">
-            {(['MARCHE', 'BON_COMMANDE', 'CONTRAT'] as TypeEngagement[]).map(t => (
+            {TYPE_OPTIONS.map(t => (
               <button key={t} type="button"
                 className={`dossier-chip ${type === t ? 'active' : ''}`}
                 onClick={() => updateType(t)}

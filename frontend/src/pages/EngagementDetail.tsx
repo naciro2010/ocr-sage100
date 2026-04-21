@@ -1,35 +1,14 @@
 import { useEffect, useState } from 'react'
 import { Link, useParams, useNavigate } from 'react-router-dom'
 import {
-  ArrowLeft, Briefcase, FileText, Package, ScrollText, Calendar, User,
-  Wallet, CheckCircle, Clock, XCircle, ChevronRight, Trash2, AlertTriangle
+  ArrowLeft, Briefcase, Calendar, User, Wallet,
+  ChevronRight, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { getEngagement, detachDossier, deleteEngagement } from '../api/engagementApi'
-import type {
-  EngagementResponse, StatutEngagement, TypeEngagement,
+import type { EngagementResponse } from '../api/engagementTypes'
+import {
+  TYPE_CONFIG, STATUT_ENG_CONFIG, fmtMad, fmtDate, consumptionColor,
 } from '../api/engagementTypes'
-import { TYPE_CONFIG, STATUT_ENG_CONFIG } from '../api/engagementTypes'
-
-const TYPE_ICON: Record<TypeEngagement, typeof FileText> = {
-  MARCHE: ScrollText,
-  BON_COMMANDE: Package,
-  CONTRAT: FileText,
-}
-
-const STATUT_ICON: Record<StatutEngagement, typeof CheckCircle> = {
-  ACTIF: CheckCircle,
-  CLOTURE: XCircle,
-  SUSPENDU: Clock,
-}
-
-function fmt(n: number | null | undefined): string {
-  if (n == null) return '—'
-  return n.toLocaleString('fr-FR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
-}
-
-function fmtDate(d: string | null): string {
-  return d ? new Date(d).toLocaleDateString('fr-FR') : '—'
-}
 
 export default function EngagementDetail() {
   const { id } = useParams<{ id: string }>()
@@ -89,12 +68,12 @@ export default function EngagementDetail() {
     )
   }
 
-  const TypeIcon = TYPE_ICON[engagement.type]
-  const StatIcon = STATUT_ICON[engagement.statut]
   const tc = TYPE_CONFIG[engagement.type]
   const sc = STATUT_ENG_CONFIG[engagement.statut]
+  const TypeIcon = tc.icon
+  const StatIcon = sc.icon
   const taux = engagement.tauxConsommation || 0
-  const tauxColor = taux > 95 ? 'var(--danger)' : taux > 80 ? 'var(--warning)' : 'var(--success)'
+  const tauxColor = consumptionColor(taux)
 
   return (
     <div>
@@ -137,10 +116,10 @@ export default function EngagementDetail() {
             Montants
           </div>
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(160px, 1fr))', gap: 16 }}>
-            <Field label="Montant HT" value={`${fmt(engagement.montantHt)} MAD`} mono />
-            <Field label={`TVA (${engagement.tauxTva ?? '-'}%)`} value={`${fmt(engagement.montantTva)} MAD`} mono />
-            <Field label="Montant TTC" value={`${fmt(engagement.montantTtc)} MAD`} mono strong />
-            <Field label="Consomme" value={`${fmt(engagement.montantConsomme)} MAD (${taux.toFixed(1)}%)`} mono color={tauxColor} />
+            <Field label="Montant HT" value={`${fmtMad(engagement.montantHt)} MAD`} mono />
+            <Field label={`TVA (${engagement.tauxTva ?? '-'}%)`} value={`${fmtMad(engagement.montantTva)} MAD`} mono />
+            <Field label="Montant TTC" value={`${fmtMad(engagement.montantTtc)} MAD`} mono strong />
+            <Field label="Consomme" value={`${fmtMad(engagement.montantConsomme)} MAD (${taux.toFixed(1)}%)`} mono color={tauxColor} />
           </div>
           <div style={{ marginTop: 10, height: 6, background: 'var(--ink-05)', borderRadius: 3, overflow: 'hidden' }}>
             <div style={{ width: `${Math.min(taux, 100)}%`, height: '100%', background: tauxColor, transition: 'width 0.4s ease' }} />
@@ -185,7 +164,7 @@ export default function EngagementDetail() {
                     <span className="status-badge">{d.statut}</span>
                   </td>
                   <td>{d.fournisseur || '—'}</td>
-                  <td className="cell-mono" style={{ textAlign: 'right' }}>{fmt(d.montantTtc)}</td>
+                  <td className="cell-mono" style={{ textAlign: 'right' }}>{fmtMad(d.montantTtc)}</td>
                   <td className="audit-date">{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
                   <td style={{ display: 'flex', gap: 4 }}>
                     <Link to={`/dossiers/${d.id}`} className="btn btn-secondary btn-sm" aria-label={`Detail ${d.reference}`}>
@@ -259,9 +238,9 @@ function BcSection({ bc }: { bc: NonNullable<EngagementResponse['bonCommande']> 
         Specifiques Bon de commande cadre
       </div>
       <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: 16 }}>
-        <Field label="Plafond montant" value={bc.plafondMontant != null ? `${fmt(bc.plafondMontant)} MAD` : '—'} mono />
+        <Field label="Plafond montant" value={bc.plafondMontant != null ? `${fmtMad(bc.plafondMontant)} MAD` : '—'} mono />
         <Field label="Validite fin" value={fmtDate(bc.dateValiditeFin)} />
-        <Field label="Seuil anti-fractionnement" value={bc.seuilAntiFractionnement != null ? `${fmt(bc.seuilAntiFractionnement)} MAD` : '—'} mono />
+        <Field label="Seuil anti-fractionnement" value={bc.seuilAntiFractionnement != null ? `${fmtMad(bc.seuilAntiFractionnement)} MAD` : '—'} mono />
       </div>
     </div>
   )
