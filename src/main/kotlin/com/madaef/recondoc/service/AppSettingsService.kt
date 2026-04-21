@@ -77,8 +77,12 @@ class AppSettingsService(
     }
 
     fun getAiApiKey(): String {
-        val dbKey = get("ai.api_key")
-        return if (!dbKey.isNullOrBlank()) dbKey else envApiKey
+        val raw = get("ai.api_key")?.takeIf { it.isNotBlank() } ?: envApiKey
+        val cleaned = raw.trim()
+        if (cleaned != raw) {
+            log.warn("La cle API Claude contient des espaces/retours a la ligne en debut ou fin, nettoyee avant envoi")
+        }
+        return cleaned
     }
 
     fun getAiModel(): String {
@@ -158,8 +162,8 @@ class AppSettingsService(
     fun isMistralOcrEnabled(): Boolean = get("ocr.mistral.enabled") == "true"
 
     fun getMistralApiKey(): String {
-        val dbKey = get("ocr.mistral.api_key")
-        return if (!dbKey.isNullOrBlank()) dbKey else envMistralKey
+        val raw = get("ocr.mistral.api_key")?.takeIf { it.isNotBlank() } ?: envMistralKey
+        return raw.trim()
     }
 
     fun getMistralBaseUrl(): String = getOrDefault("ocr.mistral.base_url", "https://api.mistral.ai")
