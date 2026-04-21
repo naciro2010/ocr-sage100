@@ -13,7 +13,7 @@ import {
   FileText, RefreshCw, Edit3, Save, X,
   MessageSquare, ChevronLeft, ChevronRight, Download,
   Zap as ZapIcon, MousePointer, Search, CheckCircle2,
-  XCircle, AlertCircle, MinusCircle, Clock
+  XCircle, AlertCircle, MinusCircle, Clock, Play, Sparkles
 } from 'lucide-react'
 
 type FilterMode = 'all' | 'problems' | 'conforme' | 'pending'
@@ -292,6 +292,43 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
             })}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/* Circular score ring — visual anchor of the controls section */
+function ConformityGauge({ pct, tone, ok, total, pending }: {
+  pct: number
+  tone: 'ok' | 'warn' | 'ko' | 'pending'
+  ok: number
+  total: number
+  pending: number
+}) {
+  const size = 76
+  const stroke = 7
+  const r = (size - stroke) / 2
+  const c = 2 * Math.PI * r
+  const hasRun = total - pending > 0
+  const shownPct = hasRun ? pct : 0
+  const dash = (shownPct / 100) * c
+  const label = tone === 'pending' ? '—' : `${pct}%`
+  return (
+    <div className={`ctrl-gauge tone-${tone}`} aria-label={`Conformite ${pct}%`} role="img">
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`}>
+        <circle cx={size / 2} cy={size / 2} r={r}
+          fill="none" stroke="var(--ink-05)" strokeWidth={stroke} />
+        {hasRun && (
+          <circle cx={size / 2} cy={size / 2} r={r}
+            fill="none" className="ctrl-gauge-arc"
+            strokeWidth={stroke} strokeLinecap="round"
+            strokeDasharray={`${dash} ${c}`}
+            transform={`rotate(-90 ${size / 2} ${size / 2})`} />
+        )}
+      </svg>
+      <div className="ctrl-gauge-value">
+        <strong>{label}</strong>
+        <span>{ok}/{total}</span>
       </div>
     </div>
   )
@@ -971,35 +1008,84 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     if (first) setSelectedKey(first.key)
   }
 
+  const filterByStatus = (mode: FilterMode, fallback?: ItemStatus) => {
+    setFilterMode(mode)
+    const target = fallback
+      ? items.find(i => i.status === fallback)
+      : items.find(i => i.status === 'ko') || items.find(i => i.status === 'warn')
+    if (target) setSelectedKey(target.key)
+  }
+
   return (
     <div className="ctrl-view">
-      {/* Compact hero — single band */}
-      <section className="ctrl-hero">
+      {/* Hero — element central, ancre visuelle du dossier */}
+      <section className={`ctrl-hero ctrl-hero-featured tone-${healthTone}`}>
+        <div className="ctrl-hero-accent" aria-hidden="true" />
         <div className="ctrl-hero-main">
+          <ConformityGauge pct={pctOk} tone={healthTone}
+            ok={counts.ok} total={counts.total} pending={counts.pending} />
+
           <div className="ctrl-hero-text">
+            <div className="ctrl-hero-eyebrow">
+              <ShieldCheck size={12} />
+              <span>Controles du dossier</span>
+              {lastRunLabel && (
+                <>
+                  <span className="ctrl-hero-eyebrow-dot" aria-hidden="true" />
+                  <span className="ctrl-hero-eyebrow-time">Verifie {lastRunLabel}</span>
+                </>
+              )}
+            </div>
             <h2 className="ctrl-hero-title">{headline}</h2>
             {hasResults ? (
               <div className="ctrl-hero-stats-inline">
-                <span><strong>{counts.ok}</strong>/<span className="ctrl-hero-total">{counts.total}</span> conformes</span>
-                {counts.ko > 0 && <span className="ctrl-hero-pill pill-ko">{counts.ko} KO</span>}
-                {counts.warn > 0 && <span className="ctrl-hero-pill pill-warn">{counts.warn} avertissements</span>}
-                {counts.pending > 0 && <span className="ctrl-hero-muted">{counts.pending} en attente</span>}
-                {lastRunLabel && <span className="ctrl-hero-muted">Derniere verification {lastRunLabel}</span>}
+                <button type="button"
+                  className={`ctrl-hero-pill pill-ok ${filterMode === 'conforme' ? 'is-active' : ''}`}
+                  onClick={() => filterByStatus('conforme', 'ok')}
+                  aria-label={`${counts.ok} controles conformes, filtrer`}>
+                  <CheckCircle2 size={11} /> {counts.ok} conformes
+                </button>
+                {counts.ko > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-ko ${filterMode === 'problems' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('problems')}
+                    aria-label={`${counts.ko} non conformes, filtrer`}>
+                    <XCircle size={11} /> {counts.ko} non conformes
+                  </button>
+                )}
+                {counts.warn > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-warn ${filterMode === 'problems' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('problems', 'warn')}
+                    aria-label={`${counts.warn} avertissements, filtrer`}>
+                    <AlertCircle size={11} /> {counts.warn} avertissements
+                  </button>
+                )}
+                {counts.pending > 0 && (
+                  <button type="button"
+                    className={`ctrl-hero-pill pill-pending ${filterMode === 'pending' ? 'is-active' : ''}`}
+                    onClick={() => filterByStatus('pending', 'pending')}
+                    aria-label={`${counts.pending} en attente, filtrer`}>
+                    <Clock size={11} /> {counts.pending} en attente
+                  </button>
+                )}
               </div>
             ) : (
-              <div className="ctrl-hero-stats-inline ctrl-hero-muted">
-                Lancez la verification pour executer les controles systeme et la checklist autocontrole.
+              <div className="ctrl-hero-empty">
+                <Sparkles size={13} />
+                <span>Lancez la verification pour executer les {counts.total} controles systeme et l'autocontrole.</span>
               </div>
             )}
           </div>
+
           <div className="ctrl-hero-actions-top">
             {counts.ko + counts.warn > 0 && (
               <button className="ctrl-btn-ghost" onClick={jumpToFirstProblem}>
-                Aller au probleme →
+                Aller au probleme <ChevronRight size={13} />
               </button>
             )}
             <button className="ctrl-btn-primary" onClick={onValidate} disabled={validating}>
-              {validating ? <Loader2 size={13} className="spin" /> : null}
+              {validating ? <Loader2 size={13} className="spin" /> : hasResults ? <RefreshCw size={13} /> : <Play size={13} />}
               {hasResults ? 'Relancer' : 'Lancer la verification'}
             </button>
           </div>
