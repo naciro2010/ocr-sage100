@@ -38,11 +38,14 @@ interface EngagementRepository : JpaRepository<Engagement, UUID> {
     """)
     fun statsByStatut(): List<Array<Any>>
 
-    @Query("""
-        SELECT TYPE(e), COUNT(e), COALESCE(SUM(e.montantTtc), 0)
-        FROM Engagement e GROUP BY TYPE(e)
-    """)
-    fun statsByType(): List<Array<Any>>
+    @Query("SELECT COUNT(e) FROM EngagementMarche e")
+    fun countMarches(): Long
+
+    @Query("SELECT COUNT(e) FROM EngagementBonCommande e")
+    fun countBonsCommande(): Long
+
+    @Query("SELECT COUNT(e) FROM EngagementContrat e")
+    fun countContrats(): Long
 
     /**
      * Somme des montants TTC des dossiers rattaches a un engagement.
