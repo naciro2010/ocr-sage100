@@ -91,9 +91,10 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 
 ### Pipeline
 1. **Extraction exhaustive** : OCR + IA pour extraire TOUTES les donnees de chaque document
-2. **Rapprochement** via 2 types de controles :
-   - **Controles automatiques systeme (R01-R20)** : parametrables, activables/desactivables au niveau global ET par dossier
-   - **Controles checklist autocontrole (CK01-CK10)** : fichier CCF-EN-04 recu, lu en detail et surtout EXECUTE contre les documents
+2. **Rapprochement** via 3 couches de controles, explicitement distinguees dans l'UI (tag "Systeme" / "IA" / "Humain") :
+   - **Couche 1 — Systeme (R01-R20)** : regles deterministes codees en Kotlin, parametrables, < 100 ms, 0 $
+   - **Couche 2 — IA (CUSTOM-XX)** : regles personnalisees ecrites en francais dans Settings > Regles. `CustomRuleService.evaluateBatch()` envoie TOUTES les regles applicables a un dossier dans un **seul appel Claude** (partage du contexte ⇒ cout et latence divises par N). Fallback par regle si le batch renvoie du JSON invalide ou depasse le timeout.
+   - **Couche 3 — Humain (CK01-CK10)** : checklist autocontrole CCF-EN-04 saisie par un operateur (signatures, habilitations, PV reception). Le systeme lit le statut mais ne le recalcule pas.
 
 ### Exigences UX controles (NON NEGOCIABLES)
 1. **Visibilite** : voir exactement ce qui a ete controle pour chaque regle

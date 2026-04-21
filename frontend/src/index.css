@@ -2442,7 +2442,7 @@ body {
 .ctrl-rule-row {
   position: relative;
   display: grid;
-  grid-template-columns: auto auto 1fr;
+  grid-template-columns: auto auto 1fr auto;
   align-items: center; gap: 10px;
   width: 100%;
   padding: 10px 14px 10px 15px;
@@ -3460,4 +3460,230 @@ body {
   padding: 0 4px;
   cursor: help;
   vertical-align: 1px;
+}
+
+/* ===================================================================
+   Engine badges : distinguent Systeme (deterministe) / IA (Claude) /
+   Humain (autocontrole saisi). Discret mais toujours visible.
+   =================================================================== */
+.ctrl-left-engine-tabs {
+  display: flex; flex-wrap: wrap; gap: 6px;
+  margin-top: 8px;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ink-05);
+}
+.ctrl-engine-chip {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: transparent;
+  border: 1px solid var(--ink-05);
+  color: var(--ink-50);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  cursor: pointer;
+  transition: all 0.12s ease;
+}
+.ctrl-engine-chip:hover:not(:disabled) {
+  border-color: var(--ink-20);
+  color: var(--ink-90);
+}
+.ctrl-engine-chip:disabled {
+  opacity: 0.4; cursor: not-allowed;
+}
+.ctrl-engine-chip.active {
+  background: var(--ink-02);
+  border-color: var(--ink-30);
+  color: var(--ink-90);
+}
+.ctrl-engine-chip.active.engine-system { border-color: #94a3b8; color: #475569; }
+.ctrl-engine-chip.active.engine-ai     { border-color: #a78bfa; color: #6d28d9; background: rgba(167,139,250,0.07); }
+.ctrl-engine-chip.active.engine-human  { border-color: #f59e0b; color: #b45309; background: rgba(245,158,11,0.07); }
+.ctrl-engine-chip-num {
+  font-size: 9px;
+  padding: 0 4px;
+  border-radius: 2px;
+  background: var(--ink-02);
+  color: var(--ink-50);
+}
+.ctrl-engine-chip.active .ctrl-engine-chip-num { background: var(--ink-05); color: var(--ink-70); }
+.ctrl-engine-chip-dot {
+  width: 6px; height: 6px; border-radius: 50%;
+  display: inline-block;
+  flex-shrink: 0;
+}
+.ctrl-engine-chip-dot.dot-system { background: #64748b; }
+.ctrl-engine-chip-dot.dot-ai     { background: #8b5cf6; }
+.ctrl-engine-chip-dot.dot-human  { background: #f59e0b; }
+
+/* Tiny trailing badge in the rules list */
+.ctrl-rule-engine {
+  margin-left: auto;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.4px;
+  text-transform: uppercase;
+  padding: 1px 5px;
+  border-radius: 3px;
+  color: var(--ink-40);
+  background: var(--ink-02);
+  border: 1px solid transparent;
+  white-space: nowrap;
+  cursor: help;
+  flex-shrink: 0;
+}
+.ctrl-rule-engine.engine-system {
+  color: #475569; background: rgba(100,116,139,0.07); border-color: rgba(100,116,139,0.15);
+}
+.ctrl-rule-engine.engine-ai {
+  color: #6d28d9; background: rgba(139,92,246,0.07); border-color: rgba(139,92,246,0.18);
+}
+.ctrl-rule-engine.engine-human {
+  color: #b45309; background: rgba(245,158,11,0.08); border-color: rgba(245,158,11,0.2);
+}
+.ctrl-rule-row.selected .ctrl-rule-engine {
+  filter: saturate(1.2);
+}
+
+/* Hero : repartition par moteur sous les pastilles de statut */
+.ctrl-hero-engines {
+  display: flex; flex-wrap: wrap; gap: 8px 12px;
+  margin-top: 10px;
+  padding-top: 10px;
+  border-top: 1px dashed var(--ink-05);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-50);
+  letter-spacing: 0.3px;
+}
+.ctrl-hero-engine {
+  display: inline-flex; align-items: center; gap: 6px;
+  cursor: help;
+}
+.ctrl-hero-engine.engine-system { color: #475569; }
+.ctrl-hero-engine.engine-ai     { color: #6d28d9; }
+.ctrl-hero-engine.engine-human  { color: #b45309; }
+
+/* Detail header : petit tag moteur a droite du statut */
+.ctrl-detail-engine {
+  display: inline-flex; align-items: center; gap: 5px;
+  margin-left: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  cursor: help;
+}
+.ctrl-detail-engine.engine-system {
+  color: #475569; background: rgba(100,116,139,0.07); border: 1px solid rgba(100,116,139,0.18);
+}
+.ctrl-detail-engine.engine-ai {
+  color: #6d28d9; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.22);
+}
+.ctrl-detail-engine.engine-human {
+  color: #b45309; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.22);
+}
+
+/* Settings : explication des 3 couches de controles */
+.control-layer-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(230px, 1fr));
+  gap: 12px;
+  margin-top: 8px;
+}
+.control-layer-card {
+  padding: 14px 16px;
+  border-radius: 8px;
+  border: 1px solid var(--ink-05);
+  background: var(--ink-02);
+  display: flex; flex-direction: column; gap: 8px;
+}
+.control-layer-card.layer-system {
+  border-color: rgba(100,116,139,0.25);
+  background: linear-gradient(180deg, rgba(100,116,139,0.05) 0%, transparent 100%);
+}
+.control-layer-card.layer-ai {
+  border-color: rgba(139,92,246,0.25);
+  background: linear-gradient(180deg, rgba(139,92,246,0.06) 0%, transparent 100%);
+}
+.control-layer-card.layer-human {
+  border-color: rgba(245,158,11,0.25);
+  background: linear-gradient(180deg, rgba(245,158,11,0.05) 0%, transparent 100%);
+}
+.control-layer-head {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.4px;
+}
+.control-layer-tag {
+  color: var(--ink-40);
+  text-transform: uppercase;
+  font-weight: 600;
+}
+.control-layer-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--ink-90);
+  text-transform: none;
+  letter-spacing: 0;
+  font-family: var(--font-display);
+  margin-left: auto;
+}
+.control-layer-desc {
+  font-size: 12px;
+  line-height: 1.55;
+  color: var(--ink-70);
+}
+.control-layer-meta {
+  display: flex; flex-wrap: wrap; gap: 6px 14px;
+  margin-top: auto;
+  padding-top: 8px;
+  border-top: 1px dashed var(--ink-05);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--ink-50);
+}
+.control-layer-meta span {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+
+/* Legende + tag moteur dans la table des regles */
+.rule-legend {
+  display: flex; flex-wrap: wrap; gap: 8px 16px;
+  margin-bottom: 14px;
+  padding: 10px 12px;
+  border-radius: 6px;
+  background: var(--ink-02);
+  border: 1px solid var(--ink-05);
+  font-size: 11px;
+  color: var(--ink-70);
+}
+.rule-legend-item {
+  display: inline-flex; align-items: center; gap: 6px;
+}
+.rule-engine-tag {
+  display: inline-flex; align-items: center; gap: 5px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  padding: 2px 7px;
+  border-radius: 3px;
+  cursor: help;
+  white-space: nowrap;
+}
+.rule-engine-tag.tag-system {
+  color: #475569; background: rgba(100,116,139,0.08); border: 1px solid rgba(100,116,139,0.18);
+}
+.rule-engine-tag.tag-ai {
+  color: #6d28d9; background: rgba(139,92,246,0.08); border: 1px solid rgba(139,92,246,0.22);
+}
+.rule-engine-tag.tag-human {
+  color: #b45309; background: rgba(245,158,11,0.08); border: 1px solid rgba(245,158,11,0.22);
 }

@@ -227,16 +227,79 @@ export default function Settings() {
                 <div>
                   <div className="howto-step-title">
                     Validation
-                    <span className="pill-meta">local</span>
-                    <span className="pill-meta">0 $</span>
-                    <span className="pill-meta">{'< 100 ms'}</span>
+                    <span className="pill-meta">2 couches</span>
+                    <span className="pill-meta accent">systeme + IA</span>
                   </div>
                   <div className="howto-step-desc">
                     Le ValidationEngine croise les donnees extraites entre facture, bon de commande et ordre de paiement.
-                    22 regles deterministes (R01-R20 + CK01-CK10) executees en memoire. Aucun appel externe a cette etape.
+                    Deux couches complementaires s'executent dans l'ordre : 22 regles deterministes <strong>systeme</strong> (R01-R20 + CK01-CK10)
+                    en moins de 100 ms, puis, si vous avez defini des regles personnalisees, une <strong>couche IA</strong> qui sollicite
+                    Claude <strong>une seule fois</strong> pour evaluer l'ensemble des regles metier dans un appel groupe.
                   </div>
                 </div>
               </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="section-title-rail">Deux couches de controles · ce qui est calcule, ce qui est juge</div>
+            <div className="control-layer-grid">
+              <div className="control-layer-card layer-system">
+                <div className="control-layer-head">
+                  <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
+                  <span className="control-layer-tag">Couche 1</span>
+                  <span className="control-layer-title">Systeme · deterministe</span>
+                </div>
+                <div className="control-layer-desc">
+                  22 regles codees en Kotlin : arithmetique, concordances de montants, verification d'ICE / IF / RIB (15 ou 24 chiffres),
+                  chronologie, completude du dossier, validite 6 mois de l'attestation fiscale. Zero appel externe, moins de 100 ms,
+                  strictement reproducible.
+                </div>
+                <div className="control-layer-meta">
+                  <span><Zap size={11} /> local · 0 $</span>
+                  <span>R01-R20 + CK01-CK10</span>
+                </div>
+              </div>
+              <div className="control-layer-card layer-ai">
+                <div className="control-layer-head">
+                  <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
+                  <span className="control-layer-tag">Couche 2</span>
+                  <span className="control-layer-title">IA · jugement Claude</span>
+                </div>
+                <div className="control-layer-desc">
+                  Regles personnalisees ecrites en francais dans l'onglet <strong>Regles</strong>. Toutes les regles applicables
+                  au dossier sont evaluees en <strong>un seul appel Claude</strong> (batch) pour partager le contexte et reduire cout + latence.
+                  Chaque verdict cite les valeurs observees et les documents source.
+                </div>
+                <div className="control-layer-meta">
+                  <span><Brain size={11} /> Claude · 1 appel / dossier</span>
+                  <span>CUSTOM-XX</span>
+                </div>
+              </div>
+              <div className="control-layer-card layer-human">
+                <div className="control-layer-head">
+                  <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
+                  <span className="control-layer-tag">Couche 3</span>
+                  <span className="control-layer-title">Humain · autocontrole</span>
+                </div>
+                <div className="control-layer-desc">
+                  Les 10 points CK01-CK10 de la checklist MADAEF (CCF-EN-04) sont renseignes par un operateur :
+                  signatures, habilitations, PV de reception. Le systeme <strong>lit le statut saisi</strong> mais
+                  ne le recalcule pas.
+                </div>
+                <div className="control-layer-meta">
+                  <span><ShieldCheck size={11} /> Saisie controleur</span>
+                  <span>CK01-CK10</span>
+                </div>
+              </div>
+            </div>
+            <div className="alert alert-info" style={{ marginTop: 14 }}>
+              <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+              <span>
+                Sur la page d'un dossier, chaque controle porte un tag <strong>Systeme</strong>, <strong>IA</strong> ou <strong>Humain</strong>
+                pour que vous sachiez en un coup d'oeil ce qui est calcule et ce qui est juge.
+                L'appel groupe vers Claude n'a lieu que si au moins une regle personnalisee est active.
+              </span>
             </div>
           </div>
 
@@ -1165,6 +1228,21 @@ function ValidationRulesSection() {
 
   return (
     <div className="card">
+      <div className="rule-legend" aria-label="Legende des moteurs de controle">
+        <span className="rule-legend-item layer-system">
+          <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
+          <strong>Systeme</strong> · calcule en local, deterministe, 0 $
+        </span>
+        <span className="rule-legend-item layer-ai">
+          <span className="ctrl-engine-chip-dot dot-ai" aria-hidden="true" />
+          <strong>IA</strong> · Claude, un seul appel par dossier (batch)
+        </span>
+        <span className="rule-legend-item layer-human">
+          <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
+          <strong>Humain</strong> · saisi dans l'autocontrole CCF-EN-04
+        </span>
+      </div>
+
       <div className="section-title-rail">
         Regles systeme · {systemRules.filter(r => !disabled.has(r.code)).length}/{systemRules.length} actives
       </div>
@@ -1173,6 +1251,7 @@ function ValidationRulesSection() {
           <tr>
             <th style={{ width: 50 }}>Actif</th>
             <th style={{ width: 70 }}>Code</th>
+            <th style={{ width: 86 }}>Moteur</th>
             <th>Regle</th>
             <th>Description</th>
             <th style={{ width: 80 }}>BC</th>
@@ -1190,6 +1269,12 @@ function ValidationRulesSection() {
                 </label>
               </td>
               <td className="rule-code">{r.code}</td>
+              <td>
+                <span className="rule-engine-tag tag-system" title="Calcul deterministe execute en local">
+                  <span className="ctrl-engine-chip-dot dot-system" aria-hidden="true" />
+                  Systeme
+                </span>
+              </td>
               <td className="rule-label">{r.label}</td>
               <td className="rule-desc">{r.desc}</td>
               <td>{r.appliesToBC ? <CheckCircle size={12} style={{ color: 'var(--success)' }} aria-label="Applicable" /> : <span style={{ color: 'var(--ink-20)' }} aria-label="Non applicable">—</span>}</td>
@@ -1207,6 +1292,7 @@ function ValidationRulesSection() {
           <tr>
             <th style={{ width: 50 }}>Actif</th>
             <th style={{ width: 70 }}>Code</th>
+            <th style={{ width: 86 }}>Moteur</th>
             <th>Point de controle</th>
             <th>Description</th>
           </tr>
@@ -1222,6 +1308,12 @@ function ValidationRulesSection() {
                 </label>
               </td>
               <td className="rule-code">{r.code}</td>
+              <td>
+                <span className="rule-engine-tag tag-human" title="Statut saisi par un operateur">
+                  <span className="ctrl-engine-chip-dot dot-human" aria-hidden="true" />
+                  Humain
+                </span>
+              </td>
               <td className="rule-label">{r.label}</td>
               <td className="rule-desc">{r.desc}</td>
             </tr>
@@ -1416,6 +1508,15 @@ function CustomRulesSection() {
         whitelistes, dates de prestation...). La regle tourne uniquement sur les dossiers
         ou les cases « BC » et/ou « Contractuel » sont cochees.
       </p>
+      <div className="alert alert-info" style={{ marginBottom: 10 }}>
+        <Brain size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+        <span>
+          <strong>Appel groupe</strong> : toutes les regles applicables a un dossier sont envoyees a Claude
+          dans un seul appel. Le dossier (factures, BC, OP...) est serialise une seule fois,
+          et chaque regle recoit son verdict independant avec les valeurs observees.
+          Cout et latence divises par le nombre de regles par rapport a un appel par regle.
+        </span>
+      </div>
       <div className="alert alert-info" style={{ marginBottom: 12 }}>
         <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
         <span>
