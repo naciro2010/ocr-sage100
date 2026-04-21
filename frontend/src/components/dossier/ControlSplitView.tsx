@@ -46,13 +46,42 @@ interface RuleItem {
   custom?: CustomRule
 }
 
-function confidenceLevel(r: ValidationResult): { label: string; color: string; pct: number } {
-  if (r.source === 'deterministe' || r.source === 'regex' || r.source === 'DETERMINISTE') return { label: 'Fiable', color: 'var(--info)', pct: 100 }
-  if (r.source === 'llm' || r.source === 'ia') {
-    return r.statut === 'CONFORME' ? { label: 'Fiable', color: 'var(--success)', pct: 85 } : { label: 'A verifier', color: 'var(--warning)', pct: 60 }
+/**
+ * Etiquette humaine de la methode d'obtention du verdict, sans pourcentage magique.
+ * Le chiffre de confiance affiche jusqu'ici etait fabrique cote front (85%, 60%, 70%, 90%)
+ * et pouvait faire croire a une metrique calibree. Remplace par un label explicite.
+ */
+function verdictProvenance(r: ValidationResult): { label: string; hint: string; tone: 'info' | 'success' | 'warning' | 'neutral' } {
+  const src = (r.source || '').toLowerCase()
+  if (src === 'deterministe' || src === 'regex') {
+    return {
+      label: 'Calcul deterministe',
+      hint: 'Execute cote backend a partir des donnees extraites. Resultat reproductible.',
+      tone: 'info',
+    }
   }
-  if (r.source === 'CHECKLIST') return { label: 'A verifier', color: 'var(--warning)', pct: 70 }
-  return { label: 'Fiable', color: 'var(--ink-40)', pct: 90 }
+  if (src === 'llm' || src === 'ia') {
+    return {
+      label: 'Jugement IA (Claude)',
+      hint: 'Le modele Claude a ete sollicite pour trancher. A croiser avec les documents sources en cas de doute.',
+      tone: 'warning',
+    }
+  }
+  if (src === 'checklist') {
+    return {
+      label: 'Saisie humaine',
+      hint: 'Valeur issue de la checklist autocontrole ou d\'une correction manuelle. Depend de l\'operateur qui l\'a renseignee.',
+      tone: 'warning',
+    }
+  }
+  if (r.corrigePar) {
+    return {
+      label: `Corrige par ${r.corrigePar}`,
+      hint: 'Statut force manuellement apres analyse humaine.',
+      tone: 'neutral',
+    }
+  }
+  return { label: 'Source inconnue', hint: 'La provenance du verdict n\'est pas tracee.', tone: 'neutral' }
 }
 
 function isStale(r: ValidationResult | undefined, documents: DocumentInfo[]): boolean {
@@ -309,7 +338,8 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   const [saving, setSaving] = useState(false)
 
   const r = item?.result
-  const conf = r ? confidenceLevel(r) : null
+  const provenance = r ? verdictProvenance(r) : null
+  const ruleMeta = item ? ALL_RULES.find(rl => rl.code === item.code) : undefined
   const stale = isStale(r, dossier.documents)
   const cascadeSize = item ? (cascadeScope?.[item.code.split('.')[0]]?.length || 1) : 0
 
@@ -451,6 +481,46 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 
       <div className="ctrl-split-center-body">
 
+        {/* Methode du controle — formule + methode + provenance */}
+        {(ruleMeta?.formula || ruleMeta?.method || provenance) && (
+          <div className="ctrl-detail-section">
+            <div className="ctrl-detail-section-title">Methode du controle</div>
+            <div className="ctrl-method">
+              {ruleMeta?.formula && (
+                <div className="ctrl-method-row">
+                  <div className="ctrl-method-label">Formule</div>
+                  <code className="ctrl-method-formula">{ruleMeta.formula}</code>
+                </div>
+              )}
+              {ruleMeta?.method && (
+                <div className="ctrl-method-row">
+                  <div className="ctrl-method-label">Comment</div>
+                  <div className="ctrl-method-text">{ruleMeta.method}</div>
+                </div>
+              )}
+              {ruleMeta?.fields && ruleMeta.fields.length > 0 && (
+                <div className="ctrl-method-row">
+                  <div className="ctrl-method-label">Champs lus</div>
+                  <div className="ctrl-method-fields">
+                    {ruleMeta.fields.map(f => (
+                      <code key={f} className="ctrl-method-field">{f}</code>
+                    ))}
+                  </div>
+                </div>
+              )}
+              {provenance && (
+                <div className="ctrl-method-row">
+                  <div className="ctrl-method-label">Verdict</div>
+                  <div className={`ctrl-method-provenance tone-${provenance.tone}`}>
+                    <span className="ctrl-method-provenance-label">{provenance.label}</span>
+                    <span className="ctrl-method-provenance-hint">{provenance.hint}</span>
+                  </div>
+                </div>
+              )}
+            </div>
+          </div>
+        )}
+
         {/* Detail from validation */}
         {r?.detail && (
           <div className="ctrl-detail-section">
@@ -467,6 +537,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
               <div className="ctrl-compare-side">
                 <div className="ctrl-compare-label">Attendu</div>
                 <div className="ctrl-compare-value">{r?.valeurAttendue || '—'}</div>
+                <div className="ctrl-compare-source">Source non tracee — voir documents lies</div>
               </div>
               <div className="ctrl-compare-op" aria-hidden="true">
                 {valsEqual ? '=' : valsDiffer ? '≠' : '→'}
@@ -474,16 +545,25 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
               <div className="ctrl-compare-side">
                 <div className="ctrl-compare-label">Trouve</div>
                 <div className={`ctrl-compare-value ${valsDiffer ? 'danger' : valsEqual ? 'ok' : ''}`}>{r?.valeurTrouvee || '—'}</div>
+                <div className="ctrl-compare-source">Source non tracee — voir documents lies</div>
               </div>
             </div>
           </div>
         )}
 
-        {/* Evidence */}
-        {r?.evidences && r.evidences.length > 0 && (
+        {/* Evidence — always rendered when result exists, with empty-state */}
+        {r && (
           <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title">Preuves</div>
-            <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenDoc} />
+            <div className="ctrl-detail-section-title">Preuves ({r.evidences?.length ?? 0})</div>
+            {r.evidences && r.evidences.length > 0 ? (
+              <EvidenceList evidences={r.evidences} statut={r.statut} onOpenDocument={onOpenDoc} />
+            ) : (
+              <div className="ctrl-evidence-empty">
+                Aucune preuve structuree enregistree pour ce controle.
+                La regle a produit un verdict sans citer explicitement la valeur attendue, la valeur trouvee ou le document source.
+                Utilisez le bouton <strong>Relancer</strong> pour re-executer la regle ou <strong>Corriger</strong> pour renseigner manuellement les valeurs.
+              </div>
+            )}
           </div>
         )}
 
@@ -593,19 +673,14 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
           </div>
         )}
 
-        {/* Meta — plain inline row */}
-        {r && (
+        {/* Meta — date execution, correction humaine. La provenance du verdict est
+            deja affichee dans la section "Methode du controle" ci-dessus. */}
+        {r && (r.dateExecution || r.corrigePar) && (
           <dl className="ctrl-detail-meta">
-            {conf && (
+            {r.dateExecution && (
               <div className="ctrl-meta-item">
-                <dt>Confiance</dt>
-                <dd>{conf.pct}%</dd>
-              </div>
-            )}
-            {r.source && (
-              <div className="ctrl-meta-item">
-                <dt>Source</dt>
-                <dd>{r.source === 'deterministe' || r.source === 'DETERMINISTE' ? 'Systeme' : 'Extraction IA'}</dd>
+                <dt>Execute le</dt>
+                <dd>{new Date(r.dateExecution).toLocaleString('fr-FR', { dateStyle: 'short', timeStyle: 'short' })}</dd>
               </div>
             )}
             {r.corrigePar && (

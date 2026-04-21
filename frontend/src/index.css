@@ -1481,6 +1481,225 @@ body {
   line-height: 1.5;
 }
 
+/* ===== Data Flow Diagram — privacy-first visualization ===== */
+.flow-diagram {
+  display: grid;
+  grid-template-columns: 1fr 70px 1fr 70px 1fr;
+  gap: 0;
+  align-items: stretch;
+  margin-top: 12px;
+  margin-bottom: 20px;
+}
+.flow-zone {
+  position: relative;
+  border-radius: 12px;
+  padding: 16px 18px 18px;
+  border: 1px solid;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 180px;
+  overflow: hidden;
+}
+.flow-zone::before {
+  content: '';
+  position: absolute;
+  inset: 0;
+  opacity: 0.35;
+  pointer-events: none;
+  background-image:
+    repeating-linear-gradient(135deg, transparent 0 9px, currentColor 9px 10px);
+  mask-image: linear-gradient(180deg, rgba(0,0,0,0.05), transparent 40%);
+}
+.flow-zone-tag {
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  padding: 3px 8px;
+  border-radius: 4px;
+  align-self: flex-start;
+  z-index: 1;
+}
+.flow-zone h5 {
+  font-size: 14px;
+  font-weight: 700;
+  margin: 0;
+  color: var(--ink);
+  letter-spacing: -0.01em;
+  z-index: 1;
+}
+.flow-zone-sub {
+  font-size: 11.5px;
+  color: var(--ink-50);
+  line-height: 1.5;
+  margin-bottom: 8px;
+  z-index: 1;
+}
+.flow-zone ul {
+  list-style: none;
+  padding: 0;
+  margin: 0;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  z-index: 1;
+}
+.flow-zone li {
+  font-size: 11px;
+  color: var(--ink-70);
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+  line-height: 1.45;
+}
+.flow-zone li::before {
+  content: '';
+  flex-shrink: 0;
+  width: 5px; height: 5px;
+  border-radius: 50%;
+  background: currentColor;
+  margin-top: 7px;
+  opacity: 0.6;
+}
+
+.flow-zone-internal {
+  border-color: rgba(16,185,129,0.28);
+  background: linear-gradient(180deg, #ffffff, rgba(16,185,129,0.04));
+  color: var(--accent-deep);
+}
+.flow-zone-internal .flow-zone-tag {
+  background: var(--accent-muted);
+  color: var(--accent-deep);
+}
+
+.flow-zone-transit {
+  border-color: rgba(245,158,11,0.28);
+  background: linear-gradient(180deg, #ffffff, rgba(245,158,11,0.04));
+  color: #b45309;
+}
+.flow-zone-transit .flow-zone-tag {
+  background: rgba(245,158,11,0.08);
+  color: #b45309;
+}
+
+.flow-zone-external {
+  border-color: rgba(59,130,246,0.28);
+  background: linear-gradient(180deg, #ffffff, rgba(59,130,246,0.04));
+  color: #1d4ed8;
+}
+.flow-zone-external .flow-zone-tag {
+  background: rgba(59,130,246,0.08);
+  color: #1d4ed8;
+}
+
+.flow-zone-meta {
+  margin-top: auto;
+  padding-top: 10px;
+  border-top: 1px dashed currentColor;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  letter-spacing: 0.5px;
+  color: currentColor;
+  opacity: 0.75;
+  z-index: 1;
+}
+
+.flow-arrow {
+  position: relative;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--ink-30);
+}
+.flow-arrow::before {
+  content: '';
+  position: absolute;
+  left: 6px; right: 6px;
+  top: 50%;
+  height: 1px;
+  background: repeating-linear-gradient(
+    to right,
+    currentColor 0 6px,
+    transparent 6px 10px
+  );
+}
+.flow-arrow-label {
+  position: relative;
+  z-index: 1;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  padding: 4px 7px;
+  background: #ffffff;
+  border: 1px solid var(--ink-10);
+  border-radius: 4px;
+  color: var(--ink-50);
+  white-space: nowrap;
+}
+.flow-arrow svg {
+  position: absolute;
+  right: 0;
+  top: 50%;
+  transform: translateY(-50%);
+  color: var(--ink-40);
+}
+
+/* Privacy guarantee pills */
+.privacy-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 10px;
+  margin-top: 4px;
+}
+.privacy-card {
+  position: relative;
+  border: 1px solid var(--ink-10);
+  border-radius: 10px;
+  padding: 14px;
+  background: #ffffff;
+  transition: transform 0.18s, border-color 0.18s;
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+.privacy-card:hover { transform: translateY(-1px); border-color: rgba(16,185,129,0.3); }
+.privacy-card-icon {
+  width: 32px; height: 32px;
+  border-radius: 8px;
+  background: var(--accent-muted);
+  color: var(--accent-deep);
+  border: 1px solid rgba(16,185,129,0.22);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  margin-bottom: 4px;
+}
+.privacy-card-title {
+  font-size: 12.5px;
+  font-weight: 700;
+  color: var(--ink);
+  line-height: 1.35;
+  letter-spacing: -0.005em;
+}
+.privacy-card-desc {
+  font-size: 11px;
+  color: var(--ink-50);
+  line-height: 1.5;
+}
+.privacy-card-source {
+  margin-top: auto;
+  padding-top: 6px;
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  letter-spacing: 0.5px;
+  color: var(--ink-40);
+  border-top: 1px dashed var(--ink-10);
+}
+
 /* Health grid — system components */
 .health-grid {
   display: grid;
@@ -1610,6 +1829,14 @@ body {
   .pipeline-node { grid-template-columns: 32px 1fr; }
   .pipeline-node-meta { grid-column: 1 / -1; align-items: flex-start; }
   .health-grid { grid-template-columns: 1fr; }
+  .privacy-grid { grid-template-columns: repeat(2, 1fr); }
+  .flow-diagram { grid-template-columns: 1fr; }
+  .flow-arrow {
+    min-height: 40px;
+    transform: rotate(90deg);
+    margin: 4px 0;
+  }
+  .flow-arrow::before { left: 20px; right: 20px; }
 }
 
 /* ===== Extracted Data Sections ===== */
@@ -2965,4 +3192,122 @@ body {
   .login-card { width: calc(100vw - 32px); max-width: 380px; }
   .search-panel { width: calc(100vw - 32px); }
   .header-actions { flex-wrap: wrap; }
+}
+
+/* ============================================================
+   Tracabilite controles — methode, preuves vides, cross-link
+   ============================================================ */
+
+.ctrl-method {
+  display: flex; flex-direction: column; gap: 10px;
+  background: var(--ink-02);
+  border: 1px solid var(--ink-10);
+  border-radius: 8px;
+  padding: 12px 14px;
+}
+.ctrl-method-row {
+  display: grid;
+  grid-template-columns: 90px 1fr;
+  gap: 12px;
+  align-items: start;
+}
+.ctrl-method-label {
+  font-size: 9.5px; font-weight: 700;
+  text-transform: uppercase; letter-spacing: 0.8px;
+  color: var(--ink-40);
+  font-family: var(--font-mono);
+  padding-top: 3px;
+}
+.ctrl-method-formula {
+  font-family: var(--font-mono);
+  font-size: 11.5px;
+  color: var(--ink-80);
+  background: #fff;
+  border: 1px solid var(--ink-10);
+  border-radius: 5px;
+  padding: 5px 9px;
+  display: inline-block;
+  line-height: 1.55;
+  word-break: break-word;
+}
+.ctrl-method-text {
+  font-size: 12px;
+  color: var(--ink-60);
+  line-height: 1.55;
+}
+.ctrl-method-fields {
+  display: flex; flex-wrap: wrap; gap: 4px;
+}
+.ctrl-method-field {
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  background: var(--ink-05);
+  color: var(--ink-60);
+  border: 1px solid var(--ink-10);
+  border-radius: 3px;
+  padding: 1px 6px;
+}
+.ctrl-method-provenance {
+  display: flex; flex-direction: column; gap: 2px;
+  padding: 6px 10px;
+  border-radius: 6px;
+  border: 1px solid;
+}
+.ctrl-method-provenance.tone-info {
+  background: rgba(59, 130, 246, 0.06);
+  border-color: rgba(59, 130, 246, 0.2);
+}
+.ctrl-method-provenance.tone-success {
+  background: rgba(16, 185, 129, 0.06);
+  border-color: rgba(16, 185, 129, 0.2);
+}
+.ctrl-method-provenance.tone-warning {
+  background: rgba(245, 158, 11, 0.06);
+  border-color: rgba(245, 158, 11, 0.25);
+}
+.ctrl-method-provenance.tone-neutral {
+  background: var(--ink-02);
+  border-color: var(--ink-10);
+}
+.ctrl-method-provenance-label {
+  font-weight: 700; font-size: 12px; color: var(--ink-80);
+}
+.ctrl-method-provenance-hint {
+  font-size: 11px; color: var(--ink-50); line-height: 1.5;
+}
+
+/* Preuves — empty state */
+.ctrl-evidence-empty {
+  font-size: 12px; color: var(--ink-50);
+  background: var(--ink-02);
+  border: 1px dashed var(--ink-20);
+  border-radius: 6px;
+  padding: 10px 12px;
+  line-height: 1.55;
+}
+
+/* Comparaison — note de source */
+.ctrl-compare-source {
+  font-size: 9.5px; color: var(--ink-40);
+  font-style: italic;
+  margin-top: 3px;
+  letter-spacing: 0.1px;
+}
+
+/* Cross-link : champ extrait -> regles qui l'utilisent */
+.edv-cell-rules,
+.data-field-key .edv-cell-rules {
+  display: inline-block;
+  margin-left: 6px;
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 600;
+  letter-spacing: 0.3px;
+  color: var(--accent-deep);
+  background: rgba(5, 150, 105, 0.08);
+  border: 1px solid rgba(5, 150, 105, 0.2);
+  border-radius: 3px;
+  padding: 0 4px;
+  cursor: help;
+  vertical-align: 1px;
 }

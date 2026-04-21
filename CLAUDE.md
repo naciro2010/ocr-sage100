@@ -120,3 +120,14 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL
 - Deployment: Railway (config in `railway.json`, `Procfile`)
+
+## Git Workflow (OBLIGATOIRE)
+- **Jamais de push direct sur `main`.** Pour toute modification, workflow impose :
+  1. `git checkout -b feat/<slug>` ou `fix/<slug>` depuis main a jour
+  2. Commits sur la branche
+  3. `git push -u origin <branch>`
+  4. `gh pr create` avec titre + description
+  5. **Attendre la CI verte** via `gh pr checks --watch` ou `gh run list`
+  6. Merger uniquement quand tous les checks sont verts : `gh pr merge --squash --delete-branch`
+- Si on est deja sur une feature branch, rester dessus (ne pas en recreer une).
+- Les commits directs sur main sont reserves aux cas d'urgence explicitement autorises par le mainteneur.

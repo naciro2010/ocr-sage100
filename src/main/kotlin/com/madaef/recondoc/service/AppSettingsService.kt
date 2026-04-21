@@ -82,7 +82,7 @@ class AppSettingsService(
     }
 
     fun getAiModel(): String {
-        return getOrDefault("ai.model", "claude-sonnet-4-6")
+        return getOrDefault("ai.model", "claude-opus-4-7")
     }
 
     fun getAiBaseUrl(): String {

@@ -28,8 +28,8 @@ import { listDossiers } from '../api/dossierApi'
 import type { DossierListItem } from '../api/dossierTypes'
 
 const AI_MODELS = [
-  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, ideal pour extraction' },
-  { value: 'claude-opus-4-6', label: 'Claude Opus 4.6', desc: 'Plus precis, documents complexes' },
+  { value: 'claude-opus-4-7', label: 'Claude Opus 4.7', desc: 'Le plus precis, recommande pour dossiers' },
+  { value: 'claude-sonnet-4-6', label: 'Claude Sonnet 4.6', desc: 'Rapide, bon compromis' },
   { value: 'claude-haiku-4-5-20251001', label: 'Claude Haiku 4.5', desc: 'Leger, economique' },
 ]
 
@@ -44,11 +44,11 @@ const SHORTCUTS = [
 
 export default function Settings() {
   const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState<'ia' | 'ocr' | 'health' | 'rules' | 'about'>('ia')
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'cles' | 'health' | 'rules' | 'about'>('pipeline')
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
-  const [aiModel, setAiModel] = useState('claude-sonnet-4-6')
+  const [aiModel, setAiModel] = useState('claude-opus-4-7')
   const [aiBaseUrl, setAiBaseUrl] = useState('https://api.anthropic.com')
   const [showApiKey, setShowApiKey] = useState(false)
   const [aiSaving, setAiSaving] = useState(false)
@@ -122,8 +122,8 @@ export default function Settings() {
 
       <div className="settings-tabs" role="tablist" aria-label="Onglets parametres">
         {([
-          ['ia', 'Extraction IA'],
-          ['ocr', 'Pipeline OCR'],
+          ['pipeline', 'Pipeline'],
+          ['cles', 'Cles API'],
           ['health', 'Etat systeme'],
           ['rules', 'Regles'],
           ['about', 'A propos'],
@@ -140,28 +140,348 @@ export default function Settings() {
       </div>
 
       {/* =========================================================== */}
-      {/* IA EXTRACTION TAB                                            */}
+      {/* PIPELINE TAB — parcours d'un document de bout en bout        */}
       {/* =========================================================== */}
-      {activeTab === 'ia' && (
-        <div role="tabpanel" id="tab-panel-ia">
+      {activeTab === 'pipeline' && (
+        <div role="tabpanel" id="tab-panel-pipeline">
           <SettingsHero
-            eyebrow="Moteur d'extraction"
-            title={<>Claude lit chaque document <span style={{ color: 'var(--accent-deep)' }}>&amp;</span> structure la donnee.</>}
-            icon={<Brain size={24} aria-hidden="true" />}
-            lead="Apres l'OCR, l'IA Claude joue deux roles distincts : elle classe le document (facture, BC, OP...) puis en extrait les champs metier (montants, ICE, RIB, lignes de facture). Sans cette etape, la plateforme ne pourrait pas croiser les donnees entre documents d'un dossier."
-            status={aiLive ? 'active' : (aiSettings?.apiKeyConfigured ? 'idle' : 'off')}
-            statusLabel={aiLive ? 'En production' : (aiSettings?.apiKeyConfigured ? 'Configure, desactive' : 'Non configure')}
-            kpi={aiSettings?.model || '—'}
-            kpiLabel="Modele courant"
+            eyebrow="Architecture · parcours d'un document"
+            title={<>De l'upload a la validation, <span style={{ color: 'var(--accent-deep)' }}>cinq etapes</span> — et un service cloud uniquement quand c'est necessaire.</>}
+            icon={<Layers size={24} aria-hidden="true" />}
+            lead="Un document n'emprunte jamais la meme route. Si le PDF est numerique, Tika extrait le texte gratuitement et Claude travaille dessus. Si c'est un scan, Mistral prend le relai. Les fichiers originaux restent dans S3 chez vous, seul le texte necessaire transite — et le moteur de regles finit le travail en local."
+            status="active"
+            statusLabel="Pipeline operationnel"
+            kpi="5"
+            kpiLabel="Etapes"
           />
+
+          <div className="card">
+            <div className="section-title-rail">Histoire d'un document</div>
+            <div className="howto-steps">
+              <div className="howto-step">
+                <div className="howto-step-num">01</div>
+                <div>
+                  <div className="howto-step-title">
+                    Upload &amp; stockage
+                    <span className="pill-meta">multipart · 50 Mo max</span>
+                    <span className="pill-meta accent">S3</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    Le PDF ou l'image arrive sur <code style={codeStyle}>POST /api/dossiers/&#123;id&#125;/documents</code>.
+                    Le binaire est pousse <strong>immediatement</strong> dans le bucket S3 sous la cle
+                    {' '}<code style={codeStyle}>dossiers/&#123;id&#125;/&#123;timestamp&#125;_&#123;fichier&#125;</code>.
+                    PostgreSQL ne recoit qu'un pointeur — l'octet brut reste dans l'objet-store.
+                  </div>
+                </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">02</div>
+                <div>
+                  <div className="howto-step-title">
+                    Cascade OCR
+                    <span className="pill-meta">local d'abord</span>
+                    <span className="pill-meta accent">seuil 200 mots</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    <strong>Tika tente toujours en premier</strong> et extrait le texte natif du PDF.
+                    Si <strong>≥ 200 mots</strong> sont trouves, le PDF est considere numerique et la cascade s'arrete la (0 $).
+                    Sinon c'est un scan : <strong>Mistral OCR</strong> prend le relai s'il est configure
+                    (~0.001 $/page, Markdown propre FR + AR), sinon <strong>Tesseract local</strong> (0 $) joue le filet de securite.
+                    Mistral et Tesseract sont exclusifs — jamais les deux a la fois.
+                  </div>
+                </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">03</div>
+                <div>
+                  <div className="howto-step-title">
+                    Extraction Claude
+                    <span className="pill-meta">2 appels</span>
+                    <span className="pill-meta accent">texte uniquement</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    Le texte OCR — <strong>jamais le PDF binaire</strong> — est envoye a l'API Anthropic en TLS 1.3.
+                    Appel 1 : classification (facture, BC, OP, contrat, PV, attestation...).
+                    Appel 2 : extraction JSON structuree (montants HT/TVA/TTC, ICE, IF, RIB, lignes, retenues).
+                    Un 3e appel n'est declenche que si la confiance est &lt; 0.69.
+                  </div>
+                </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">04</div>
+                <div>
+                  <div className="howto-step-title">
+                    Persistance
+                    <span className="pill-meta">Postgres + S3</span>
+                    <span className="pill-meta accent">binaires separes</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    PostgreSQL stocke les metadonnees, les donnees extraites (JSONB), les resultats de validation et l'audit.
+                    Les fichiers binaires et le texte OCR brut restent dans S3 pour garder les lignes Postgres legeres.
+                    Schema gere par Flyway, JPA en <code style={codeStyle}>ddl-auto: validate</code>.
+                  </div>
+                </div>
+              </div>
+              <div className="howto-step">
+                <div className="howto-step-num">05</div>
+                <div>
+                  <div className="howto-step-title">
+                    Validation
+                    <span className="pill-meta">local</span>
+                    <span className="pill-meta">0 $</span>
+                    <span className="pill-meta">{'< 100 ms'}</span>
+                  </div>
+                  <div className="howto-step-desc">
+                    Le ValidationEngine croise les donnees extraites entre facture, bon de commande et ordre de paiement.
+                    22 regles deterministes (R01-R20 + CK01-CK10) executees en memoire. Aucun appel externe a cette etape.
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="section-title-rail">Le pipeline en un coup d'oeil</div>
+            <div className="pipeline-flow">
+              <PipelineNode
+                tag="IN"
+                name="Upload"
+                role="PDF ou image, 50 Mo max. Binaire pousse dans S3 immediatement."
+                meta="multipart · S3"
+                badge="Entry point"
+                state="active"
+                icon={<ArrowRight size={16} />}
+              />
+              <PipelineNode
+                tag="01"
+                name="Apache Tika"
+                role="Extraction du texte natif. Decision sur le seuil de 200 mots."
+                meta="local · instantane · 0 $"
+                badge="Toujours actif"
+                state="active"
+                icon={<FileText size={16} />}
+              />
+              <PipelineNode
+                tag="02"
+                name={mistralLive ? 'Mistral OCR' : 'Tesseract 5'}
+                role={mistralLive
+                  ? 'API cloud — Markdown structure pour scans, FR + AR natif'
+                  : 'OCR local (fra + ara + eng), filet de securite'}
+                meta={mistralLive ? 'cloud · ~0.001 $/page' : 'local · 1-2 s/page · 0 $'}
+                badge={mistralLive ? 'Actif pour scans' : 'Actif pour scans'}
+                state={mistralLive ? 'active' : 'fallback'}
+                icon={mistralLive ? <Sparkles size={16} /> : <CircuitBoard size={16} />}
+              />
+              <PipelineNode
+                tag="03"
+                name="Claude (Anthropic)"
+                role="Classification + extraction JSON. Texte OCR uniquement, jamais le PDF."
+                meta="2 appels · ~3k-8k tokens"
+                badge={aiLive ? 'Configure' : 'En veille'}
+                state={aiLive ? 'active' : 'off'}
+                icon={<Brain size={16} />}
+              />
+              <PipelineNode
+                tag="04"
+                name="Postgres + S3"
+                role="Metadata et JSONB en base, binaires et texte OCR en S3"
+                meta="Flyway · V1-V13"
+                badge="Source de verite"
+                state="active"
+                icon={<Database size={16} />}
+              />
+              <PipelineNode
+                tag="05"
+                name="ValidationEngine"
+                role="22 regles croisees (R01-R20 + CK01-CK10), en local"
+                meta="deterministe · < 100 ms"
+                badge="Local"
+                state="active"
+                icon={<Zap size={16} />}
+              />
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="section-title-rail">3 parcours concrets</div>
+            <div className="scenario-grid">
+              <div className="scenario-card">
+                <div className="scenario-card-head"><span>CAS 1</span><FileText size={12} /></div>
+                <div className="scenario-card-title">Facture PDF numerique</div>
+                <div className="scenario-card-desc">
+                  Generee par SAP / Sage / Excel. Tika lit le texte natif en 100 ms, depasse les 200 mots,
+                  l'OCR cloud n'est jamais appele. Cout OCR : 0 $.
+                </div>
+                <div className="scenario-card-route">
+                  TIKA <span className="arrow">→</span> CLAUDE
+                </div>
+              </div>
+              <div className="scenario-card">
+                <div className="scenario-card-head"><span>CAS 2</span><Layers size={12} /></div>
+                <div className="scenario-card-title">PDF avec tableaux</div>
+                <div className="scenario-card-desc">
+                  Lignes HT/TVA/TTC, grilles tarifaires. PdfMarkdownExtractor rend la structure
+                  en Markdown, Claude extrait ligne par ligne sans se tromper.
+                </div>
+                <div className="scenario-card-route">
+                  TIKA <span className="arrow">→</span> MARKDOWN <span className="arrow">→</span> CLAUDE
+                </div>
+              </div>
+              <div className="scenario-card">
+                <div className="scenario-card-head"><span>CAS 3</span><ScanLine size={12} /></div>
+                <div className="scenario-card-title">Scan papier ou photo</div>
+                <div className="scenario-card-desc">
+                  Attestation fiscale scannee, cachet, signature. Tika rend moins de 200 mots.
+                  {mistralLive
+                    ? ' Mistral renvoie du Markdown propre, meme en arabe.'
+                    : ' Tesseract prend le relai en local, precision moindre mais gratuit.'}
+                </div>
+                <div className="scenario-card-route">
+                  TIKA <span className="arrow">→</span> {mistralLive ? 'MISTRAL' : 'TESSERACT'} <span className="arrow">→</span> CLAUDE
+                </div>
+              </div>
+            </div>
+          </div>
+
+          <div className="card">
+            <div className="section-title-rail">
+              Confidentialite — ce qui sort, ce qui reste
+              <span style={{
+                marginLeft: 'auto',
+                fontFamily: 'var(--font-mono)', fontSize: 10,
+                letterSpacing: 0.5, textTransform: 'none',
+                color: 'var(--ink-40)', fontWeight: 500,
+              }}>
+                schema simplifie
+              </span>
+            </div>
+            <div
+              className="flow-diagram"
+              aria-label="Schema du flux de donnees"
+              style={{ gridTemplateColumns: '1fr 70px 1fr' }}
+            >
+              <div className="flow-zone flow-zone-internal">
+                <span className="flow-zone-tag">Chez vous</span>
+                <h5>Infrastructure MADAEF</h5>
+                <div className="flow-zone-sub">Backend Kotlin, PostgreSQL, bucket S3, moteur de regles.</div>
+                <ul>
+                  <li>Fichiers PDF &amp; images originaux (S3)</li>
+                  <li>Donnees extraites et validations (Postgres)</li>
+                  <li>Tika, Tesseract, regles R01-R20 + CK01-CK10</li>
+                </ul>
+                <div className="flow-zone-meta">Source de verite</div>
+              </div>
+
+              <div className="flow-arrow" aria-hidden="true">
+                <span className="flow-arrow-label">TLS 1.3</span>
+              </div>
+
+              <div className="flow-zone flow-zone-external">
+                <span className="flow-zone-tag">Cote cloud</span>
+                <h5>APIs Anthropic &amp; Mistral</h5>
+                <div className="flow-zone-sub">Traitement stateless, pas de conservation longue.</div>
+                <ul>
+                  <li>Texte OCR uniquement (jamais le PDF binaire)</li>
+                  <li>Prompts d'extraction (system)</li>
+                  <li>Pas d'entrainement sur vos appels</li>
+                  <li>Retention safety ≤ 30 jours puis suppression</li>
+                </ul>
+                <div className="flow-zone-meta">Retour · JSON structure</div>
+              </div>
+            </div>
+
+            <div className="privacy-grid" style={{ marginTop: 14 }}>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Shield size={16} /></div>
+                <div className="privacy-card-title">Pas d'entrainement</div>
+                <div className="privacy-card-desc">Les donnees envoyees via API ne servent pas a entrainer les modeles Anthropic ou Mistral.</div>
+                <div className="privacy-card-source">Politiques API officielles</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Key size={16} /></div>
+                <div className="privacy-card-title">Chiffrement TLS 1.3</div>
+                <div className="privacy-card-desc">Toutes les requetes sortantes sont chiffrees de bout en bout.</div>
+                <div className="privacy-card-source">Standard HTTPS / TLS</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Clock size={16} /></div>
+                <div className="privacy-card-title">Retention ≤ 30 jours</div>
+                <div className="privacy-card-desc">Anthropic et Mistral conservent les requetes max 30 j pour la securite, puis suppression automatique.</div>
+                <div className="privacy-card-source">Data usage policy</div>
+              </div>
+              <div className="privacy-card">
+                <div className="privacy-card-icon"><Globe size={16} /></div>
+                <div className="privacy-card-title">Conforme RGPD</div>
+                <div className="privacy-card-desc">Pas de donnees nominatives sensibles transmises. Fichiers sources stockes en UE.</div>
+                <div className="privacy-card-source">DPA disponible</div>
+              </div>
+            </div>
+
+            <div className="alert alert-info" style={{ marginTop: 14 }}>
+              <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+              <span>
+                Mode <strong>100 % local</strong> possible : desactivez Claude et Mistral dans l'onglet <strong>Cles API</strong>.
+                Tika + Tesseract + les 22 regles restent operationnels, au prix d'une precision moindre sur les documents complexes.
+                Suivi detaille tokens &amp; couts par dossier : page <strong>Usage Claude</strong> du menu lateral.
+              </span>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================== */}
+      {/* CLES API TAB — Claude + Mistral regroupes                    */}
+      {/* =========================================================== */}
+      {activeTab === 'cles' && (
+        <div role="tabpanel" id="tab-panel-cles">
+          <SettingsHero
+            eyebrow="Deux services cloud · deux cles"
+            title={<>Une seule page pour brancher <span style={{ color: 'var(--accent-deep)' }}>Claude</span> et <span style={{ color: 'var(--accent-deep)' }}>Mistral</span>.</>}
+            icon={<Key size={24} aria-hidden="true" />}
+            lead="Claude fait l'extraction metier (classification + JSON structure). Mistral fait l'OCR premium sur les scans. Les deux sont optionnels — sans cle, la plateforme bascule sur Tika + Tesseract + regles locales. Les cles saisies ici prennent le pas sur les variables d'environnement et sont persistees en base."
+            status={aiLive && mistralLive ? 'active' : (aiLive || mistralLive ? 'idle' : 'off')}
+            statusLabel={
+              aiLive && mistralLive ? 'Claude + Mistral en production'
+                : aiLive ? 'Claude uniquement'
+                : mistralLive ? 'Mistral uniquement'
+                : 'Aucun service cloud actif'
+            }
+            kpi={`${(aiLive ? 1 : 0) + (mistralLive ? 1 : 0)}/2`}
+            kpiLabel="Services branches"
+          />
+
+          <div className={`status-banner ${aiLive || mistralLive ? 'tone-active' : 'tone-fallback'}`}>
+            <span className="status-banner-dot" aria-hidden="true" />
+            <div>
+              <div className="status-banner-title">
+                {aiLive && mistralLive
+                  ? 'Claude et Mistral sont actifs — precision maximale sur scans et documents complexes'
+                  : aiLive
+                    ? 'Claude actif, Mistral non configure — Tesseract prendra le relai sur les scans'
+                    : mistralLive
+                      ? 'Mistral actif, Claude non configure — extraction IA desactivee'
+                      : 'Aucun service cloud — mode 100 % local via Tika + Tesseract + regles'}
+              </div>
+              <div className="status-banner-sub">
+                La page <strong>Etat systeme</strong> verifie en direct que les cles fonctionnent reellement (circuit breaker, latence, modele).
+              </div>
+            </div>
+            <div className="status-banner-kpi">
+              <strong>{aiLive && mistralLive ? 'Max' : aiLive || mistralLive ? 'Mixte' : 'Local'}</strong>
+              mode actuel
+            </div>
+          </div>
 
           <div className="card">
             <div className="settings-toggle-row">
               <div>
-                <div className="section-title-rail">Configuration Anthropic</div>
+                <div className="section-title-rail">
+                  <Brain size={13} style={{ verticalAlign: '-2px' }} />&nbsp;
+                  Anthropic Claude — extraction metier
+                </div>
                 <p className="settings-desc">
-                  Renseignez votre cle API et choisissez le modele. La cle saisie ici
-                  prend priorite sur la variable d'environnement <code style={codeStyle}>CLAUDE_API_KEY</code>.
+                  Classification du type de document puis extraction JSON structuree (montants, ICE, IF, RIB, lignes, retenues).
+                  La cle saisie ici prend priorite sur la variable d'environnement <code style={codeStyle}>CLAUDE_API_KEY</code>.
                 </p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -224,199 +544,21 @@ export default function Settings() {
               </div>
             </div>
             <button className="btn btn-primary" disabled={aiSaving} onClick={handleSaveAi}>
-              {aiSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder</>}
+              {aiSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder Claude</>}
             </button>
-          </div>
-
-          <div className="card">
-            <div className="section-title-rail">Comment Claude intervient sur chaque document</div>
-            <div className="howto-block">
-              <div className="howto-steps">
-                <div className="howto-step">
-                  <div className="howto-step-num">01</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Classification
-                      <span className="pill-meta accent">~400 tokens</span>
-                      <span className="pill-meta">1 appel</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Apres l'OCR, Claude lit le texte extrait et identifie le type :
-                      FACTURE, BON_COMMANDE, ORDRE_PAIEMENT, CONTRAT, PV_RECEPTION,
-                      CHECKLIST_AUTOCONTROLE, ATTESTATION_FISCALE ou TABLEAU_CONTROLE.
-                      Ce type conditionne le prompt d'extraction de l'etape 02.
-                    </div>
-                  </div>
-                </div>
-                <div className="howto-step">
-                  <div className="howto-step-num">02</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Extraction structuree
-                      <span className="pill-meta accent">~2k-6k tokens</span>
-                      <span className="pill-meta">1-2 appels</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Claude recoit un prompt specifique au type et renvoie un JSON propre :
-                      montants HT/TVA/TTC, ICE, IF, RIB, numero de facture, lignes avec quantites
-                      et prix unitaires, retenues (IR, TVA, garantie). En cas de JSON malforme,
-                      un 3e appel de retry corrige.
-                    </div>
-                  </div>
-                </div>
-                <div className="howto-step">
-                  <div className="howto-step-num">03</div>
-                  <div>
-                    <div className="howto-step-title">
-                      Validation croisee
-                      <span className="pill-meta">local</span>
-                      <span className="pill-meta">gratuit</span>
-                    </div>
-                    <div className="howto-step-desc">
-                      Une fois les champs extraits, le moteur de regles (R01-R20 + CK01-CK10)
-                      rapproche les montants, references, ICE, RIB entre facture, BC et OP.
-                      Claude n'intervient plus ici — tout tourne en local.
-                    </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-            <div className="alert alert-info" style={{ marginTop: 16 }}>
-              <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
-              <span>
-                Le suivi detaille de la consommation Claude (tokens, cout, dossiers les plus gourmands)
-                est disponible dans la page <strong>Usage Claude</strong> du menu lateral.
-              </span>
-            </div>
-          </div>
-        </div>
-      )}
-
-      {/* =========================================================== */}
-      {/* OCR PIPELINE TAB                                             */}
-      {/* =========================================================== */}
-      {activeTab === 'ocr' && (
-        <div role="tabpanel" id="tab-panel-ocr">
-          <SettingsHero
-            eyebrow="Cascade de 4 moteurs"
-            title={<>Transformer un PDF en texte exploitable, au <span style={{ color: 'var(--accent-deep)' }}>meilleur cout</span>.</>}
-            icon={<ScanLine size={24} aria-hidden="true" />}
-            lead="Chaque document emprunte la route la moins couteuse : le texte natif d'abord, l'IA uniquement si necessaire. 80 % des factures numeriques sont traitees en local, sans API. Mistral OCR ne prend le relai que sur les vrais scans."
-            status={mistralLive ? 'active' : 'idle'}
-            statusLabel={mistralLive ? 'Mistral branche' : 'Tesseract en fallback'}
-            kpi={mistralLive ? '~0.001 $' : '0 $'}
-            kpiLabel="Cout / page de scan"
-          />
-
-          <div className="card">
-            <div className="section-title-rail">Flux du pipeline</div>
-            <div className={`status-banner ${mistralLive ? 'tone-active' : 'tone-fallback'}`}>
-              <span className="status-banner-dot" aria-hidden="true" />
-              <div>
-                <div className="status-banner-title">
-                  {mistralLive
-                    ? 'Mistral OCR est actif — Markdown structure pour les scans'
-                    : 'Mistral OCR non configure — Tesseract local prend le relai'}
-                </div>
-                <div className="status-banner-sub">
-                  {mistralLive
-                    ? 'Les scans renvoient du Markdown avec tableaux preserves. Claude extrait 20-30 % de tokens en moins grace a un texte propre.'
-                    : 'La plateforme reste fonctionnelle. Tesseract extrait le texte en local (0 $), sans dependance externe. La precision sur scans complexes est moindre.'}
-                </div>
-              </div>
-              <div className="status-banner-kpi">
-                <strong>{mistralLive ? '+40 %' : 'baseline'}</strong>
-                precision scans
-              </div>
-            </div>
-
-            <div className="pipeline-flow">
-              <PipelineNode
-                tag="01"
-                name="Apache Tika"
-                role="Extraction de texte natif des PDF numeriques"
-                meta="local · instantane · 0 $"
-                badge="Toujours actif"
-                state="active"
-                icon={<FileText size={16} />}
-              />
-              <PipelineNode
-                tag="1b"
-                name="PdfMarkdownExtractor"
-                role="Detection et export des tableaux en Markdown"
-                meta="local · ~200 ms · 0 $"
-                badge="Si tables detectees"
-                state="active"
-                icon={<Layers size={16} />}
-              />
-              <PipelineNode
-                tag="02"
-                name="Mistral OCR"
-                role="API cloud — Markdown avec tableaux preserves, FR + AR natif"
-                meta="cloud · 1-3 s/page · ~0.001 $/page"
-                badge={mistralLive ? 'Configure' : 'Non configure'}
-                state={mistralLive ? 'active' : 'off'}
-                icon={<Sparkles size={16} />}
-              />
-              <PipelineNode
-                tag="03"
-                name="Tesseract 5"
-                role="OCR local (fra + ara + eng). Sert de filet de securite."
-                meta="local · 1-2 s/page · 0 $"
-                badge={mistralLive ? 'En secours' : 'Actif'}
-                state={mistralLive ? 'fallback' : 'active'}
-                icon={<CircuitBoard size={16} />}
-              />
-            </div>
-
-            <div className="section-title-rail" style={{ marginTop: 26 }}>3 scenarios concrets</div>
-            <div className="scenario-grid">
-              <div className="scenario-card">
-                <div className="scenario-card-head"><span>CAS 1</span><FileText size={12} /></div>
-                <div className="scenario-card-title">Facture PDF numerique</div>
-                <div className="scenario-card-desc">
-                  Generee par SAP / Sage / Excel. Texte natif riche. Tika lit tout en 100 ms.
-                  L'OCR n'est pas sollicite.
-                </div>
-                <div className="scenario-card-route">
-                  TIKA <span className="arrow">→</span> CLAUDE
-                </div>
-              </div>
-              <div className="scenario-card">
-                <div className="scenario-card-head"><span>CAS 2</span><Layers size={12} /></div>
-                <div className="scenario-card-title">Facture avec tableaux</div>
-                <div className="scenario-card-desc">
-                  Lignes HT/TVA/TTC, grilles tarifaires. Markdown extractor rend la structure
-                  au format tableau, Claude extrait proprement chaque ligne.
-                </div>
-                <div className="scenario-card-route">
-                  TIKA <span className="arrow">→</span> MARKDOWN <span className="arrow">→</span> CLAUDE
-                </div>
-              </div>
-              <div className="scenario-card">
-                <div className="scenario-card-head"><span>CAS 3</span><ScanLine size={12} /></div>
-                <div className="scenario-card-title">Scan papier / photo</div>
-                <div className="scenario-card-desc">
-                  Attestations fiscales scannees, cachets, signatures. Tika echoue.
-                  {mistralLive
-                    ? ' Mistral renvoie du Markdown propre, meme en arabe.'
-                    : ' Tesseract prend le relai en local, precision moindre mais fonctionnel.'}
-                </div>
-                <div className="scenario-card-route">
-                  TIKA <span className="arrow">→</span> {mistralLive ? 'MISTRAL' : 'TESSERACT'} <span className="arrow">→</span> CLAUDE
-                </div>
-              </div>
-            </div>
           </div>
 
           <div className="card">
             <div className="settings-toggle-row">
               <div>
-                <div className="section-title-rail">Configuration Mistral OCR</div>
+                <div className="section-title-rail">
+                  <Sparkles size={13} style={{ verticalAlign: '-2px' }} />&nbsp;
+                  Mistral OCR — scans premium
+                </div>
                 <p className="settings-desc">
-                  Service cloud Mistral Document AI. Facture ~0.001 $/page traitee.
-                  Sans cle, seuls Tika + Tesseract sont utilises — la plateforme reste
-                  pleinement fonctionnelle.
+                  OCR cloud pour les PDF dont Tika extrait moins de 200 mots (scans, photos, cachets).
+                  Rend du Markdown propre avec tableaux preserves, FR + AR natif, ~0.001 $/page.
+                  Sans cle, Tesseract local prend le relai (0 $, precision moindre).
                 </p>
               </div>
               <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
@@ -479,34 +621,28 @@ export default function Settings() {
               </div>
             </div>
             <button className="btn btn-primary" disabled={ocrSaving} onClick={handleSaveOcr}>
-              {ocrSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder</>}
+              {ocrSaving ? <><Loader2 size={14} className="spin" /> Sauvegarde...</> : <><Shield size={14} /> Sauvegarder Mistral</>}
             </button>
           </div>
 
-          <div className="card">
-            <div className="section-title-rail">Raccourcis clavier</div>
-            <table className="data-table">
-              <thead><tr><th style={{ width: 120 }}>Raccourci</th><th>Action</th></tr></thead>
-              <tbody>
-                {SHORTCUTS.map(s => (
-                  <tr key={s.keys}>
-                    <td><kbd className="kbd-key">{s.keys}</kbd></td>
-                    <td>{s.desc}</td>
-                  </tr>
-                ))}
-              </tbody>
-            </table>
+          <div className="alert alert-info">
+            <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              Les cles sont stockees chiffrees en base (<code style={codeStyle}>app_settings</code>).
+              Pour revenir aux variables d'environnement, desactivez le toggle et sauvegardez avec un champ vide —
+              la chaine de resolution tombe sur <code style={codeStyle}>CLAUDE_API_KEY</code> / <code style={codeStyle}>MISTRAL_API_KEY</code>.
+            </span>
           </div>
         </div>
       )}
 
       {/* =========================================================== */}
-      {/* RULES TAB                                                    */}
-      {/* =========================================================== */}
       {/* HEALTH TAB                                                   */}
       {/* =========================================================== */}
       {activeTab === 'health' && <HealthPanel />}
 
+      {/* =========================================================== */}
+      {/* RULES TAB                                                    */}
       {/* =========================================================== */}
       {activeTab === 'rules' && (
         <div role="tabpanel" id="tab-panel-rules">
@@ -578,54 +714,21 @@ export default function Settings() {
           </div>
 
           <div className="card">
-            <div className="section-title-rail">Architecture en un coup d'oeil</div>
-            <div className="pipeline-flow" style={{ marginTop: 4 }}>
-              <PipelineNode
-                tag="IN"
-                name="Upload utilisateur"
-                role="POST /api/dossiers/{id}/documents — PDF ou image (50 Mo max)"
-                meta="Multipart · stocke en S3"
-                badge="Entry point"
-                state="active"
-                icon={<ArrowRight size={16} />}
-              />
-              <PipelineNode
-                tag="OCR"
-                name="Cascade OCR"
-                role="Tika · PdfMarkdownExtractor · Mistral · Tesseract"
-                meta="Output: texte + markdown"
-                badge="4 moteurs"
-                state="active"
-                icon={<ScanLine size={16} />}
-              />
-              <PipelineNode
-                tag="AI"
-                name="Claude Anthropic"
-                role="Classification + extraction JSON structuree"
-                meta="2-3 appels par document"
-                badge={aiLive ? 'Actif' : 'En veille'}
-                state={aiLive ? 'active' : 'off'}
-                icon={<Brain size={16} />}
-              />
-              <PipelineNode
-                tag="RULES"
-                name="ValidationEngine"
-                role="22 regles croisees (R01-R20 + CK01-CK10)"
-                meta="Local · 0 $ · < 100 ms"
-                badge="Deterministe"
-                state="active"
-                icon={<Zap size={16} />}
-              />
-              <PipelineNode
-                tag="DB"
-                name="Persistance"
-                role="PostgreSQL 16 + buckets S3 (documents)"
-                meta="Flyway · JPA"
-                badge="Source de verite"
-                state="active"
-                icon={<Database size={16} />}
-              />
-            </div>
+            <div className="section-title-rail">Raccourcis clavier</div>
+            <table className="data-table">
+              <thead><tr><th style={{ width: 120 }}>Raccourci</th><th>Action</th></tr></thead>
+              <tbody>
+                {SHORTCUTS.map(s => (
+                  <tr key={s.keys}>
+                    <td><kbd className="kbd-key">{s.keys}</kbd></td>
+                    <td>{s.desc}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+            <p className="settings-desc" style={{ marginTop: 8 }}>
+              Schema complet du pipeline : onglet <strong>Pipeline</strong>.
+            </p>
           </div>
 
           <div className="card">
@@ -935,12 +1038,11 @@ function deriveWorstTone(components?: HealthComponent[]): HealthTone {
 }
 
 function HealthCard({ comp }: { comp: HealthComponent }) {
-  const Icon = componentIcon(comp.id)
   const details = comp.details as Record<string, unknown> | undefined
   return (
     <div className={`health-card health-tone-${comp.tone}`}>
       <div className="health-card-head">
-        <div className="health-card-icon" aria-hidden="true"><Icon size={14} /></div>
+        <div className="health-card-icon" aria-hidden="true">{renderComponentIcon(comp.id)}</div>
         <div className="health-card-title">
           <span className="health-card-label">{comp.label}</span>
           <span className="health-card-cat">{comp.category}</span>
@@ -968,14 +1070,14 @@ function StatusDot({ tone }: { tone: HealthTone }) {
   return <span className={`health-dot health-dot-${tone}`} aria-hidden="true" />
 }
 
-function componentIcon(id: string) {
+function renderComponentIcon(id: string) {
   switch (id) {
-    case 'db': return Database
-    case 'ocr': return ScanLine
-    case 'ai': return Brain
-    case 'storage': return HardDrive
-    case 'jvm': return Cpu
-    default: return Server
+    case 'db': return <Database size={14} />
+    case 'ocr': return <ScanLine size={14} />
+    case 'ai': return <Brain size={14} />
+    case 'storage': return <HardDrive size={14} />
+    case 'jvm': return <Cpu size={14} />
+    default: return <Server size={14} />
   }
 }
 

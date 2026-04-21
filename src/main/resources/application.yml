@@ -41,7 +41,7 @@ spring:
 # Claude API configuration
 claude:
   api-key: ${CLAUDE_API_KEY:}
-  model: claude-sonnet-4-6
+  model: claude-opus-4-7
   base-url: https://api.anthropic.com
 
 # Application settings (dossier de paiement)
