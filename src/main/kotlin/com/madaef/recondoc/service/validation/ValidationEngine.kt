@@ -170,14 +170,16 @@ class ValidationEngine(
         resultatRepository.flush()
 
         val isEnabled = loadEnabledRules(dossier.id!!)
+        val t0 = System.nanoTime()
         val results = runAllRules(dossier, isEnabled)
+        val totalMs = (System.nanoTime() - t0) / 1_000_000
         results.forEach { it.dateExecution = LocalDateTime.now() }
         resultatRepository.saveAll(results)
 
         val conformes = results.count { it.statut == StatutCheck.CONFORME }
         val nonConformes = results.count { it.statut == StatutCheck.NON_CONFORME }
-        log.info("Validation complete for {}: {}/{} conforme, {} non-conforme",
-            dossier.reference, conformes, results.size, nonConformes)
+        log.info("Validation complete for {}: {}/{} conforme, {} non-conforme (total {}ms)",
+            dossier.reference, conformes, results.size, nonConformes, totalMs)
 
         return results
     }
@@ -201,7 +203,9 @@ class ValidationEngine(
         resultatRepository.flush()
 
         val isEnabled: (String) -> Boolean = { it in rulesToRun }
+        val t0 = System.nanoTime()
         val allResults = runAllRules(dossier, isEnabled)
+        val totalMs = (System.nanoTime() - t0) / 1_000_000
         allResults.forEach { r ->
             r.dateExecution = LocalDateTime.now()
             val prev = corrected[r.regle]
@@ -214,8 +218,23 @@ class ValidationEngine(
             }
         }
         resultatRepository.saveAll(allResults)
+        log.info("Rerun rule {} on dossier {}: {} results ({}ms)", regle, dossier.reference, allResults.size, totalMs)
 
         return allResults
+    }
+
+    private inline fun <T> measureRule(code: String, results: MutableList<ResultatValidation>, block: () -> T): T {
+        val startIdx = results.size
+        val t0 = System.nanoTime()
+        val out = block()
+        val dur = (System.nanoTime() - t0) / 1_000_000
+        for (i in startIdx until results.size) {
+            val r = results[i]
+            if (r.durationMs == null && (r.regle == code || r.regle.startsWith("$code."))) {
+                r.durationMs = dur
+            }
+        }
+        return out
     }
 
     private fun runAllRules(dossier: DossierPaiement, isEnabled: (String) -> Boolean): List<ResultatValidation> {
@@ -614,35 +633,37 @@ class ValidationEngine(
         }
 
         if (isEnabled("R12")) {
-            val ckDocMapping = mapOf(
-                1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
-                2 to listOf(TypeDocument.FACTURE),
-                3 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
-                4 to listOf(TypeDocument.CONTRAT_AVENANT),
-                5 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
-                6 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.PV_RECEPTION),
-                7 to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
-                8 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT, TypeDocument.ORDRE_PAIEMENT),
-                9 to listOf(TypeDocument.FACTURE, TypeDocument.PV_RECEPTION, TypeDocument.BON_COMMANDE),
-                10 to listOf(TypeDocument.PV_RECEPTION)
-            )
+            measureRule("R12", results) {
+                val ckDocMapping = mapOf(
+                    1 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.CONTRAT_AVENANT),
+                    2 to listOf(TypeDocument.FACTURE),
+                    3 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
+                    4 to listOf(TypeDocument.CONTRAT_AVENANT),
+                    5 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT),
+                    6 to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.PV_RECEPTION),
+                    7 to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
+                    8 to listOf(TypeDocument.FACTURE, TypeDocument.CONTRAT_AVENANT, TypeDocument.ORDRE_PAIEMENT),
+                    9 to listOf(TypeDocument.FACTURE, TypeDocument.PV_RECEPTION, TypeDocument.BON_COMMANDE),
+                    10 to listOf(TypeDocument.PV_RECEPTION)
+                )
 
-            val ckResults = executeChecklistPoints(ctx, ckDocMapping)
-            results += ckResults
+                val ckResults = executeChecklistPoints(ctx, ckDocMapping)
+                results += ckResults
 
-            val nbOk = ckResults.count { it.statut == StatutCheck.CONFORME }
-            val nbKo = ckResults.count { it.statut == StatutCheck.NON_CONFORME }
-            results += ResultatValidation(
-                dossier = dossier, regle = "R12",
-                libelle = "Checklist autocontrole complete",
-                statut = when {
-                    nbKo == 0 && ckResults.none { it.statut == StatutCheck.AVERTISSEMENT } -> StatutCheck.CONFORME
-                    nbKo > 0 -> StatutCheck.NON_CONFORME
-                    else -> StatutCheck.AVERTISSEMENT
-                },
-                detail = "${nbOk}/${ckResults.size} points conformes" +
-                    if (nbKo > 0) ", ${nbKo} non conforme(s)" else ""
-            )
+                val nbOk = ckResults.count { it.statut == StatutCheck.CONFORME }
+                val nbKo = ckResults.count { it.statut == StatutCheck.NON_CONFORME }
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R12",
+                    libelle = "Checklist autocontrole complete",
+                    statut = when {
+                        nbKo == 0 && ckResults.none { it.statut == StatutCheck.AVERTISSEMENT } -> StatutCheck.CONFORME
+                        nbKo > 0 -> StatutCheck.NON_CONFORME
+                        else -> StatutCheck.AVERTISSEMENT
+                    },
+                    detail = "${nbOk}/${ckResults.size} points conformes" +
+                        if (nbKo > 0) ", ${nbKo} non conforme(s)" else ""
+                )
+            }
         }
 
         if (isEnabled("R13")) {
@@ -741,7 +762,7 @@ class ValidationEngine(
         }
 
         // R16b: arithmetic per invoice line (quantite * prixUnitaireHT == montantTotalHT)
-        if (isEnabled("R16b") && facture != null && facture.lignes.isNotEmpty()) {
+        if (isEnabled("R16b") && facture != null && facture.lignes.isNotEmpty()) measureRule("R16b", results) {
             val badLines = mutableListOf<String>()
             val r16bEvidences = mutableListOf<ValidationEvidence>()
             for ((idx, ligne) in facture.lignes.withIndex()) {
