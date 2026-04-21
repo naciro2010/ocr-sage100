@@ -2,6 +2,7 @@ import { useState, useMemo, useCallback, useEffect, memo } from 'react'
 import type { DossierDetail, ValidationResult, DocumentInfo } from '../../api/dossierTypes'
 import { updateValidationResult, correctAndRerun, getDocumentFileUrl, downloadWithAuth } from '../../api/dossierApi'
 import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
+import type { CustomRule } from '../../api/customRulesApi'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { TypeDocument } from '../../api/dossierTypes'
@@ -30,6 +31,7 @@ interface Props {
   onToggleRule?: (regle: string, enabled: boolean) => void
   ruleConfig?: RuleConfigShape
   cascadeScope?: Record<string, string[]>
+  customRules?: CustomRule[]
 }
 
 interface RuleItem {
@@ -40,7 +42,8 @@ interface RuleItem {
   result: ValidationResult | undefined
   status: ItemStatus
   group: string
-  category: 'system' | 'checklist'
+  category: 'system' | 'checklist' | 'custom'
+  custom?: CustomRule
 }
 
 /**
@@ -313,7 +316,7 @@ interface ProblemNav {
 }
 
 /* ===== CENTER PANEL ===== */
-function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResults, onRerunRule, onOptimisticUpdate, onOpenDoc, cascadeScope, rerunning, problemNav }: {
+function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResults, onRerunRule, onOptimisticUpdate, onOpenDoc, cascadeScope, rerunning, problemNav, ruleConfig, onToggleRule }: {
   item: RuleItem | null
   dossier: DossierDetail
   dossierId: string
@@ -325,6 +328,8 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   cascadeScope?: Record<string, string[]>
   rerunning: string | null
   problemNav: ProblemNav
+  ruleConfig?: RuleConfigShape
+  onToggleRule?: (regle: string, enabled: boolean) => void
 }) {
   const { toast } = useToast()
   const [editing, setEditing] = useState(false)
@@ -465,6 +470,13 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
         </div>
         <h3 className="ctrl-detail-title">{item.label}</h3>
         {item.desc && <p className="ctrl-detail-desc">{item.desc}</p>}
+        {item.category === 'custom' && item.custom && (
+          <CustomRuleBanner
+            rule={item.custom}
+            override={ruleConfig?.overrides?.[item.code]}
+            onToggle={onToggleRule}
+          />
+        )}
       </div>
 
       <div className="ctrl-split-center-body">
@@ -767,7 +779,7 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc, 
 }
 
 /* ===== MAIN SPLIT VIEW ===== */
-export default memo(function ControlSplitView({ dossier, dossierId, validating, onValidate, onRefreshResults, onRerunRule, onReplaceResults, onOptimisticUpdate, cascadeScope }: Props) {
+export default memo(function ControlSplitView({ dossier, dossierId, validating, onValidate, onRefreshResults, onRerunRule, onReplaceResults, onOptimisticUpdate, cascadeScope, customRules, ruleConfig, onToggleRule }: Props) {
   const { toast } = useToast()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const [filterMode, setFilterMode] = useState<FilterMode>('all')
@@ -808,8 +820,28 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         list.push({ key: `ck-${pt.num}`, code: rCode, label: pt.desc, desc: '', result, status, group: 'Autocontrole', category: 'checklist' })
       }
     }
+
+    // Custom (user-defined) rules. Shown only if applicable to the dossier type
+    // and not disabled via the per-dossier override. The rule's own `enabled`
+    // flag is its global state; the override (if present) wins.
+    if (customRules?.length) {
+      for (const cr of customRules) {
+        const applicable = dossier.type === 'BC' ? cr.appliesToBC : cr.appliesToContractuel
+        if (!applicable) continue
+        const override = ruleConfig?.overrides?.[cr.code]
+        const effectivelyEnabled = override != null ? override : cr.enabled
+        if (!effectivelyEnabled) continue
+        const result = results.find(r => r.regle === cr.code) || undefined
+        const status: ItemStatus = result ? statutToItemStatus(result.statut) : 'pending'
+        list.push({
+          key: `custom-${cr.code}`, code: cr.code, label: cr.libelle,
+          desc: cr.description ?? '', result, status,
+          group: 'Regles personnalisees', category: 'custom', custom: cr
+        })
+      }
+    }
     return list
-  }, [systemRuleDefs, results, parsedPoints])
+  }, [systemRuleDefs, results, parsedPoints, customRules, ruleConfig, dossier.type])
 
   const counts = useMemo(() => {
     let ok = 0, ko = 0, warn = 0, pending = 0
@@ -1008,7 +1040,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
           onRefreshResults={onRefreshResults} onReplaceResults={onReplaceResults}
           onRerunRule={handleRerunRule} onOptimisticUpdate={onOptimisticUpdate}
           onOpenDoc={handleOpenDoc} cascadeScope={cascadeScope} rerunning={rerunning}
-          problemNav={problemNav} />
+          problemNav={problemNav} ruleConfig={ruleConfig} onToggleRule={onToggleRule} />
 
         {previewDocId && (
           <>
@@ -1030,3 +1062,38 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     </div>
   )
 })
+
+function CustomRuleBanner({ rule, override, onToggle }: {
+  rule: CustomRule
+  override: boolean | undefined
+  onToggle?: (regle: string, enabled: boolean) => void
+}) {
+  const effective = override != null ? override : rule.enabled
+  const hasOverride = override != null
+  return (
+    <div style={{
+      marginTop: 10, padding: '10px 12px', borderRadius: 8,
+      background: 'rgba(16,185,129,0.06)', border: '1px solid rgba(16,185,129,0.15)',
+      display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap', fontSize: 12,
+    }}>
+      <span className="pill-meta accent" style={{ fontSize: 10 }}>Regle personnalisee</span>
+      <span style={{ color: 'var(--ink-50)' }}>
+        Severite:&nbsp;
+        <strong style={{ color: rule.severity === 'NON_CONFORME' ? 'var(--danger)' : '#b45309' }}>
+          {rule.severity === 'NON_CONFORME' ? 'Non conforme' : 'Avertissement'}
+        </strong>
+      </span>
+      <span style={{ color: 'var(--ink-50)' }}>
+        Global:&nbsp;<strong>{rule.enabled ? 'Actif' : 'Desactive'}</strong>
+      </span>
+      <label style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8, cursor: 'pointer' }}>
+        <span style={{ fontSize: 11, color: 'var(--ink-40)' }}>
+          Dans ce dossier{hasOverride && ' (override)'}
+        </span>
+        <input type="checkbox" checked={effective}
+          onChange={e => onToggle?.(rule.code, e.target.checked)}
+          aria-label={`Activer la regle ${rule.code} pour ce dossier`} />
+      </label>
+    </div>
+  )
+}
