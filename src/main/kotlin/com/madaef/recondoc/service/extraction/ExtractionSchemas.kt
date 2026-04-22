@@ -115,24 +115,24 @@ object ExtractionSchemas {
 
     val FACTURE = ToolSchema(
         name = "extract_facture_data",
-        description = "Extrait les donnees structurees d'une facture d'achat marocaine MADAEF",
+        description = "Extrait les donnees structurees d'une facture d'achat marocaine MADAEF. Ne jamais inventer un champ absent du texte : mettre null + warning explicite.",
         inputSchema = obj(
             properties = mapOf(
-                "numeroFacture" to str("Numero de la facture", nullable = false),
-                "dateFacture" to str("Date au format YYYY-MM-DD", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "fournisseur" to str("Raison sociale fournisseur", nullable = false),
-                "client" to str("Raison sociale client"),
-                "ice" to str("ICE 15 chiffres", pattern = "^\\d{15}$"),
-                "identifiantFiscal" to str("IF (5 a 15 chiffres)"),
-                "rc" to str("Registre commerce"),
-                "rib" to str("RIB principal (24 chiffres)", pattern = "^\\d{24}$"),
-                "ribs" to arrayOf(str(nullable = false), description = "Tous les RIB trouves"),
-                "montantHT" to num("Total HT", minimum = 0, nullable = false),
-                "montantTVA" to num("Total TVA", minimum = 0, nullable = false),
-                "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant", nullable = false),
-                "montantTTC" to num("Total TTC", minimum = 0, nullable = false),
-                "referenceContrat" to str("Reference contrat ou BC cite"),
-                "periode" to str("Periode couverte"),
+                "numeroFacture" to str("Numero de la facture tel qu'imprime (ex: 'DEV-2026-0142', 'F/2026/087', '2026-F-12'). Apparait pres du mot 'Facture N' ou 'Invoice No' en en-tete. Preserver les separateurs.", nullable = false),
+                "dateFacture" to str("Date d'emission de la facture au format ISO YYYY-MM-DD. L'OCR peut donner 15/03/2026, 15-03-2026, 15.03.2026, '15 mars 2026' : normaliser toujours en YYYY-MM-DD. Refuser les dates impossibles (2099-13-45 -> null + warning).", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "fournisseur" to str("Raison sociale du fournisseur (ex: 'ACME SARL', 'Beta Consulting SA'). C'est l'ENTITE QUI FACTURE MADAEF, JAMAIS MADAEF lui-meme. Apparait generalement en en-tete avec le logo ou apres 'Fournisseur:'. Refuser les placeholders 'N/A', '-', '?'.", nullable = false),
+                "client" to str("Raison sociale du client (typiquement MADAEF ou une de ses filiales : MADAEF GOLFS, HRM, CGI). Souvent apres 'Client:' ou 'A l'attention de:'."),
+                "ice" to str("ICE (Identifiant Commun Entreprise) : EXACTEMENT 15 chiffres (ex: '001509176000008'). Apparait apres 'ICE:' ou 'I.C.E.'. Commence typiquement par 00, 01, 02, 19. Si OCR bruite, normaliser O->0 et l->1. Si nombre de chiffres != 15 apres normalisation : mettre null + warning.", pattern = "^\\d{15}$"),
+                "identifiantFiscal" to str("IF marocain : 6 a 10 chiffres (ex: '40123456'). Apparait apres 'IF:' ou 'Identifiant Fiscal'. Parfois prefixe de la ville."),
+                "rc" to str("Numero de Registre de Commerce : alphanumerique court (5-20 car.). Souvent prefixe d'une ville ex: 'Casa 45789', '45789 Casablanca', ou juste '123456'."),
+                "rib" to str("RIB marocain principal : EXACTEMENT 24 chiffres. Structure usuelle: 3(banque)+3(ville)+16(compte+cle)+2. Les espaces/tirets dans l'OCR doivent etre supprimes. Si moins de 24 chiffres apres normalisation : null + warning.", pattern = "^\\d{24}$"),
+                "ribs" to arrayOf(str(nullable = false), description = "Tous les RIB trouves dans le document (il peut y en avoir plusieurs si le fournisseur liste plusieurs comptes). Liste vide si aucun."),
+                "montantHT" to num("Total HT general de la facture (hors taxes), toujours strictement positif. Prendre le TOTAL general, pas les sous-totaux de ligne. Suffixe 'DH', 'MAD', 'dirhams' a ignorer. Format 1 234,56 (FR) ou 1,234.56 (EN) a normaliser en 1234.56.", minimum = 0, nullable = false),
+                "montantTVA" to num("Total TVA general de la facture. Somme de TOUTES les TVA si plusieurs taux coexistent (20% + 10% par exemple). Strictement >= 0 (0 si facture exoneree).", minimum = 0, nullable = false),
+                "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant (applique au plus grand montantHT). Taux legaux Maroc : 0 (exonere), 7, 10, 14, 20. Tout autre taux = erreur OCR ou facture etrangere -> choisir le plus proche et ajouter un warning.", nullable = false),
+                "montantTTC" to num("Total TTC general = HT + TVA. Doit etre strictement positif. Priorite : ligne 'NET A PAYER' > 'TOTAL TTC' > 'TOTAL GENERAL' > somme calculee. Verifier HT+TVA ≈ TTC (tolerance 1%).", minimum = 0, nullable = false),
+                "referenceContrat" to str("Reference du contrat ou du bon de commande cite dans la facture (ex: 'CF SIE 2026-1234', 'Marche 2024/15'). Apparait souvent apres 'Ref. BC:' ou 'Marche N:'."),
+                "periode" to str("Periode couverte par la prestation (ex: 'Janvier 2026', '01/01/2026 - 31/03/2026')."),
                 "lignes" to arrayOf(obj(
                     properties = mapOf(
                         "codeArticle" to str(),
@@ -151,18 +151,18 @@ object ExtractionSchemas {
 
     val BON_COMMANDE = ToolSchema(
         name = "extract_bon_commande_data",
-        description = "Extrait les donnees d'un bon de commande MADAEF",
+        description = "Extrait les donnees d'un bon de commande operationnel MADAEF (NON cadre, NON marche). Ne jamais inventer un champ absent : mettre null + warning.",
         inputSchema = obj(
             properties = mapOf(
-                "reference" to str("Reference BC (ex: CF SIE 2026-XXXX)", nullable = false),
-                "dateBc" to str("Date au format YYYY-MM-DD", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "fournisseur" to str("Raison sociale fournisseur", nullable = false),
-                "objet" to str("Description generale du BC"),
-                "montantHT" to num("Total HT", minimum = 0),
-                "montantTVA" to num("Total TVA", minimum = 0),
-                "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant"),
-                "montantTTC" to num("Total TTC", minimum = 0, nullable = false),
-                "signataire" to str(),
+                "reference" to str("Reference du BC telle qu'imprimee (ex: 'CF SIE 2026-1234', 'BC-2026-042'). Apparait pres de 'BON DE COMMANDE N' ou 'Ref.'. Preserver les separateurs.", nullable = false),
+                "dateBc" to str("Date d'emission du BC au format ISO YYYY-MM-DD. OCR peut donner dd/MM/yyyy, '01 fevrier 2026' : normaliser.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "fournisseur" to str("Raison sociale du fournisseur (entite livrant la prestation), JAMAIS MADAEF. Refuser 'N/A', '-'.", nullable = false),
+                "objet" to str("Description generale/synthetique du BC (ex: 'Entretien espaces verts', 'Fourniture de materiel informatique'). Souvent 1 phrase en en-tete."),
+                "montantHT" to num("Total HT general du BC, strictement positif. Formats FR/EN a normaliser.", minimum = 0),
+                "montantTVA" to num("Total TVA general du BC (somme si multi-taux). >= 0.", minimum = 0),
+                "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant. Taux legaux Maroc : 0, 7, 10, 14, 20."),
+                "montantTTC" to num("Total TTC general. Doit verifier HT+TVA ≈ TTC a 1%.", minimum = 0, nullable = false),
+                "signataire" to str("Nom et fonction du signataire du BC (ex: 'M. Alami, Chef Dept Achats'). Apparait en bas du document."),
                 "lignes" to arrayOf(obj(
                     properties = mapOf(
                         "numero" to num(),
@@ -183,23 +183,23 @@ object ExtractionSchemas {
 
     val ORDRE_PAIEMENT = ToolSchema(
         name = "extract_ordre_paiement_data",
-        description = "Extrait les donnees d'un ordre de paiement MADAEF",
+        description = "Extrait les donnees d'un ordre de paiement MADAEF (OP) avec TOUTES les retenues a la source (TVA art.117, IS honoraires art.156, garantie). Ne pas inventer.",
         inputSchema = obj(
             properties = mapOf(
-                "numeroOp" to str("Numero OP", nullable = false),
-                "dateEmission" to str("Date au format YYYY-MM-DD", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "emetteur" to str(),
-                "natureOperation" to str(),
-                "description" to str(),
-                "beneficiaire" to str("Nom complet beneficiaire", nullable = false),
-                "rib" to str("RIB beneficiaire 24 chiffres", pattern = "^\\d{24}$"),
-                "ribs" to arrayOf(str(nullable = false)),
-                "banque" to str(),
-                "montantBrut" to num("Montant avant retenues = TTC facture", minimum = 0),
-                "montantOperation" to num("Montant net paye", minimum = 0, nullable = false),
-                "referenceFacture" to str(),
-                "referenceBcOuContrat" to str(),
-                "referenceSage" to str(),
+                "numeroOp" to str("Numero de l'ordre de paiement (ex: 'OP-2026-0042'). Apparait apres 'ORDRE DE PAIEMENT N'.", nullable = false),
+                "dateEmission" to str("Date d'emission de l'OP au format ISO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "emetteur" to str("Entite MADAEF emettrice de l'OP (ex: 'MADAEF', 'MADAEF GOLFS', 'HRM'). Si non mentionne, null."),
+                "natureOperation" to str("Nature de l'operation (ex: 'Reglement facture', 'Acompte', 'Avoir', 'Solde marche')."),
+                "description" to str("Objet detaille/libre de l'operation. Texte explicatif du controleur."),
+                "beneficiaire" to str("Raison sociale du beneficiaire = fournisseur a payer. JAMAIS MADAEF.", nullable = false),
+                "rib" to str("RIB du beneficiaire : EXACTEMENT 24 chiffres apres suppression espaces/tirets. Sinon null + warning.", pattern = "^\\d{24}$"),
+                "ribs" to arrayOf(str(nullable = false), description = "Tous les RIB trouves dans l'OP si plusieurs comptes mentionnes."),
+                "banque" to str("Nom de la banque du beneficiaire (ex: 'BMCE Bank', 'Attijariwafa Bank', 'BCP', 'CIH')."),
+                "montantBrut" to num("Montant brut AVANT retenues = TTC de la facture payee. Souvent identique a syntheseControleur.montantTTC.", minimum = 0),
+                "montantOperation" to num("Montant NET paye au beneficiaire apres toutes retenues. C'est montantBrut - totalRetenues.", minimum = 0, nullable = false),
+                "referenceFacture" to str("Numero de la facture payee (doit matcher le numeroFacture du document facture associe)."),
+                "referenceBcOuContrat" to str("Reference du BC ou du contrat cite dans l'OP (ex: 'CF SIE 2026-1234')."),
+                "referenceSage" to str("Reference comptable Sage (piece comptable generee). Alphanumerique."),
                 "retenues" to arrayOf(obj(
                     properties = mapOf(
                         "type" to enumField(
@@ -279,17 +279,17 @@ object ExtractionSchemas {
 
     val ATTESTATION_FISCALE = ToolSchema(
         name = "extract_attestation_fiscale_data",
-        description = "Extrait les donnees d'une attestation de regularite fiscale DGI",
+        description = "Extrait les donnees d'une attestation de regularite fiscale DGI (Direction Generale des Impots, Royaume du Maroc). Ne pas inventer l'ICE.",
         inputSchema = obj(
             properties = mapOf(
-                "numero" to str("Numero attestation", nullable = false),
-                "dateEdition" to str("YYYY-MM-DD", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "raisonSociale" to str(nullable = false),
-                "identifiantFiscal" to str("IF (5-15 chiffres)"),
-                "ice" to str("ICE 15 chiffres", pattern = "^\\d{15}$"),
-                "rc" to str(),
-                "estEnRegle" to bool(),
-                "codeVerification" to str("Code sous le QR code (12-32 chars hex)")
+                "numero" to str("Numero de l'attestation (format typique 'XXXX/YYYY/NNN' ex: '2140/2026/798'). Apparait apres 'N°' en en-tete.", nullable = false),
+                "dateEdition" to str("Date d'edition de l'attestation au format ISO YYYY-MM-DD. Apparait pres de 'Edite le' ou 'Fait a ... le'.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "raisonSociale" to str("Raison sociale du contribuable concerne par l'attestation. Jamais 'DGI' ni 'Royaume du Maroc'.", nullable = false),
+                "identifiantFiscal" to str("IF du contribuable (6 a 10 chiffres)."),
+                "ice" to str("ICE du contribuable : EXACTEMENT 15 chiffres. Si OCR incomplet apres normalisation, null + warning.", pattern = "^\\d{15}$"),
+                "rc" to str("Numero de Registre de Commerce du contribuable."),
+                "estEnRegle" to bool("true si le texte mentionne explicitement 'en situation reguliere', 'quitus fiscal', 'regulier'. false si 'non en regle', 'redressement', 'dette'. null + warning si ambigu."),
+                "codeVerification" to str("Code de verification imprime sous le QR code (apres 'attestation.tax.gov.ma'). 12-32 caracteres hexadecimaux (ex: '18a50bf6baf372bd'). Retourner sans espace ni ponctuation.")
             ) + qualityFields(),
             required = listOf("numero", "dateEdition", "raisonSociale", "_confidence")
         )
