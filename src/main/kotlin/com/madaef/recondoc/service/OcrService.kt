@@ -73,6 +73,24 @@ class OcrService(
         Thread(r, "ocr-parallel-${ocrThreadCounter.incrementAndGet()}").apply { isDaemon = true }
     }
 
+    // Shutdown propre : libere les threads du pool OCR quand Spring detruit
+    // le bean. Sans ca, chaque rechargement de contexte Spring (typiquement
+    // les tests d'integration multi-classe) laisse 4 threads orphelins, ce
+    // qui peut ralentir le teardown ou empecher certaines verifications de
+    // resources de terminer proprement.
+    @jakarta.annotation.PreDestroy
+    fun shutdownOcrExecutor() {
+        try {
+            ocrExecutor.shutdown()
+            if (!ocrExecutor.awaitTermination(5, TimeUnit.SECONDS)) {
+                ocrExecutor.shutdownNow()
+            }
+        } catch (e: Exception) {
+            log.warn("OCR executor shutdown interrupted: {}", e.message)
+            Thread.currentThread().interrupt()
+        }
+    }
+
     init {
         tesseractAvailable = checkTesseractAvailability()
         if (tesseractAvailable) {
