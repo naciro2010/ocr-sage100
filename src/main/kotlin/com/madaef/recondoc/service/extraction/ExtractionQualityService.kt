@@ -70,7 +70,20 @@ class ExtractionQualityService {
 
         val coherence = computeCoherenceScore(type, data)
         val confidenceOcr = document.ocrConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 100.0)?.div(100.0) ?: 0.5
-        val confidenceExtraction = document.extractionConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 1.0) ?: 0.5
+        val rawConfidenceExtraction = document.extractionConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 1.0) ?: 0.5
+
+        // Anti auto-tromperie : Claude a tendance a declarer `_confidence >= 0.9`
+        // meme quand plusieurs champs obligatoires sont null ou quand l'arithmetique
+        // HT+TVA=TTC ne tombe pas juste. Une confidence haute avec >=2 champs
+        // obligatoires manquants OU une coherence <0.7 est un signal fort d'auto-
+        // validation abusive : on la plafonne a 0.5 pour que le score composite
+        // reflete la realite et que la re-extraction auto se declenche.
+        val autoTromperie = rawConfidenceExtraction > 0.8 && (missingMandatory.size >= 2 || coherence < 0.7)
+        val confidenceExtraction = if (autoTromperie) {
+            log.warn("Penalizing self-declared _confidence={} on document (type={}): {} missing mandatory, coherence={}",
+                rawConfidenceExtraction, type, missingMandatory.size, coherence)
+            minOf(rawConfidenceExtraction, 0.5)
+        } else rawConfidenceExtraction
 
         val completude = 0.70 * completudeObligatoires + 0.30 * completudeImportants
         val raw = 0.30 * confidenceOcr +

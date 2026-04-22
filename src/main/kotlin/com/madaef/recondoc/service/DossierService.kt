@@ -10,6 +10,7 @@ import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
+import com.madaef.recondoc.service.extraction.GroundingValidator
 import com.madaef.recondoc.service.extraction.ExtractionSchemas
 import com.madaef.recondoc.service.extraction.FieldViolation
 import com.madaef.recondoc.service.extraction.LlmExtractionService
@@ -66,6 +67,7 @@ class DossierService(
     private val documentStorage: DocumentStorage,
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
+    private val groundingValidator: GroundingValidator,
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
@@ -888,7 +890,20 @@ class DossierService(
                         if (!schemaResult.valid) {
                             criticalSchemaFailure = schemaResult.violations
                         }
-                        val finalData = schemaResult.cleanedData
+                        // Grounding : verifier que les identifiants critiques (ICE, RIB,
+                        // IF, numero facture...) apparaissent reellement dans le texte
+                        // OCR. Une valeur absente du texte source = hallucination presumee
+                        // -> strip + warning. Sur un champ critique (ex: ICE facture),
+                        // declenche aussi une revue humaine via criticalSchemaFailure.
+                        val groundingResult = groundingValidator.validate(detectedType, schemaResult.cleanedData, rawText)
+                        if (groundingResult.violations.isNotEmpty()) {
+                            log.warn("Grounding violations on {} ({}): {}", doc.nomFichier, detectedType,
+                                groundingResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+                        }
+                        if (!groundingResult.valid) {
+                            criticalSchemaFailure = criticalSchemaFailure + groundingResult.violations
+                        }
+                        val finalData = groundingResult.cleanedData
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
@@ -1196,12 +1211,15 @@ class DossierService(
                 parseLlmResponse(retryJson) ?: return null
             }
             val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
+            // Grounding aussi sur la re-extraction : pas de regression du niveau
+            // de protection anti-hallucination entre la 1ere et la 2e passe.
+            val grounded = groundingValidator.validate(type, validated, rawText).cleanedData
 
-            doc.donneesExtraites = validated
-            doc.extractionConfidence = (validated["_confidence"] as? Number)?.toDouble() ?: -1.0
-            val warnings = (validated["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            doc.donneesExtraites = grounded
+            doc.extractionConfidence = (grounded["_confidence"] as? Number)?.toDouble() ?: -1.0
+            val warnings = (grounded["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
             doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
-            saveExtractedEntity(doc.dossier, doc, type, validated)
+            saveExtractedEntity(doc.dossier, doc, type, grounded)
             val retryReport = extractionQualityService.applyTo(doc)
             log.info("Retry extraction for {}: score {} -> {}", doc.nomFichier, initialReport.score, retryReport.score)
             retryReport

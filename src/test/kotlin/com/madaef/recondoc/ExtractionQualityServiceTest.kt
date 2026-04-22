@@ -260,6 +260,57 @@ class ExtractionQualityServiceTest {
         assertTrue("dateBc" in r.missingMandatory, "dateBc doit etre detecte comme missing")
     }
 
+    // --- Anti auto-tromperie : penaliser _confidence haute contredite par les faits ---
+
+    @Test
+    fun `confidence haute avec 2+ champs obligatoires manquants est penalisee a 0_5`() {
+        // Claude a declare _confidence=0.95 alors que 3 champs obligatoires
+        // (dateFacture, fournisseur, ice) sont null : signal d'auto-validation
+        // abusive, la confidence doit etre cappee a 0.5 pour que le score
+        // composite reflete la realite.
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-1",
+            "montantTTC" to 1000.0
+        ), confOcr = 90.0, confExtract = 0.95)
+        val r = service.evaluate(doc)
+        assertTrue(r.confidenceExtraction <= 0.5,
+            "confidence auto-declaree doit etre cappee quand plusieurs obligatoires manquent, got ${r.confidenceExtraction}")
+    }
+
+    @Test
+    fun `confidence haute coherente avec completude n'est pas penalisee`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-001",
+            "dateFacture" to "2026-03-15",
+            "montantTTC" to 12000.0,
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "tauxTVA" to 20,
+            "fournisseur" to "ACME SARL",
+            "ice" to "123456789012345"
+        ), confOcr = 90.0, confExtract = 0.95)
+        val r = service.evaluate(doc)
+        assertEquals(0.95, r.confidenceExtraction, "confidence haute legitime ne doit pas etre penalisee")
+    }
+
+    @Test
+    fun `confidence haute sur facture avec arithmetique HT TVA TTC incoherente est penalisee`() {
+        // coherence arith < 0.7 doit suffire a plafonner la confidence meme
+        // si tous les champs obligatoires sont presents.
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-1",
+            "dateFacture" to "2026-01-01",
+            "montantTTC" to 20000.0, // incoherent
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "fournisseur" to "ACME",
+            "ice" to "001509176000008"
+        ), confOcr = 90.0, confExtract = 0.92)
+        val r = service.evaluate(doc)
+        assertTrue(r.confidenceExtraction <= 0.5,
+            "confidence auto-declaree doit etre cappee si coherence arith est cassee, got ${r.confidenceExtraction}")
+    }
+
     @Test
     fun `OP sans numeroOp ou dateEmission est marque incomplet`() {
         val doc = buildDocument(TypeDocument.ORDRE_PAIEMENT, mapOf(
