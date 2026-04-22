@@ -807,6 +807,7 @@ class DossierService(
                     // libre en cas d'echec du tool_use (schema refuse, etc).
                     val schema = if (toolUseEnabled) ExtractionSchemas.forType(detectedType) else null
                     var data: Map<String, Any?>? = null
+                    var toolUseFallbackNeeded = false
                     if (schema != null) {
                         try {
                             val toolResp = llmService.callClaudeTool(
@@ -816,11 +817,16 @@ class DossierService(
                             data = toolResp.toolInput
                             log.info("Extraction via tool_use for {} ({})", doc.nomFichier, schema.name)
                         } catch (e: Exception) {
+                            toolUseFallbackNeeded = true
                             log.warn("tool_use failed for {} ({}), falling back to text mode: {}",
                                 doc.nomFichier, schema.name, e.message)
                         }
                     }
                     if (data == null) {
+                        // Quand tool_use a echoue, le texte libre est une re-extraction.
+                        // Elle consomme le budget (CLAUDE.md "max 2 essais") : au pire
+                        // tool_use + texte + 1 retry aval, jamais 4 appels Claude/doc.
+                        if (toolUseFallbackNeeded) retriesLeft -= 1
                         val firstCall = llmService.callClaudeFull(prompt, ocrContext, CallKind.EXTRACTION)
                         if (firstCall.stopReason == "max_tokens") truncatedByMaxTokens = true
                         data = parseLlmResponse(firstCall.text)
@@ -858,10 +864,8 @@ class DossierService(
                         }
                         // Enforcement: les violations critiques persistantes (meme si la
                         // valeur a ete strip a null) doivent declencher une revue humaine.
-                        // Jusqu'ici on loggait et on persistait quand meme en EXTRAIT.
                         if (!schemaResult.valid) {
-                            val typeRules = schemaResult.violations
-                            criticalSchemaFailure = typeRules
+                            criticalSchemaFailure = schemaResult.violations
                         }
                         val finalData = schemaResult.cleanedData
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0

@@ -100,6 +100,7 @@ class ExtractionSchemaValidator {
         val typeRules = rules[type] ?: return SchemaValidationResult(true, emptyList(), data)
         val violations = mutableListOf<FieldViolation>()
         val cleaned = data.toMutableMap()
+        var hasCriticalViolation = false
 
         for (rule in typeRules) {
             val rawValue = data[rule.name] ?: data.entries
@@ -107,6 +108,7 @@ class ExtractionSchemaValidator {
             val check = validateField(rule, rawValue)
             if (check != null) {
                 violations += check
+                if (rule.critical) hasCriticalViolation = true
                 if (shouldStrip(rule.kind)) {
                     cleaned[rule.name] = null
                     log.warn("Stripping invalid field {} on {} (value={}): {}",
@@ -121,9 +123,8 @@ class ExtractionSchemaValidator {
             cleaned["_warnings"] = newWarnings
         }
 
-        val criticalViolations = violations.any { v -> typeRules.firstOrNull { it.name == v.field }?.critical == true }
         return SchemaValidationResult(
-            valid = !criticalViolations,
+            valid = !hasCriticalViolation,
             violations = violations,
             cleanedData = cleaned
         )
