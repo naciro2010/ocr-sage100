@@ -69,6 +69,24 @@ class GlobalExceptionHandler {
     }
 
     /**
+     * FK orpheline ou contrainte d'integrite violee : au lieu de renvoyer un 500
+     * generique (qui empechait notamment la suppression des dossiers en erreur
+     * quand une FK n'etait pas purgee), on retourne 409 Conflict avec la racine
+     * de l'erreur. Cela rend le probleme visible cote UI et journal Railway.
+     */
+    @ExceptionHandler(org.springframework.dao.DataIntegrityViolationException::class)
+    fun handleDataIntegrity(e: org.springframework.dao.DataIntegrityViolationException): ResponseEntity<ErrorResponse> {
+        var root: Throwable = e
+        while (root.cause != null && root.cause !== root) {
+            root = root.cause!!
+        }
+        val detail = root.message ?: e.message ?: "integrity violation"
+        log.error("Data integrity violation: {}", detail, e)
+        return ResponseEntity.status(HttpStatus.CONFLICT)
+            .body(ErrorResponse("Conflit d'integrite BD : $detail"))
+    }
+
+    /**
      * Long-poll / SSE endpoints (DocumentProgressService) end with an async
      * timeout when nothing happens for the configured interval — expected
      * behaviour, not an error. Spring surfaces it to the controller advice
