@@ -82,6 +82,37 @@ object ExtractionSchemas {
 
     // --- Schemas par type ---
 
+    /**
+     * Schema `classify_document` pour la classification via tool_use. Remplace le
+     * parse regex de `ClassificationService` — Claude est force de renvoyer
+     * `{categorie, confidence}` bien type, plus de parse fragile ni de
+     * troncature silencieuse sur max_tokens=256.
+     */
+    val CLASSIFICATION = ToolSchema(
+        name = "classify_document",
+        description = "Classifie un document MADAEF dans l'une des categories attendues.",
+        inputSchema = obj(
+            properties = mapOf(
+                "categorie" to enumField(
+                    listOf(
+                        "FACTURE", "BON_COMMANDE", "CONTRAT_AVENANT", "ORDRE_PAIEMENT",
+                        "CHECKLIST_AUTOCONTROLE", "CHECKLIST_PIECES", "TABLEAU_CONTROLE",
+                        "PV_RECEPTION", "ATTESTATION_FISCALE", "FORMULAIRE_FOURNISSEUR",
+                        "MARCHE", "BON_COMMANDE_CADRE", "CONTRAT_CADRE", "INCONNU"
+                    ),
+                    description = "Categorie detectee. INCONNU si doute serieux.",
+                    nullable = false,
+                    baseType = "string"
+                ),
+                "confidence" to num(
+                    "Confiance 0..1 (1 = certain, <0.6 = a considerer comme INCONNU)",
+                    minimum = 0, nullable = false
+                )
+            ),
+            required = listOf("categorie", "confidence")
+        )
+    )
+
     val FACTURE = ToolSchema(
         name = "extract_facture_data",
         description = "Extrait les donnees structurees d'une facture d'achat marocaine MADAEF",

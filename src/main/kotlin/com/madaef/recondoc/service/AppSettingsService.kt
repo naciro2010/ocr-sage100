@@ -111,6 +111,18 @@ class AppSettingsService(
         return get("ai.max_tokens.$kind")?.toIntOrNull()?.takeIf { it > 0 } ?: default
     }
 
+    /**
+     * Temperature d'echantillonnage pour Claude (0 = deterministe, 1 = libre).
+     * Valeur par defaut 0 : priorite fiabilite (CLAUDE.md "OBJECTIF #1 : FIABILITE 100%")
+     * — deux runs du meme document doivent produire la meme extraction.
+     * Mettre a -1 (via `ai.temperature = -1`) pour ne pas envoyer le parametre
+     * si un modele specifique le rejette avec un 400.
+     */
+    fun getAiTemperature(): Double {
+        val raw = get("ai.temperature")?.toDoubleOrNull()
+        return raw ?: 0.0
+    }
+
     fun getAiBaseUrl(): String {
         return getOrDefault("ai.base_url", "https://api.anthropic.com")
     }

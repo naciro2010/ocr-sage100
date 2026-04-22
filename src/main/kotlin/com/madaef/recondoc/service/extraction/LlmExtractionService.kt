@@ -156,16 +156,20 @@ class LlmExtractionService(
             "cache_control" to mapOf("type" to "ephemeral")
         )
 
-        // Pas de `temperature` ici non plus (cf. PR #78). `tool_choice` force
-        // deja Claude a produire un objet conforme au schema, ce qui rend le
-        // parametre temperature redondant pour l'extraction structuree.
-        val requestBody = mapOf(
-            "model" to model,
-            "max_tokens" to maxTokens,
-            "system" to cacheableSystem(systemPrompt),
-            "tools" to listOf(tool),
-            "tool_choice" to mapOf("type" to "tool", "name" to toolName),
-            "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+        // Temperature 0 par defaut (opt-out via `ai.temperature = -1` si un modele
+        // renvoie 400). Deterministe : deux runs du meme document produisent la
+        // meme extraction. `tool_choice` contraint deja le schema, mais Claude
+        // garde des choix libres sur les valeurs (numero facture, montants...) —
+        // c'est la que temperature 0 evite les derives d'une run a l'autre.
+        val requestBody = withTemperature(
+            mapOf(
+                "model" to model,
+                "max_tokens" to maxTokens,
+                "system" to cacheableSystem(systemPrompt),
+                "tools" to listOf(tool),
+                "tool_choice" to mapOf("type" to "tool", "name" to toolName),
+                "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+            )
         )
 
         val response = postToAnthropic(requestBody, model, " (tool_use)")
@@ -195,15 +199,16 @@ class LlmExtractionService(
         log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
             kind, model, maxTokens, userContent.length)
 
-        // Note: le parametre `temperature` a ete retire (cf. PR #78). Les
-        // modeles Claude recents (Haiku 4.5+, Sonnet 4.6+, Opus 4.x) l'ont
-        // deprecie au profit d'un comportement deterministe par defaut sur
-        // les appels structures, et renvoient 400 si on le fournit.
-        val requestBody = mapOf(
-            "model" to model,
-            "max_tokens" to maxTokens,
-            "system" to cacheableSystem(systemPrompt),
-            "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+        // Temperature 0 par defaut (cf. withTemperature). Si un modele specifique
+        // rejette le parametre en 400, positionner `ai.temperature = -1` dans les
+        // settings pour ne pas l'envoyer.
+        val requestBody = withTemperature(
+            mapOf(
+                "model" to model,
+                "max_tokens" to maxTokens,
+                "system" to cacheableSystem(systemPrompt),
+                "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+            )
         )
 
         val response = postToAnthropic(requestBody, model, "")
@@ -226,6 +231,17 @@ class LlmExtractionService(
             .trim()
 
         return ClaudeResponse(text = cleanedText, stopReason = stopReason)
+    }
+
+    /**
+     * Ajoute `temperature` au body si le setting est >= 0 (defaut 0.0). La
+     * fiabilite 100% exige du determinisme : deux runs identiques doivent
+     * produire le meme JSON. Opt-out : `ai.temperature = -1` si un modele
+     * renvoie un 400 sur ce parametre.
+     */
+    private fun withTemperature(body: Map<String, Any>): Map<String, Any> {
+        val t = appSettingsService.getAiTemperature()
+        return if (t >= 0.0) body + ("temperature" to t) else body
     }
 
     /**

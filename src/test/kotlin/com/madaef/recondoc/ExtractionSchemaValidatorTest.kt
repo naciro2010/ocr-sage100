@@ -240,6 +240,45 @@ class ExtractionSchemaValidatorTest {
         assertTrue(r.cleanedData["rib"] != null, "RIB valide ne doit pas etre strip")
     }
 
+    // --- Verrouillage des noms de dates aligne entre prompts et validator ---
+
+    @Test
+    fun `BC avec dateBc mal formee leve une violation (alignement prompt)`() {
+        val r = validator.validate(TypeDocument.BON_COMMANDE, mapOf(
+            "reference" to "BC-1", "fournisseur" to "ACME",
+            "montantTTC" to 100, "dateBc" to "2099-13-45"
+        ))
+        assertTrue(r.violations.any { it.field == "dateBc" },
+            "validator doit lire dateBc (pas dateBC) — verrou contre la regression de cle")
+    }
+
+    @Test
+    fun `ORDRE_PAIEMENT avec dateEmission mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.ORDRE_PAIEMENT, mapOf(
+            "numeroOp" to "OP-1", "beneficiaire" to "ACME",
+            "montantOperation" to 100, "dateEmission" to "pas-une-date"
+        ))
+        assertTrue(r.violations.any { it.field == "dateEmission" })
+    }
+
+    @Test
+    fun `CONTRAT_AVENANT avec dateSignature mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.CONTRAT_AVENANT, mapOf(
+            "referenceContrat" to "C-1", "dateSignature" to "hier"
+        ))
+        assertTrue(r.violations.any { it.field == "dateSignature" },
+            "validator doit lire dateSignature (pas dateContrat)")
+    }
+
+    @Test
+    fun `ATTESTATION_FISCALE avec dateEdition mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.ATTESTATION_FISCALE, mapOf(
+            "numero" to "ATT-1", "raisonSociale" to "ACME",
+            "dateEdition" to "9999-99-99"
+        ))
+        assertTrue(r.violations.any { it.field == "dateEdition" })
+    }
+
     @Test
     fun `ICE avec OCR cryptographique OO1 reste 001 (pas de strip arbitraire)`() {
         val r = validator.validate(TypeDocument.FACTURE, mapOf(

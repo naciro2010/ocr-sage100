@@ -832,7 +832,11 @@ class DossierService(
                         data = parseLlmResponse(firstCall.text)
                     }
 
-                    // Retry with reinforced prompt if confidence is low (consomme 1 essai)
+                    // Retry with reinforced prompt if confidence is low (consomme 1 essai).
+                    // On reste en tool_use quand un schema existe : la 2e passe conserve le
+                    // contrat JSON force par Claude et evite la regression vers le parse
+                    // texte libre, qui est precisement le mode ou l'hallucination se
+                    // reintroduit (JSON mal forme, champs hors schema, troncature silencieuse).
                     if (data != null && retriesLeft > 0) {
                         val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
                         if (confidence in 0.0..0.69) {
@@ -842,10 +846,27 @@ class DossierService(
                                 "Re-verifie chaque champ attentivement. Voici les warnings precedents: " +
                                 ((data["_warnings"] as? List<*>)?.joinToString(", ") ?: "aucun") +
                                 ". Corrige si possible, sinon mets null et explique dans _warnings."
-                            val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                            var retryData: Map<String, Any?>? = null
+                            var retryStopReason: String? = null
+                            if (schema != null) {
+                                try {
+                                    val retryTool = llmService.callClaudeTool(
+                                        retryPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                                    )
+                                    retryData = retryTool.toolInput
+                                    retryStopReason = retryTool.stopReason
+                                } catch (e: Exception) {
+                                    log.warn("Reinforced tool_use retry failed for {} ({}), falling back to text mode: {}",
+                                        doc.nomFichier, schema.name, e.message)
+                                }
+                            }
+                            if (retryData == null) {
+                                val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                                retryStopReason = retry.stopReason
+                                retryData = parseLlmResponse(retry.text)
+                            }
                             retriesLeft -= 1
-                            if (retry.stopReason == "max_tokens") truncatedByMaxTokens = true
-                            val retryData = parseLlmResponse(retry.text)
+                            if (retryStopReason == "max_tokens") truncatedByMaxTokens = true
                             if (retryData != null) {
                                 val retryConfidence = (retryData["_confidence"] as? Number)?.toDouble() ?: -1.0
                                 if (retryConfidence > confidence) {
@@ -1155,8 +1176,25 @@ class DossierService(
 
         return try {
             emitProgress(doc, "extract", "active", "Re-extraction (score ${initialReport.score} < ${minQualityScore})...")
-            val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
-            val retryData = parseLlmResponse(retryJson) ?: return null
+            // On conserve tool_use sur le retry quality quand un schema existe :
+            // le mode texte libre est la principale source de hallucination residuelle
+            // (JSON mal forme accepte par parseLlmResponse au regex pres).
+            val schema = if (toolUseEnabled) ExtractionSchemas.forType(type) else null
+            val retryData: Map<String, Any?> = if (schema != null) {
+                try {
+                    llmService.callClaudeTool(
+                        reinforcedPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                    ).toolInput
+                } catch (e: Exception) {
+                    log.warn("Reinforced retry tool_use failed for {} ({}), falling back to text: {}",
+                        doc.nomFichier, schema.name, e.message)
+                    val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                    parseLlmResponse(retryJson) ?: return null
+                }
+            } else {
+                val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                parseLlmResponse(retryJson) ?: return null
+            }
             val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
 
             doc.donneesExtraites = validated

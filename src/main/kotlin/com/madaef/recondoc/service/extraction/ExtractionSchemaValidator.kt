@@ -73,27 +73,23 @@ class ExtractionSchemaValidator {
             FieldRule("fournisseur", FieldKind.NON_VIDE)
         ),
         TypeDocument.BON_COMMANDE to listOf(
-            FieldRule("dateBC", FieldKind.DATE, critical = false),
+            FieldRule("dateBc", FieldKind.DATE, critical = false),
             FieldRule("montantTTC", FieldKind.MONTANT_POSITIF),
             FieldRule("fournisseur", FieldKind.NON_VIDE)
         ),
         TypeDocument.ORDRE_PAIEMENT to listOf(
-            FieldRule("dateOP", FieldKind.DATE, critical = false),
             FieldRule("dateEmission", FieldKind.DATE, critical = false),
             FieldRule("montantOperation", FieldKind.MONTANT_POSITIF),
             FieldRule("rib", FieldKind.RIB, critical = false)
         ),
         TypeDocument.CONTRAT_AVENANT to listOf(
-            FieldRule("dateContrat", FieldKind.DATE, critical = false),
-            FieldRule("montantTotal", FieldKind.MONTANT_POSITIF, critical = false),
-            FieldRule("fournisseur", FieldKind.NON_VIDE)
+            FieldRule("dateSignature", FieldKind.DATE, critical = false),
+            FieldRule("dateEffet", FieldKind.DATE, critical = false)
         ),
         TypeDocument.ATTESTATION_FISCALE to listOf(
             FieldRule("ice", FieldKind.ICE, critical = false),
             FieldRule("identifiantFiscal", FieldKind.IF_NUM, critical = false),
-            FieldRule("dateEmission", FieldKind.DATE, critical = false),
-            FieldRule("dateEdition", FieldKind.DATE, critical = false),
-            FieldRule("dateValidite", FieldKind.DATE, critical = false)
+            FieldRule("dateEdition", FieldKind.DATE, critical = false)
         )
     )
 
