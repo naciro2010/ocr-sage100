@@ -121,7 +121,16 @@ export async function updateDossier(id: string, data: Record<string, unknown>): 
 
 export async function deleteDossier(id: string): Promise<void> {
   const res = await apiFetch(`${BASE}/${id}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    let message = `HTTP ${res.status} ${res.statusText}`
+    try {
+      const body = await res.json()
+      if (body?.message) message = body.message
+    } catch {
+      // body non JSON : on garde le message HTTP brut
+    }
+    throw new Error(message)
+  }
 }
 
 export async function changeStatut(id: string, statut: string, motifRejet?: string, validePar?: string): Promise<DossierDetail> {
@@ -158,7 +167,16 @@ export async function reprocessDocument(dossierId: string, docId: string): Promi
 
 export async function deleteDocument(dossierId: string, docId: string): Promise<void> {
   const res = await apiFetch(`${BASE}/${dossierId}/documents/${docId}`, { method: 'DELETE' })
-  if (!res.ok) throw new Error(`HTTP ${res.status}`)
+  if (!res.ok) {
+    let message = `HTTP ${res.status} ${res.statusText}`
+    try {
+      const body = await res.json()
+      if (body?.message) message = body.message
+    } catch {
+      // ignore
+    }
+    throw new Error(message)
+  }
 }
 
 export async function changeDocumentType(dossierId: string, docId: string, typeDocument: string): Promise<DocumentInfo> {

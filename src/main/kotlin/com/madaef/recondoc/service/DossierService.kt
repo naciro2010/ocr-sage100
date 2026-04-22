@@ -352,20 +352,48 @@ class DossierService(
 
     @Transactional
     fun deleteDossier(id: UUID) {
-        // Cascade delete — child tables first, then parents
+        // Purge exhaustive avant DELETE FROM dossier_paiement. La plupart des FK ont
+        // deja un ON DELETE CASCADE, mais on supprime explicitement pour :
+        //  - eviter les depassements de `statement_timeout` sur gros dossiers (Railway
+        //    postgres est en `statement_timeout=10s`),
+        //  - garder des logs lisibles dossier-par-dossier,
+        //  - tolerer les tables presentes hors mapping JPA (claude_usage).
+        // Si le dossier n'existe pas on sort sans erreur pour rendre l'operation idempotente
+        // (un double-clic cote UI ne doit pas retourner 500).
+        val exists = (entityManager.createNativeQuery("SELECT 1 FROM dossier_paiement WHERE id = :id")
+            .setParameter("id", id).resultList.isNotEmpty())
+        if (!exists) {
+            log.info("deleteDossier: dossier {} deja absent, no-op", id)
+            return
+        }
+        log.info("Deleting dossier {} (cascade purge)", id)
+
+        // Petits-enfants (references table enfant -> parent)
         entityManager.createNativeQuery("DELETE FROM ligne_facture WHERE facture_id IN (SELECT id FROM facture WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
         entityManager.createNativeQuery("DELETE FROM grille_tarifaire WHERE contrat_avenant_id IN (SELECT id FROM contrat_avenant WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
         entityManager.createNativeQuery("DELETE FROM retenue WHERE op_id IN (SELECT id FROM ordre_paiement WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
         entityManager.createNativeQuery("DELETE FROM point_controle WHERE checklist_id IN (SELECT id FROM checklist_autocontrole WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
         entityManager.createNativeQuery("DELETE FROM signataire_checklist WHERE checklist_id IN (SELECT id FROM checklist_autocontrole WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
         entityManager.createNativeQuery("DELETE FROM point_controle_financier WHERE tableau_controle_id IN (SELECT id FROM tableau_controle WHERE dossier_id = :id)").setParameter("id", id).executeUpdate()
-        val directTables = listOf("facture", "bon_commande", "contrat_avenant", "ordre_paiement",
+
+        // Tables directement rattachees au dossier. dossier_rule_override (V12) et
+        // claude_usage (V16) sont ajoutees explicitement ; sans ca, un dossier ayant
+        // des overrides de regles ou des traces d'appels Claude ne peut etre supprime
+        // qu'en s'appuyant sur le CASCADE DB (ce qui masque toute erreur cote JPA).
+        val directTables = listOf(
+            "facture", "bon_commande", "contrat_avenant", "ordre_paiement",
             "checklist_autocontrole", "tableau_controle", "pv_reception", "attestation_fiscale",
-            "resultat_validation", "audit_log", "document")
+            "resultat_validation", "audit_log", "dossier_rule_override", "document"
+        )
         for (table in directTables) {
             entityManager.createNativeQuery("DELETE FROM $table WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
         }
+        // claude_usage : FK ON DELETE SET NULL. On nettoie explicitement pour ne pas
+        // laisser d'orphelins portant l'id d'un dossier supprime.
+        entityManager.createNativeQuery("UPDATE claude_usage SET dossier_id = NULL WHERE dossier_id = :id").setParameter("id", id).executeUpdate()
+
         entityManager.createNativeQuery("DELETE FROM dossier_paiement WHERE id = :id").setParameter("id", id).executeUpdate()
+        log.info("Dossier {} supprime", id)
     }
 
     @Transactional

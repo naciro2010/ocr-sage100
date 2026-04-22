@@ -207,6 +207,39 @@ class DossierIntegrationTest {
             .andExpect(status().isNotFound)
     }
 
+    // Regression: un dossier qui a un override de regle (table dossier_rule_override
+    // avec FK dossier_id) doit pouvoir etre supprime. Avant correction, la methode
+    // deleteDossier oubliait cette table et renvoyait 500 Internal Server Error.
+    @Test
+    fun `DELETE api dossiers id - delete dossier avec overrides regles`() {
+        val id = createDossier()
+        mockMvc.perform(
+            patch("/api/dossiers/$id/rule-config")
+                .contentType(MediaType.APPLICATION_JSON)
+                .content("""{"R01": false, "R05": true}""")
+        ).andExpect(status().isOk)
+        mockMvc.perform(delete("/api/dossiers/$id"))
+            .andExpect(status().isNoContent)
+        mockMvc.perform(get("/api/dossiers/$id"))
+            .andExpect(status().isNotFound)
+    }
+
+    // Idempotence : un second DELETE sur un id deja supprime ne doit pas
+    // remonter 500. On accepte 204 (no-op) ou 404 selon les handlers.
+    @Test
+    fun `DELETE api dossiers id - idempotent sur dossier absent`() {
+        val id = createDossier()
+        mockMvc.perform(delete("/api/dossiers/$id"))
+            .andExpect(status().isNoContent)
+        mockMvc.perform(delete("/api/dossiers/$id"))
+            .andExpect { result ->
+                val status = result.response.status
+                assert(status == 204 || status == 404) {
+                    "Expected 204 or 404 on second delete, got $status"
+                }
+            }
+    }
+
     // --- 404 handling ---
 
     @Test
