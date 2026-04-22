@@ -37,6 +37,7 @@ class OcrService(
     private val mistralOcrClient: MistralOcrClient,
     private val pdfMarkdownExtractor: PdfMarkdownExtractor,
     private val ocrSelectionService: OcrSelectionService,
+    private val ocrCacheService: OcrCacheService,
     @Value("\${ocr.tesseract.data-path:/usr/share/tessdata}") private val tessDataPath: String,
     @Value("\${ocr.tesseract.languages:fra+ara}") private val languages: String,
     @Value("\${ocr.tesseract.dpi:300}") private val dpi: Int,
@@ -132,6 +133,29 @@ class OcrService(
     fun extractWithDetails(inputStream: InputStream, fileName: String, filePath: Path? = null): OcrResult {
         log.info("Extracting text from: {}", fileName)
 
+        // Cache cross-dossier : un fichier deja OCRise avec le meme SHA-256
+        // court-circuite toute la cascade. Actif uniquement quand on a un Path
+        // local (sinon impossible de hasher sans casser le contrat Tika qui
+        // consomme l'InputStream sequentiellement).
+        val sha256 = if (filePath != null && ocrCacheService.isEnabled()) {
+            ocrCacheService.sha256Of(filePath)
+        } else null
+        if (sha256 != null) {
+            val cached = ocrCacheService.lookup(sha256)
+            if (cached != null) {
+                try { inputStream.close() } catch (_: Exception) {}
+                val engine = runCatching { OcrEngine.valueOf(cached.engine) }.getOrDefault(OcrEngine.TIKA)
+                log.info("OCR cache HIT for {} (sha256={}, engine={}, {} chars)",
+                    fileName, sha256.take(12), engine, cached.text.length)
+                return OcrResult(
+                    text = cached.text,
+                    engine = engine,
+                    confidence = cached.confidence,
+                    pageCount = cached.pageCount.takeIf { it > 0 } ?: 1
+                )
+            }
+        }
+
         // Tika est toujours execute en premier (synchrone, local, < 1s). Il
         // consomme l'InputStream donc doit tourner sequentiellement. Mistral
         // et PdfMarkdown operent sur le Path et peuvent donc tourner en
@@ -140,10 +164,24 @@ class OcrService(
         val tikaWords = countSignificantWords(tikaText)
         log.info("Tika extracted {} chars ({} words) from {}", tikaText.length, tikaWords, fileName)
 
-        if (parallelEnabled) {
-            return extractParallel(tikaText, tikaWords, fileName, filePath)
+        val result = if (parallelEnabled) {
+            extractParallel(tikaText, tikaWords, fileName, filePath)
+        } else {
+            extractLegacyCascade(tikaText, tikaWords, fileName, filePath)
         }
-        return extractLegacyCascade(tikaText, tikaWords, fileName, filePath)
+
+        if (sha256 != null && result.text.isNotBlank()) {
+            ocrCacheService.store(
+                sha256,
+                OcrCacheService.CachedOcr(
+                    text = result.text,
+                    engine = result.engine.name,
+                    pageCount = result.pageCount,
+                    confidence = result.confidence
+                )
+            )
+        }
+        return result
     }
 
     /**
