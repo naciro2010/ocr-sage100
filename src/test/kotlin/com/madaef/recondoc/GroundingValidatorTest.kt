@@ -125,6 +125,44 @@ class GroundingValidatorTest {
         assertTrue(r.valid)
     }
 
+    // --- Couche engagement : MARCHE, BC_CADRE, CONTRAT_CADRE (decret 2-12-349) ---
+
+    @Test
+    fun `MARCHE reference hallucinée est detectee et strip`() {
+        val text = """
+            MARCHE DE TRAVAUX N M-2024-001
+            Objet : Travaux d'entretien du golf royal
+            Titulaire : ACME BTP SARL
+            Appel d'offres : AO 2024/15
+        """.trimIndent()
+        val r = validator.validate(TypeDocument.MARCHE, mapOf(
+            "reference" to "M-2099-FAKE",
+            "numeroAo" to "AO 2024/15"
+        ), text)
+        assertFalse(r.valid, "reference marche critique absente = invalide")
+        assertNull(r.cleanedData["reference"])
+        assertNotNull(r.cleanedData["numeroAo"], "numeroAo present dans le texte ne doit pas etre strip")
+    }
+
+    @Test
+    fun `BON_COMMANDE_CADRE reference presente est acceptee meme avec separateurs`() {
+        val text = "BC CADRE BCC-2024-001\nPlafond 500 000 MAD HT\n"
+        val r = validator.validate(TypeDocument.BON_COMMANDE_CADRE, mapOf(
+            "reference" to "BCC 2024 001"
+        ), text)
+        assertTrue(r.valid)
+        assertNotNull(r.cleanedData["reference"])
+    }
+
+    @Test
+    fun `CONTRAT_CADRE avec reference absente du texte est invalide`() {
+        val text = "Contrat de maintenance climatisation\nDuree : 24 mois\n"
+        val r = validator.validate(TypeDocument.CONTRAT_CADRE, mapOf(
+            "reference" to "CM-2024-015"
+        ), text)
+        assertFalse(r.valid, "reference contrat critique absente = invalide")
+    }
+
     @Test
     fun `warnings precedents preserves et nouvelles violations concatenees`() {
         val text = "Facture DEV-2026-42\n"

@@ -35,7 +35,10 @@ class ExtractionQualityService {
             TypeDocument.PV_RECEPTION to listOf("dateReception", "referenceContrat", "prestations"),
             TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("points", "referenceFacture", "prestataire"),
             TypeDocument.CHECKLIST_PIECES to listOf("pieces", "referenceFacture"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("points", "referenceFacture", "fournisseur")
+            TypeDocument.TABLEAU_CONTROLE to listOf("points", "referenceFacture", "fournisseur"),
+            TypeDocument.MARCHE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument"),
+            TypeDocument.BON_COMMANDE_CADRE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument"),
+            TypeDocument.CONTRAT_CADRE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument")
         )
 
         private val IMPORTANT: Map<TypeDocument, List<String>> = mapOf(
@@ -47,7 +50,18 @@ class ExtractionQualityService {
             TypeDocument.PV_RECEPTION to listOf("signataireMadaef", "signataireFournisseur", "periodeDebut", "periodeFin"),
             TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("signataires", "dateEtablissement", "referenceBc", "nomProjet"),
             TypeDocument.CHECKLIST_PIECES to listOf("typeDossier", "signataire", "dateEtablissement"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("signataire", "dateControle", "conclusionGenerale", "societeGeree")
+            TypeDocument.TABLEAU_CONTROLE to listOf("signataire", "dateControle", "conclusionGenerale", "societeGeree"),
+            TypeDocument.MARCHE to listOf(
+                "montantHt", "tauxTva", "numeroAo", "dateAo", "categorie", "delaiExecutionMois",
+                "retenueGarantiePct", "cautionDefinitivePct", "revisionPrixAutorisee"
+            ),
+            TypeDocument.BON_COMMANDE_CADRE to listOf(
+                "montantHt", "tauxTva", "plafondMontant", "dateValiditeFin", "seuilAntiFractionnement"
+            ),
+            TypeDocument.CONTRAT_CADRE to listOf(
+                "montantHt", "tauxTva", "dateDebut", "dateFin", "periodicite",
+                "reconductionTacite", "preavisResiliationJours"
+            )
         )
 
         private const val COHERENCE_TOLERANCE = 0.01

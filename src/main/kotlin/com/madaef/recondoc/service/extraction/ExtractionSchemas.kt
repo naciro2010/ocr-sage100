@@ -387,6 +387,96 @@ object ExtractionSchemas {
         )
     )
 
+    // =====================================================================
+    // COUCHE ENGAGEMENT : marches publics et contrats cadres marocains.
+    // Cadre legal : decret 2-12-349 (marches publics), art. 5 (BC cadres),
+    // CCAG-T (travaux) et CCAG-EMO (etudes et maitrise d'oeuvre).
+    // =====================================================================
+
+    val MARCHE = ToolSchema(
+        name = "extract_marche_data",
+        description = "Extrait les donnees d'un marche public marocain issu d'un appel d'offres (decret 2-12-349, CCAG-T ou CCAG-EMO). Ne pas inventer.",
+        inputSchema = obj(
+            properties = mapOf(
+                "reference" to str("Numero/reference du marche (ex: 'M-2024-001', 'AO/2025/15/MADAEF').", nullable = false),
+                "objet" to str("Description des travaux/fournitures/services objet du marche (ex: 'Travaux d'entretien du golf royal', 'Fourniture de materiel informatique').", nullable = false),
+                "fournisseur" to str("Raison sociale du titulaire/adjudicataire (entite ayant remporte l'AO). JAMAIS MADAEF.", nullable = false),
+                "montantHt" to num("Montant total HT du marche, strictement positif.", minimum = 0),
+                "montantTva" to num("Montant total TVA du marche.", minimum = 0),
+                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "montantTtc" to num("Montant total TTC du marche. Verifier HT+TVA ≈ TTC.", minimum = 0, nullable = false),
+                "dateDocument" to str("Date du document marche au format ISO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "dateSignature" to str("Date de signature du marche YYYY-MM-DD. null si non signe.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateNotification" to str("Date de notification du marche au titulaire YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "numeroAo" to str("Numero de l'appel d'offres ayant abouti au marche (ex: 'AO 2024/15')."),
+                "dateAo" to str("Date d'ouverture des plis de l'AO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "categorie" to enumField(
+                    listOf("TRAVAUX", "FOURNITURES", "SERVICES"),
+                    description = "Categorie du marche. TRAVAUX (BTP, voirie, genie civil), FOURNITURES (materiel, consommables), SERVICES (etudes, maintenance, gardiennage, entretien).",
+                    baseType = "string"
+                ),
+                "delaiExecutionMois" to num("Duree d'execution prevue en mois (convertir si necessaire : 'une annee' -> 12, '6 mois' -> 6).", minimum = 0),
+                "retenueGarantiePct" to num("Taux de retenue de garantie en % (souvent 7% pour travaux, 10% max). Liberee apres reception definitive.", minimum = 0),
+                "cautionDefinitivePct" to num("Taux de caution definitive en % (souvent 3%).", minimum = 0),
+                "penalitesRetardJourPct" to num("Taux de penalite journaliere en % du montant du marche. '1/1000 par jour' -> 0.001, '1% par jour' -> 0.01.", minimum = 0),
+                "revisionPrixAutorisee" to bool("true si le CPS contient une clause/formule de revision de prix (indice ICG pour BTP, IPC...). false si prix fermes definitifs.")
+            ) + qualityFields(),
+            required = listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument", "_confidence")
+        )
+    )
+
+    val BON_COMMANDE_CADRE = ToolSchema(
+        name = "extract_bon_commande_cadre_data",
+        description = "Extrait les donnees d'un BC cadre marocain (pluri-annuel avec plafond, art. 5 decret 2-12-349). Distinct d'un BC operationnel.",
+        inputSchema = obj(
+            properties = mapOf(
+                "reference" to str("Reference du BC cadre (ex: 'BCC-2024-001').", nullable = false),
+                "objet" to str("Description generale des fournitures/prestations couvertes par le BC cadre.", nullable = false),
+                "fournisseur" to str("Raison sociale du titulaire du BC cadre.", nullable = false),
+                "montantHt" to num("Montant HT estimatif ou plafond HT du BC cadre.", minimum = 0),
+                "montantTva" to num("Montant TVA estimatif.", minimum = 0),
+                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "montantTtc" to num("Montant TTC estimatif ou plafond TTC.", minimum = 0, nullable = false),
+                "dateDocument" to str("Date du BC cadre YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "dateSignature" to str("Date de signature YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateNotification" to str("Date de notification YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "plafondMontant" to num("Plafond maximum de consommation autorise sur la duree du BC (ex: 500 000 MAD HT).", minimum = 0),
+                "dateValiditeFin" to str("Derniere date de tirage possible YYYY-MM-DD. Au-dela, le BC cadre est expire.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "seuilAntiFractionnement" to num("Seuil anti-fractionnement art. 88 decret (souvent 200 000 MAD HT). null si non mentionne.", minimum = 0)
+            ) + qualityFields(),
+            required = listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument", "_confidence")
+        )
+    )
+
+    val CONTRAT_CADRE = ToolSchema(
+        name = "extract_contrat_cadre_data",
+        description = "Extrait les donnees d'un contrat cadre marocain (prestation recurrente : maintenance, abonnement, assurance).",
+        inputSchema = obj(
+            properties = mapOf(
+                "reference" to str("Numero du contrat cadre (ex: 'CM-2024-015').", nullable = false),
+                "objet" to str("Description de la prestation recurrente (ex: 'Contrat de maintenance climatisation', 'Abonnement internet fibre').", nullable = false),
+                "fournisseur" to str("Raison sociale du prestataire.", nullable = false),
+                "montantHt" to num("Montant HT (par periode ou total contractuel, selon le contrat).", minimum = 0),
+                "montantTva" to num("Montant TVA.", minimum = 0),
+                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "montantTtc" to num("Montant TTC.", minimum = 0, nullable = false),
+                "dateDocument" to str("Date du document contrat YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
+                "dateSignature" to str("Date de signature du contrat YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateDebut" to str("Date de debut d'execution YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateFin" to str("Date de fin contractuelle YYYY-MM-DD (hors reconduction).", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "periodicite" to enumField(
+                    listOf("MENSUEL", "TRIMESTRIEL", "SEMESTRIEL", "ANNUEL"),
+                    description = "Periodicite de facturation. Deduire de la clause de facturation : 'mensuellement' -> MENSUEL, 'trimestre' -> TRIMESTRIEL, etc.",
+                    baseType = "string"
+                ),
+                "reconductionTacite" to bool("true si clause de reconduction tacite explicite ('reconduction tacite', 'reconduit automatiquement'). false si non ou silence. null si ambigu."),
+                "preavisResiliationJours" to num("Preavis de resiliation en jours ('un mois' -> 30, '3 mois' -> 90, '15 jours' -> 15).", minimum = 0),
+                "indiceRevision" to str("Nom de l'indice de revision tarifaire si present (ex: 'IPC national', 'indice ICG'). null si pas de clause de revision.")
+            ) + qualityFields(),
+            required = listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument", "_confidence")
+        )
+    )
+
     private val ALL: Map<TypeDocument, ToolSchema> = mapOf(
         TypeDocument.FACTURE to FACTURE,
         TypeDocument.BON_COMMANDE to BON_COMMANDE,
@@ -396,7 +486,10 @@ object ExtractionSchemas {
         TypeDocument.ATTESTATION_FISCALE to ATTESTATION_FISCALE,
         TypeDocument.CHECKLIST_AUTOCONTROLE to CHECKLIST_AUTOCONTROLE,
         TypeDocument.CHECKLIST_PIECES to CHECKLIST_PIECES,
-        TypeDocument.TABLEAU_CONTROLE to TABLEAU_CONTROLE
+        TypeDocument.TABLEAU_CONTROLE to TABLEAU_CONTROLE,
+        TypeDocument.MARCHE to MARCHE,
+        TypeDocument.BON_COMMANDE_CADRE to BON_COMMANDE_CADRE,
+        TypeDocument.CONTRAT_CADRE to CONTRAT_CADRE
     )
 
     fun forType(type: TypeDocument): ToolSchema? = ALL[type]

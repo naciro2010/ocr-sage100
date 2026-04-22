@@ -90,6 +90,42 @@ class ExtractionSchemaValidator {
             FieldRule("ice", FieldKind.ICE, critical = false),
             FieldRule("identifiantFiscal", FieldKind.IF_NUM, critical = false),
             FieldRule("dateEdition", FieldKind.DATE, critical = false)
+        ),
+        // Couche engagement (marches publics et contrats cadres, decret 2-12-349).
+        // Les montants peuvent etre tres eleves (millions MAD) donc une hallucination
+        // est particulierement grave. reference/fournisseur sont critiques : ce sont
+        // les cles d'identification de l'engagement dans Sage.
+        TypeDocument.MARCHE to listOf(
+            FieldRule("reference", FieldKind.NON_VIDE),
+            FieldRule("fournisseur", FieldKind.NON_VIDE),
+            FieldRule("dateDocument", FieldKind.DATE, critical = false),
+            FieldRule("dateSignature", FieldKind.DATE, critical = false),
+            FieldRule("dateNotification", FieldKind.DATE, critical = false),
+            FieldRule("dateAo", FieldKind.DATE, critical = false),
+            FieldRule("montantTtc", FieldKind.MONTANT_POSITIF),
+            FieldRule("montantHt", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("montantTva", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("tauxTva", FieldKind.TAUX_TVA, critical = false)
+        ),
+        TypeDocument.BON_COMMANDE_CADRE to listOf(
+            FieldRule("reference", FieldKind.NON_VIDE),
+            FieldRule("fournisseur", FieldKind.NON_VIDE),
+            FieldRule("dateDocument", FieldKind.DATE, critical = false),
+            FieldRule("dateSignature", FieldKind.DATE, critical = false),
+            FieldRule("dateValiditeFin", FieldKind.DATE, critical = false),
+            FieldRule("montantTtc", FieldKind.MONTANT_POSITIF),
+            FieldRule("plafondMontant", FieldKind.MONTANT_POSITIF, critical = false),
+            FieldRule("tauxTva", FieldKind.TAUX_TVA, critical = false)
+        ),
+        TypeDocument.CONTRAT_CADRE to listOf(
+            FieldRule("reference", FieldKind.NON_VIDE),
+            FieldRule("fournisseur", FieldKind.NON_VIDE),
+            FieldRule("dateDocument", FieldKind.DATE, critical = false),
+            FieldRule("dateSignature", FieldKind.DATE, critical = false),
+            FieldRule("dateDebut", FieldKind.DATE, critical = false),
+            FieldRule("dateFin", FieldKind.DATE, critical = false),
+            FieldRule("montantTtc", FieldKind.MONTANT_POSITIF),
+            FieldRule("tauxTva", FieldKind.TAUX_TVA, critical = false)
         )
     )
 

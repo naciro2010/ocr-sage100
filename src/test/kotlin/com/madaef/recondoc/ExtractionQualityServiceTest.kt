@@ -322,4 +322,79 @@ class ExtractionQualityServiceTest {
         assertTrue("numeroOp" in r.missingMandatory)
         assertTrue("dateEmission" in r.missingMandatory)
     }
+
+    // --- Couche engagement : MARCHE, BC_CADRE, CONTRAT_CADRE (Maroc) ---
+
+    @Test
+    fun `MARCHE complet utilise les cles reference objet fournisseur montantTtc dateDocument`() {
+        val doc = buildDocument(TypeDocument.MARCHE, mapOf(
+            "reference" to "M-2024-001",
+            "objet" to "Travaux d'entretien du golf royal",
+            "fournisseur" to "ACME BTP SARL",
+            "montantTtc" to 1200000.00,
+            "montantHt" to 1000000.00,
+            "montantTva" to 200000.00,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-06-15",
+            "categorie" to "TRAVAUX",
+            "delaiExecutionMois" to 12,
+            "retenueGarantiePct" to 7,
+            "cautionDefinitivePct" to 3,
+            "numeroAo" to "AO 2024/15",
+            "dateAo" to "2024-05-20",
+            "revisionPrixAutorisee" to true
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "MARCHE complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `BON_COMMANDE_CADRE complet utilise les cles du prompt`() {
+        val doc = buildDocument(TypeDocument.BON_COMMANDE_CADRE, mapOf(
+            "reference" to "BCC-2024-001",
+            "objet" to "Fournitures de bureau",
+            "fournisseur" to "ACME SARL",
+            "montantTtc" to 500000.00,
+            "montantHt" to 416666.67,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-03-10",
+            "plafondMontant" to 500000.00,
+            "dateValiditeFin" to "2026-03-10",
+            "seuilAntiFractionnement" to 200000.00
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "BC cadre complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `CONTRAT_CADRE complet utilise les cles du prompt`() {
+        val doc = buildDocument(TypeDocument.CONTRAT_CADRE, mapOf(
+            "reference" to "CM-2024-015",
+            "objet" to "Contrat de maintenance climatisation",
+            "fournisseur" to "ACME SARL",
+            "montantTtc" to 120000.00,
+            "montantHt" to 100000.00,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-01-15",
+            "dateDebut" to "2024-02-01",
+            "dateFin" to "2026-01-31",
+            "periodicite" to "MENSUEL",
+            "reconductionTacite" to true,
+            "preavisResiliationJours" to 90
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "Contrat cadre complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `MARCHE sans reference ou fournisseur est marque incomplet`() {
+        val doc = buildDocument(TypeDocument.MARCHE, mapOf(
+            "objet" to "Travaux",
+            "montantTtc" to 1000000.00,
+            "dateDocument" to "2024-06-15"
+        ))
+        val r = service.evaluate(doc)
+        assertTrue("reference" in r.missingMandatory)
+        assertTrue("fournisseur" in r.missingMandatory)
+    }
 }

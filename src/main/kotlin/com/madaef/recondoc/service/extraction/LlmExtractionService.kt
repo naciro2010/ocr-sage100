@@ -131,17 +131,38 @@ class LlmExtractionService(
         toolName: String,
         inputSchema: Map<String, Any>,
         kind: CallKind
-    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind)
+    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind, null)
+
+    /**
+     * Variante qui force un `max_tokens` specifique (override le setting).
+     * Utile apres un premier appel tronque (`stop_reason=max_tokens`) : on
+     * retente avec un budget plus large AVANT de basculer le document en
+     * revue humaine. Preserve la fiabilite sur les gros documents (OP avec
+     * beaucoup de retenues, contrats cadres avec grilles tarifaires...)
+     * sans surcout permanent.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolMaxTokensFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeToolWithMaxTokens(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind,
+        maxTokensOverride: Int
+    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind, maxTokensOverride)
 
     private fun executeClaudeToolCall(
         systemPrompt: String,
         userContent: String,
         toolName: String,
         inputSchema: Map<String, Any>,
-        kind: CallKind
+        kind: CallKind,
+        maxTokensOverride: Int?
     ): ClaudeToolResponse {
         val model = modelFor(kind)
-        val maxTokens = appSettingsService.getAiMaxTokens(kind.key)
+        val maxTokens = maxTokensOverride ?: appSettingsService.getAiMaxTokens(kind.key)
         log.info("Calling Claude API (tool_use kind={}, model={}, tool={}, max_tokens={}, text={}chars)",
             kind, model, toolName, maxTokens, userContent.length)
 
@@ -361,6 +382,15 @@ class LlmExtractionService(
     private fun claudeToolFallback(
         systemPrompt: String, userContent: String, toolName: String,
         inputSchema: Map<String, Any>, kind: CallKind, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t) // always throws
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolMaxTokensFallback(
+        systemPrompt: String, userContent: String, toolName: String,
+        inputSchema: Map<String, Any>, kind: CallKind, maxTokensOverride: Int, t: Throwable
     ): ClaudeToolResponse {
         fallbackMessage(t) // always throws
         throw IllegalStateException("unreachable")

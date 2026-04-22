@@ -68,6 +68,7 @@ class DossierService(
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val groundingValidator: GroundingValidator,
+    private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
@@ -818,6 +819,36 @@ class DossierService(
                             if (toolResp.stopReason == "max_tokens") truncatedByMaxTokens = true
                             data = toolResp.toolInput
                             log.info("Extraction via tool_use for {} ({})", doc.nomFichier, schema.name)
+
+                            // Retry max_tokens x2 si la reponse a ete tronquee. Preserve la
+                            // fiabilite sur les gros documents (OP avec beaucoup de retenues,
+                            // contrats cadres avec grilles tarifaires longues...) AVANT de
+                            // basculer en revue humaine. Consomme 1 essai du budget (max 2).
+                            if (truncatedByMaxTokens && retriesLeft > 0) {
+                                val baseMaxTokens = appSettingsService.getAiMaxTokens(CallKind.EXTRACTION.key)
+                                val expandedMaxTokens = baseMaxTokens * 2
+                                log.info("Response for {} truncated (max_tokens={}), retrying with max_tokens={}",
+                                    doc.nomFichier, baseMaxTokens, expandedMaxTokens)
+                                emitProgress(doc, "extract", "active",
+                                    "Re-extraction (budget tokens etendu a ${expandedMaxTokens})...")
+                                try {
+                                    val expandedResp = llmService.callClaudeToolWithMaxTokens(
+                                        prompt, ocrContext, schema.name, schema.inputSchema,
+                                        CallKind.EXTRACTION, expandedMaxTokens
+                                    )
+                                    retriesLeft -= 1
+                                    if (expandedResp.stopReason != "max_tokens") {
+                                        data = expandedResp.toolInput
+                                        truncatedByMaxTokens = false
+                                        log.info("Expanded max_tokens retry succeeded for {}", doc.nomFichier)
+                                    } else {
+                                        log.warn("Expanded max_tokens retry STILL truncated for {}, budget {} -> revue humaine",
+                                            doc.nomFichier, expandedMaxTokens)
+                                    }
+                                } catch (e: Exception) {
+                                    log.warn("Expanded max_tokens retry failed for {}: {}", doc.nomFichier, e.message)
+                                }
+                            }
                         } catch (e: Exception) {
                             toolUseFallbackNeeded = true
                             log.warn("tool_use failed for {} ({}), falling back to text mode: {}",

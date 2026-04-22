@@ -79,6 +79,18 @@ class GroundingValidator {
         ),
         TypeDocument.TABLEAU_CONTROLE to listOf(
             Check("referenceFacture", Kind.ALNUM, critical = true, minLen = 4)
+        ),
+        // Couche engagement : montants eleves, hallucination sur la reference
+        // marche/BC cadre/contrat = engagement comptable Sage errone.
+        TypeDocument.MARCHE to listOf(
+            Check("reference", Kind.ALNUM, critical = true, minLen = 3),
+            Check("numeroAo", Kind.ALNUM, critical = false, minLen = 3)
+        ),
+        TypeDocument.BON_COMMANDE_CADRE to listOf(
+            Check("reference", Kind.ALNUM, critical = true, minLen = 3)
+        ),
+        TypeDocument.CONTRAT_CADRE to listOf(
+            Check("reference", Kind.ALNUM, critical = true, minLen = 3)
         )
     )
 
