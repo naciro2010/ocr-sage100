@@ -27,6 +27,28 @@ enum class CallKind(val key: String) {
     RULES_BATCH("rules_batch")
 }
 
+/**
+ * Reponse complete de Claude. Expose stop_reason pour que les callers
+ * puissent detecter une reponse tronquee (max_tokens atteint) et basculer
+ * le document en revue humaine plutot que de consommer un JSON incomplet.
+ */
+data class ClaudeResponse(
+    val text: String,
+    val stopReason: String?
+)
+
+/**
+ * Reponse d'un appel Claude en mode `tool_use` : Claude a ete force a
+ * appeler l'outil decrit par le schema JSON, donc `toolInput` est un
+ * objet structure directement exploitable (plus de parse regex).
+ * `stopReason` est typiquement "tool_use" en cas de succes ; "max_tokens"
+ * signale une reponse tronquee -> document en revue humaine.
+ */
+data class ClaudeToolResponse(
+    val toolInput: Map<String, Any?>,
+    val stopReason: String?
+)
+
 @Service
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
@@ -66,12 +88,132 @@ class LlmExtractionService(
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
     fun callClaude(systemPrompt: String, userContent: String): String =
-        callClaude(systemPrompt, userContent, CallKind.EXTRACTION)
+        executeClaudeCall(systemPrompt, userContent, CallKind.EXTRACTION).text
 
     @CircuitBreaker(name = "claude", fallbackMethod = "claudeFallbackKind")
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
-    fun callClaude(systemPrompt: String, userContent: String, kind: CallKind): String {
+    fun callClaude(systemPrompt: String, userContent: String, kind: CallKind): String =
+        executeClaudeCall(systemPrompt, userContent, kind).text
+
+    /**
+     * Variante qui expose la reponse complete (texte + stop_reason). A utiliser
+     * cote extraction quand il faut savoir si la reponse a ete tronquee par
+     * max_tokens — dans ce cas le JSON est incomplet et le document doit
+     * partir en revue humaine.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeFullFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeFull(systemPrompt: String, userContent: String, kind: CallKind): ClaudeResponse =
+        executeClaudeCall(systemPrompt, userContent, kind)
+
+    /**
+     * Appel Claude en mode `tool_use` avec schema JSON force. Claude ne peut
+     * pas repondre en texte libre — il est oblige d'appeler l'outil nomme
+     * `toolName` avec un input conforme a `inputSchema`. Garantit un objet
+     * structure en retour, sans parse regex ni JSON tronque parsable.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeTool(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind
+    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind)
+
+    private fun executeClaudeToolCall(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind
+    ): ClaudeToolResponse {
+        if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
+
+        val model = modelFor(kind)
+        val maxTokens = appSettingsService.getAiMaxTokens(kind.key)
+        val started = System.currentTimeMillis()
+        log.info("Calling Claude API (tool_use kind={}, model={}, tool={}, max_tokens={}, text={}chars)",
+            kind, model, toolName, maxTokens, userContent.length)
+
+        val tool = mapOf(
+            "name" to toolName,
+            "description" to "Structured extraction tool. Call this exactly once with the extracted data.",
+            "input_schema" to inputSchema
+        )
+
+        // Pas de `temperature` ici non plus (cf. PR #78). `tool_choice` force
+        // deja Claude a produire un objet conforme au schema, ce qui rend le
+        // parametre temperature redondant pour l'extraction structuree.
+        val requestBody = mapOf(
+            "model" to model,
+            "max_tokens" to maxTokens,
+            "system" to systemPrompt,
+            "tools" to listOf(tool),
+            "tool_choice" to mapOf("type" to "tool", "name" to toolName),
+            "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+        )
+
+        val response = try {
+            getClient().post()
+                .uri("/v1/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .onStatus({ it.is4xxClientError }) { resp ->
+                    resp.bodyToMono(String::class.java).map { body ->
+                        log.error("Claude API 4xx error (tool_use): {} — {}", resp.statusCode(), body)
+                        val msg = when {
+                            body.contains("usage limits") || body.contains("rate_limit") ->
+                                "Quota API Anthropic atteint. Reessayez plus tard ou augmentez votre plan."
+                            body.contains("authentication") || body.contains("api_key") ->
+                                "Cle API Anthropic invalide. Verifiez la configuration dans Parametres > Extraction IA."
+                            else -> "Erreur API Claude (tool_use): $body"
+                        }
+                        RuntimeException(msg)
+                    }
+                }
+                .bodyToMono(Map::class.java)
+                .timeout(Duration.ofSeconds(120))
+                .retryWhen(
+                    reactor.util.retry.Retry
+                        .backoff(1, Duration.ofMillis(500))
+                        .jitter(0.5)
+                        .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException }
+                )
+                .block() ?: throw RuntimeException("Empty response from Claude API")
+        } catch (e: Exception) {
+            recordUsage(model, null, started, false, e.message)
+            throw e
+        }
+
+        val usage = response["usage"] as? Map<*, *>
+        recordUsage(model, usage, started, true, null)
+
+        @Suppress("UNCHECKED_CAST")
+        val content = response["content"] as? List<Map<String, Any>>
+            ?: throw RuntimeException("Unexpected response format (tool_use)")
+
+        val toolUseBlock = content.firstOrNull { it["type"] == "tool_use" }
+            ?: throw RuntimeException("No tool_use block in response. stop_reason=${response["stop_reason"]}")
+
+        @Suppress("UNCHECKED_CAST")
+        val input = toolUseBlock["input"] as? Map<String, Any?>
+            ?: throw RuntimeException("Empty tool_use input")
+
+        val stopReason = response["stop_reason"] as? String
+        if (stopReason == "max_tokens") {
+            log.warn("Claude tool_use call (kind={}) hit max_tokens — input may be partial", kind)
+        }
+
+        return ClaudeToolResponse(toolInput = input, stopReason = stopReason)
+    }
+
+    private fun executeClaudeCall(systemPrompt: String, userContent: String, kind: CallKind): ClaudeResponse {
         if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
 
         val model = modelFor(kind)
@@ -80,6 +222,10 @@ class LlmExtractionService(
         log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
             kind, model, maxTokens, userContent.length)
 
+        // Note: le parametre `temperature` a ete retire (cf. PR #78). Les
+        // modeles Claude recents (Haiku 4.5+, Sonnet 4.6+, Opus 4.x) l'ont
+        // deprecie au profit d'un comportement deterministe par defaut sur
+        // les appels structures, et renvoient 400 si on le fournit.
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
@@ -130,10 +276,17 @@ class LlmExtractionService(
         val text = content.firstOrNull { it["type"] == "text" }?.get("text") as? String
             ?: throw RuntimeException("No text content in response")
 
-        return text
+        val stopReason = response["stop_reason"] as? String
+        if (stopReason != null && stopReason != "end_turn" && stopReason != "stop_sequence") {
+            log.warn("Claude call (kind={}) ended with stop_reason={} — output may be truncated or partial", kind, stopReason)
+        }
+
+        val cleanedText = text
             .replace(Regex("^```json\\s*", RegexOption.MULTILINE), "")
             .replace(Regex("^```\\s*$", RegexOption.MULTILINE), "")
             .trim()
+
+        return ClaudeResponse(text = cleanedText, stopReason = stopReason)
     }
 
     /**
@@ -173,6 +326,21 @@ class LlmExtractionService(
     @Suppress("unused", "UNUSED_PARAMETER")
     private fun claudeFallbackKind(systemPrompt: String, userContent: String, kind: CallKind, t: Throwable): String =
         fallbackMessage(t)
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeFullFallback(systemPrompt: String, userContent: String, kind: CallKind, t: Throwable): ClaudeResponse {
+        fallbackMessage(t) // always throws
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolFallback(
+        systemPrompt: String, userContent: String, toolName: String,
+        inputSchema: Map<String, Any>, kind: CallKind, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t) // always throws
+        throw IllegalStateException("unreachable")
+    }
 
     private fun fallbackMessage(t: Throwable): String {
         val msg = when (t) {

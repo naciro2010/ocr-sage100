@@ -23,26 +23,31 @@ class ExtractionQualityService {
     private val log = LoggerFactory.getLogger(javaClass)
 
     companion object {
+        // Les cles listees ici DOIVENT correspondre exactement aux cles emises
+        // par les prompts de ExtractionPrompts.kt. Tout desalignement produit
+        // des faux "missing" qui declenchent des re-extractions inutiles.
         private val MANDATORY: Map<TypeDocument, List<String>> = mapOf(
             TypeDocument.FACTURE to listOf("numeroFacture", "dateFacture", "montantTTC", "fournisseur", "ice"),
-            TypeDocument.BON_COMMANDE to listOf("numeroBC", "dateBC", "montantTTC", "fournisseur"),
-            TypeDocument.ORDRE_PAIEMENT to listOf("numeroOP", "dateOP", "montantOperation", "rib"),
-            TypeDocument.CONTRAT_AVENANT to listOf("numeroContrat", "dateContrat", "montantTotal", "fournisseur"),
-            TypeDocument.ATTESTATION_FISCALE to listOf("dateEmission", "dateValidite", "fournisseur", "ice"),
-            TypeDocument.PV_RECEPTION to listOf("dateReception", "referenceBC"),
-            TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("controlesCoches"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("points")
+            TypeDocument.BON_COMMANDE to listOf("reference", "dateBc", "montantTTC", "fournisseur"),
+            TypeDocument.ORDRE_PAIEMENT to listOf("numeroOp", "dateEmission", "montantOperation", "rib", "beneficiaire"),
+            TypeDocument.CONTRAT_AVENANT to listOf("referenceContrat", "dateSignature", "parties", "objet"),
+            TypeDocument.ATTESTATION_FISCALE to listOf("numero", "dateEdition", "raisonSociale", "ice"),
+            TypeDocument.PV_RECEPTION to listOf("dateReception", "referenceContrat", "prestations"),
+            TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("points", "referenceFacture", "prestataire"),
+            TypeDocument.CHECKLIST_PIECES to listOf("pieces", "referenceFacture"),
+            TypeDocument.TABLEAU_CONTROLE to listOf("points", "referenceFacture", "fournisseur")
         )
 
         private val IMPORTANT: Map<TypeDocument, List<String>> = mapOf(
             TypeDocument.FACTURE to listOf("montantHT", "tauxTVA", "lignes", "identifiantFiscal", "rib"),
-            TypeDocument.BON_COMMANDE to listOf("lignes", "referenceContrat", "ice"),
-            TypeDocument.ORDRE_PAIEMENT to listOf("referenceFacture", "retenues"),
-            TypeDocument.CONTRAT_AVENANT to listOf("grilleTarifaire", "duree"),
-            TypeDocument.ATTESTATION_FISCALE to listOf("numeroAttestation", "identifiantFiscal"),
-            TypeDocument.PV_RECEPTION to listOf("signatairesNom"),
-            TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("signataire", "dateControle"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("totauxFinanciers")
+            TypeDocument.BON_COMMANDE to listOf("montantHT", "tauxTVA", "lignes", "objet", "signataire"),
+            TypeDocument.ORDRE_PAIEMENT to listOf("referenceFacture", "retenues", "banque", "syntheseControleur"),
+            TypeDocument.CONTRAT_AVENANT to listOf("grillesTarifaires", "dateEffet", "numeroAvenant"),
+            TypeDocument.ATTESTATION_FISCALE to listOf("identifiantFiscal", "rc", "estEnRegle", "codeVerification"),
+            TypeDocument.PV_RECEPTION to listOf("signataireMadaef", "signataireFournisseur", "periodeDebut", "periodeFin"),
+            TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("signataires", "dateEtablissement", "referenceBc", "nomProjet"),
+            TypeDocument.CHECKLIST_PIECES to listOf("typeDossier", "signataire", "dateEtablissement"),
+            TypeDocument.TABLEAU_CONTROLE to listOf("signataire", "dateControle", "conclusionGenerale", "societeGeree")
         )
 
         private const val COHERENCE_TOLERANCE = 0.01

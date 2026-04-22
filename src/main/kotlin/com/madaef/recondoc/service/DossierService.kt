@@ -5,10 +5,13 @@ import com.madaef.recondoc.dto.dossier.*
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.*
 import com.madaef.recondoc.repository.engagement.EngagementRepository
+import com.madaef.recondoc.service.extraction.CallKind
 import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
+import com.madaef.recondoc.service.extraction.ExtractionSchemas
+import com.madaef.recondoc.service.extraction.FieldViolation
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.fournisseur.FournisseurMatchingService
 import com.madaef.recondoc.service.storage.DocumentStorage
@@ -68,7 +71,8 @@ class DossierService(
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
-    @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int
+    @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int,
+    @Value("\${extraction.tool-use.enabled:true}") private val toolUseEnabled: Boolean
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val refCounter = AtomicLong(System.currentTimeMillis() % 100000)
@@ -749,6 +753,11 @@ class DossierService(
             }
 
             emitProgress(doc, "extract", "active", "Extraction des donnees...")
+            // Budget total de re-extractions (hors appel initial). CLAUDE.md: "max 2 essais".
+            // Une consommation dans la boucle confidence OU dans le retry quality.
+            var retriesLeft = 2
+            var truncatedByMaxTokens = false
+            var criticalSchemaFailure: List<FieldViolation> = emptyList()
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
@@ -763,11 +772,34 @@ class DossierService(
                         append(rawText)
                         append("\n</document_content>")
                     }
-                    var jsonText = llmService.callClaude(prompt, ocrContext)
-                    var data = parseLlmResponse(jsonText)
+                    // tool_use Anthropic : si un schema est defini pour ce type ET le
+                    // feature flag est on, on force Claude a appeler un outil JSON
+                    // conforme au schema. Pas de parse regex, champs garantis au type,
+                    // plus de JSON tronque parsable. Fallback automatique sur texte
+                    // libre en cas d'echec du tool_use (schema refuse, etc).
+                    val schema = if (toolUseEnabled) ExtractionSchemas.forType(detectedType) else null
+                    var data: Map<String, Any?>? = null
+                    if (schema != null) {
+                        try {
+                            val toolResp = llmService.callClaudeTool(
+                                prompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                            )
+                            if (toolResp.stopReason == "max_tokens") truncatedByMaxTokens = true
+                            data = toolResp.toolInput
+                            log.info("Extraction via tool_use for {} ({})", doc.nomFichier, schema.name)
+                        } catch (e: Exception) {
+                            log.warn("tool_use failed for {} ({}), falling back to text mode: {}",
+                                doc.nomFichier, schema.name, e.message)
+                        }
+                    }
+                    if (data == null) {
+                        val firstCall = llmService.callClaudeFull(prompt, ocrContext, CallKind.EXTRACTION)
+                        if (firstCall.stopReason == "max_tokens") truncatedByMaxTokens = true
+                        data = parseLlmResponse(firstCall.text)
+                    }
 
-                    // Retry with reinforced prompt if confidence is low
-                    if (data != null) {
+                    // Retry with reinforced prompt if confidence is low (consomme 1 essai)
+                    if (data != null && retriesLeft > 0) {
                         val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
                         if (confidence in 0.0..0.69) {
                             log.info("Low confidence ({}) for {}, retrying with reinforced prompt", confidence, doc.nomFichier)
@@ -776,8 +808,10 @@ class DossierService(
                                 "Re-verifie chaque champ attentivement. Voici les warnings precedents: " +
                                 ((data["_warnings"] as? List<*>)?.joinToString(", ") ?: "aucun") +
                                 ". Corrige si possible, sinon mets null et explique dans _warnings."
-                            val retryJson = llmService.callClaude(retryPrompt, ocrContext)
-                            val retryData = parseLlmResponse(retryJson)
+                            val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                            retriesLeft -= 1
+                            if (retry.stopReason == "max_tokens") truncatedByMaxTokens = true
+                            val retryData = parseLlmResponse(retry.text)
                             if (retryData != null) {
                                 val retryConfidence = (retryData["_confidence"] as? Number)?.toDouble() ?: -1.0
                                 if (retryConfidence > confidence) {
@@ -793,6 +827,13 @@ class DossierService(
                         if (schemaResult.violations.isNotEmpty()) {
                             log.warn("Schema violations on {} ({}): {}", doc.nomFichier, detectedType,
                                 schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+                        }
+                        // Enforcement: les violations critiques persistantes (meme si la
+                        // valeur a ete strip a null) doivent declencher une revue humaine.
+                        // Jusqu'ici on loggait et on persistait quand meme en EXTRAIT.
+                        if (!schemaResult.valid) {
+                            val typeRules = schemaResult.violations
+                            criticalSchemaFailure = typeRules
                         }
                         val finalData = schemaResult.cleanedData
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
@@ -812,8 +853,9 @@ class DossierService(
             doc.erreurExtraction = null
             val qualityReport = extractionQualityService.applyTo(doc)
 
-            if (qualityReport.score < minQualityScore && llmService.isAvailable) {
+            if (qualityReport.score < minQualityScore && llmService.isAvailable && retriesLeft > 0) {
                 val retryReport = retryExtractionWithReinforcedPrompt(doc, detectedType, rawText, ocrResult, qualityReport)
+                retriesLeft -= 1
                 if (retryReport != null && retryReport.score < humanReviewThreshold) {
                     doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
                     doc.erreurExtraction = "Score qualite ${retryReport.score} < ${humanReviewThreshold} apres retry. " +
@@ -825,6 +867,25 @@ class DossierService(
                 doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
                 doc.erreurExtraction = "Score qualite ${qualityReport.score} < ${humanReviewThreshold}, " +
                     "revue humaine requise. Champs manquants: ${qualityReport.missingMandatory.joinToString(", ")}"
+            }
+
+            // Escalade en revue humaine pour les causes non liees au score qualite:
+            //  - reponse Claude tronquee (max_tokens atteint) => JSON incomplet
+            //  - violations schema critiques persistent apres stripping
+            // On ne downgrade jamais un REVUE_HUMAINE_REQUISE deja pose plus haut.
+            if (doc.statutExtraction != StatutExtraction.REVUE_HUMAINE_REQUISE) {
+                if (truncatedByMaxTokens) {
+                    doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
+                    doc.erreurExtraction = "Reponse Claude tronquee (stop_reason=max_tokens). " +
+                        "Augmentez max_tokens pour ce type de document ou decoupez le document."
+                    log.warn("Document {} flagged for human review: truncated by max_tokens", doc.nomFichier)
+                } else if (criticalSchemaFailure.isNotEmpty()) {
+                    doc.statutExtraction = StatutExtraction.REVUE_HUMAINE_REQUISE
+                    doc.erreurExtraction = "Violations schema critiques: " +
+                        criticalSchemaFailure.joinToString("; ") { "${it.field}=${it.reason}" }
+                    log.warn("Document {} flagged for human review: critical schema violations ({})",
+                        doc.nomFichier, criticalSchemaFailure.size)
+                }
             }
             emitProgress(doc, "extract", "done", "Termine (score ${doc.extractionQualityScore})")
 

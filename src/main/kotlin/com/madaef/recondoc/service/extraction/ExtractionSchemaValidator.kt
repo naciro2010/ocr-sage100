@@ -45,6 +45,17 @@ class ExtractionSchemaValidator {
         private val ALLOWED_TVA = listOf(
             BigDecimal.ZERO, BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20")
         )
+
+        // Placeholders OCR frequemment generes par Claude quand il ne trouve pas
+        // la donnee et ne met pas null. Ces valeurs doivent etre traitees comme
+        // "champ absent" pour ne pas polluer les donnees metier.
+        private val NON_VIDE_PLACEHOLDERS = setOf(
+            "n/a", "na", "n.a", "n.a.", "nc", "null", "none",
+            "inconnu", "inconnue", "unknown", "-", "--", "?", "??",
+            "non renseigne", "non renseignee", "non communique",
+            "non specifie", "non specifiee", "tbd"
+        )
+        private val PUNCTUATION_ONLY_RE = Regex("^[\\p{Punct}\\s]+$")
     }
 
     private val rules: Map<TypeDocument, List<FieldRule>> = mapOf(
@@ -132,19 +143,36 @@ class ExtractionSchemaValidator {
             else null
         }
 
+        // NON_VIDE durci : on refuse aussi les placeholders ("N/A", "inconnu",
+        // "?", "-"), les strings composees uniquement de ponctuation, et les
+        // chaines < 2 caracteres significatifs. Un vrai numero ou nom metier
+        // fait toujours >= 2 caracteres.
+        if (rule.kind == FieldKind.NON_VIDE) {
+            val lower = str.lowercase().trim()
+            if (lower in NON_VIDE_PLACEHOLDERS) {
+                return FieldViolation(rule.name, str, "valeur placeholder ('$str') refusee")
+            }
+            if (PUNCTUATION_ONLY_RE.matches(str)) {
+                return FieldViolation(rule.name, str, "valeur composee uniquement de ponctuation")
+            }
+            if (str.length < 2) {
+                return FieldViolation(rule.name, str, "valeur trop courte (< 2 caracteres)")
+            }
+        }
+
         return when (rule.kind) {
             FieldKind.ICE -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (ICE_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "ICE attendu 15 chiffres, trouve ${digits.length}")
             }
             FieldKind.RIB -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (RIB_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "RIB attendu 24 chiffres, trouve ${digits.length}")
             }
             FieldKind.IF_NUM -> {
-                val digits = str.replace("[^\\d]".toRegex(), "")
+                val digits = normalizeDigits(str)
                 if (IF_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "IF attendu 5-15 chiffres")
             }
@@ -174,6 +202,26 @@ class ExtractionSchemaValidator {
             }
             FieldKind.NON_VIDE -> null
         }
+    }
+
+    /**
+     * Filet de normalisation OCR sur les champs 100% numeriques (ICE/RIB/IF).
+     * L'OCR confond frequemment des lettres avec des chiffres visuellement
+     * proches : O/o -> 0, l/I -> 1. CLAUDE.md demande explicitement au prompt
+     * de corriger ces cas ; on double la securite cote Kotlin pour ne pas
+     * dependre uniquement du LLM. On ne normalise PAS les champs textuels
+     * (NON_VIDE) pour ne pas alterer un nom ou un numero structure.
+     */
+    private fun normalizeDigits(s: String): String {
+        val normalized = StringBuilder(s.length)
+        for (c in s) {
+            normalized.append(when (c) {
+                'O', 'o' -> '0'
+                'l', 'I' -> '1'
+                else -> c
+            })
+        }
+        return normalized.toString().replace("[^\\d]".toRegex(), "")
     }
 
     private fun tryParseDate(s: String): LocalDate? {
