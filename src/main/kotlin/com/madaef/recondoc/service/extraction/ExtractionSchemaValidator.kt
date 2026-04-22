@@ -1,6 +1,7 @@
 package com.madaef.recondoc.service.extraction
 
 import com.madaef.recondoc.entity.dossier.TypeDocument
+import com.madaef.recondoc.service.OcrConfusions
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import java.math.BigDecimal
@@ -163,17 +164,17 @@ class ExtractionSchemaValidator {
 
         return when (rule.kind) {
             FieldKind.ICE -> {
-                val digits = normalizeDigits(str)
+                val digits = OcrConfusions.digitsOnlyWithConfusions(str)
                 if (ICE_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "ICE attendu 15 chiffres, trouve ${digits.length}")
             }
             FieldKind.RIB -> {
-                val digits = normalizeDigits(str)
+                val digits = OcrConfusions.digitsOnlyWithConfusions(str)
                 if (RIB_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "RIB attendu 24 chiffres, trouve ${digits.length}")
             }
             FieldKind.IF_NUM -> {
-                val digits = normalizeDigits(str)
+                val digits = OcrConfusions.digitsOnlyWithConfusions(str)
                 if (IF_RE.matches(digits)) null
                 else FieldViolation(rule.name, str, "IF attendu 5-15 chiffres")
             }
@@ -203,26 +204,6 @@ class ExtractionSchemaValidator {
             }
             FieldKind.NON_VIDE -> null
         }
-    }
-
-    /**
-     * Filet de normalisation OCR sur les champs 100% numeriques (ICE/RIB/IF).
-     * L'OCR confond frequemment des lettres avec des chiffres visuellement
-     * proches : O/o -> 0, l/I -> 1. CLAUDE.md demande explicitement au prompt
-     * de corriger ces cas ; on double la securite cote Kotlin pour ne pas
-     * dependre uniquement du LLM. On ne normalise PAS les champs textuels
-     * (NON_VIDE) pour ne pas alterer un nom ou un numero structure.
-     */
-    private fun normalizeDigits(s: String): String {
-        val normalized = StringBuilder(s.length)
-        for (c in s) {
-            normalized.append(when (c) {
-                'O', 'o' -> '0'
-                'l', 'I' -> '1'
-                else -> c
-            })
-        }
-        return normalized.toString().replace("[^\\d]".toRegex(), "")
     }
 
     private fun tryParseDate(s: String): LocalDate? {

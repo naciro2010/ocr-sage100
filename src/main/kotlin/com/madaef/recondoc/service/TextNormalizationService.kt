@@ -83,43 +83,31 @@ class TextNormalizationService {
 
     /**
      * Dans les contextes numeriques (pres de labels fiscaux / montants),
-     * corrige O->0, l->1, I->1, S->5, B->8
+     * corrige O->0, l->1, I->1 sur les caracteres qui suivent le label.
+     * La table de confusion vit dans OcrConfusions pour etre reutilisee
+     * par ExtractionSchemaValidator sur les valeurs deja extraites.
      */
     private fun fixOcrDigitSubstitutions(text: String): String {
-        // Corriger ICE avec lettres parasites: "ICE: 0O12345678901234" -> digits only
         var result = text
-
-        // ICE: corriger les O en 0 et l/I en 1 dans les 15 caracteres apres "ICE"
-        result = Regex("""(I\.?C\.?E\.?\s*[:.]?\s*)([0-9OolI]{13,17})""", RegexOption.IGNORE_CASE)
-            .replace(result) { match ->
-                val label = match.groupValues[1]
-                val digits = match.groupValues[2]
-                    .replace('O', '0').replace('o', '0')
-                    .replace('l', '1').replace('I', '1')
-                "$label$digits"
-            }
-
-        // IF: meme correction
-        result = Regex("""(I\.?F\.?\s*[:.]?\s*)([0-9OolI]{6,10})""", RegexOption.IGNORE_CASE)
-            .replace(result) { match ->
-                val label = match.groupValues[1]
-                val digits = match.groupValues[2]
-                    .replace('O', '0').replace('o', '0')
-                    .replace('l', '1').replace('I', '1')
-                "$label$digits"
-            }
-
-        // RIB: corriger dans les 24 caracteres
-        result = Regex("""(R\.?I\.?B\.?\s*[:.]?\s*)([0-9OolI\s]{24,35})""", RegexOption.IGNORE_CASE)
-            .replace(result) { match ->
-                val label = match.groupValues[1]
-                val digits = match.groupValues[2]
-                    .replace('O', '0').replace('o', '0')
-                    .replace('l', '1').replace('I', '1')
-                "$label$digits"
-            }
-
+        result = ICE_LABEL_RE.replace(result, ::applyConfusionsToCapture)
+        result = IF_LABEL_RE.replace(result, ::applyConfusionsToCapture)
+        result = RIB_LABEL_RE.replace(result, ::applyConfusionsToCapture)
         return result
+    }
+
+    private fun applyConfusionsToCapture(match: MatchResult): String =
+        match.groupValues[1] + OcrConfusions.applyDigitConfusions(match.groupValues[2])
+
+    companion object {
+        private val ICE_LABEL_RE = Regex(
+            """(I\.?C\.?E\.?\s*[:.]?\s*)([0-9OolI]{13,17})""", RegexOption.IGNORE_CASE
+        )
+        private val IF_LABEL_RE = Regex(
+            """(I\.?F\.?\s*[:.]?\s*)([0-9OolI]{6,10})""", RegexOption.IGNORE_CASE
+        )
+        private val RIB_LABEL_RE = Regex(
+            """(R\.?I\.?B\.?\s*[:.]?\s*)([0-9OolI\s]{24,35})""", RegexOption.IGNORE_CASE
+        )
     }
 
     /**

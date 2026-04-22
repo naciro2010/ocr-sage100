@@ -58,6 +58,14 @@ class LlmExtractionService(
     private val log = LoggerFactory.getLogger(javaClass)
     private val clientCache = ConcurrentHashMap<String, WebClient>()
 
+    companion object {
+        private val CLAUDE_CALL_TIMEOUT = Duration.ofSeconds(120)
+        private val CLAUDE_RETRY_SPEC = reactor.util.retry.Retry
+            .backoff(1, Duration.ofMillis(500))
+            .jitter(0.5)
+            .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException }
+    }
+
     val isAvailable: Boolean get() = appSettingsService.getAiApiKey().isNotBlank()
 
     private fun modelFor(kind: CallKind): String = when (kind) {
@@ -132,11 +140,8 @@ class LlmExtractionService(
         inputSchema: Map<String, Any>,
         kind: CallKind
     ): ClaudeToolResponse {
-        if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
-
         val model = modelFor(kind)
         val maxTokens = appSettingsService.getAiMaxTokens(kind.key)
-        val started = System.currentTimeMillis()
         log.info("Calling Claude API (tool_use kind={}, model={}, tool={}, max_tokens={}, text={}chars)",
             kind, model, toolName, maxTokens, userContent.length)
 
@@ -158,41 +163,7 @@ class LlmExtractionService(
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
 
-        val response = try {
-            getClient().post()
-                .uri("/v1/messages")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .onStatus({ it.is4xxClientError }) { resp ->
-                    resp.bodyToMono(String::class.java).map { body ->
-                        log.error("Claude API 4xx error (tool_use): {} — {}", resp.statusCode(), body)
-                        val msg = when {
-                            body.contains("usage limits") || body.contains("rate_limit") ->
-                                "Quota API Anthropic atteint. Reessayez plus tard ou augmentez votre plan."
-                            body.contains("authentication") || body.contains("api_key") ->
-                                "Cle API Anthropic invalide. Verifiez la configuration dans Parametres > Extraction IA."
-                            else -> "Erreur API Claude (tool_use): $body"
-                        }
-                        RuntimeException(msg)
-                    }
-                }
-                .bodyToMono(Map::class.java)
-                .timeout(Duration.ofSeconds(120))
-                .retryWhen(
-                    reactor.util.retry.Retry
-                        .backoff(1, Duration.ofMillis(500))
-                        .jitter(0.5)
-                        .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException }
-                )
-                .block() ?: throw RuntimeException("Empty response from Claude API")
-        } catch (e: Exception) {
-            recordUsage(model, null, started, false, e.message)
-            throw e
-        }
-
-        val usage = response["usage"] as? Map<*, *>
-        recordUsage(model, usage, started, true, null)
+        val response = postToAnthropic(requestBody, model, " (tool_use)")
 
         @Suppress("UNCHECKED_CAST")
         val content = response["content"] as? List<Map<String, Any>>
@@ -214,11 +185,8 @@ class LlmExtractionService(
     }
 
     private fun executeClaudeCall(systemPrompt: String, userContent: String, kind: CallKind): ClaudeResponse {
-        if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
-
         val model = modelFor(kind)
         val maxTokens = appSettingsService.getAiMaxTokens(kind.key)
-        val started = System.currentTimeMillis()
         log.info("Calling Claude API (kind={}, model={}, max_tokens={}, text={}chars)",
             kind, model, maxTokens, userContent.length)
 
@@ -233,41 +201,7 @@ class LlmExtractionService(
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
 
-        val response = try {
-            getClient().post()
-                .uri("/v1/messages")
-                .contentType(MediaType.APPLICATION_JSON)
-                .bodyValue(requestBody)
-                .retrieve()
-                .onStatus({ it.is4xxClientError }) { resp ->
-                    resp.bodyToMono(String::class.java).map { body ->
-                        log.error("Claude API 4xx error: {} — {}", resp.statusCode(), body)
-                        val msg = when {
-                            body.contains("usage limits") || body.contains("rate_limit") ->
-                                "Quota API Anthropic atteint. Reessayez plus tard ou augmentez votre plan."
-                            body.contains("authentication") || body.contains("api_key") ->
-                                "Cle API Anthropic invalide. Verifiez la configuration dans Parametres > Extraction IA."
-                            else -> "Erreur API Claude: $body"
-                        }
-                        RuntimeException(msg)
-                    }
-                }
-                .bodyToMono(Map::class.java)
-                .timeout(Duration.ofSeconds(120))
-                .retryWhen(
-                    reactor.util.retry.Retry
-                        .backoff(1, Duration.ofMillis(500))
-                        .jitter(0.5)
-                        .filter { it is java.util.concurrent.TimeoutException || it is java.io.IOException }
-                )
-                .block() ?: throw RuntimeException("Empty response from Claude API")
-        } catch (e: Exception) {
-            recordUsage(model, null, started, false, e.message)
-            throw e
-        }
-
-        val usage = response["usage"] as? Map<*, *>
-        recordUsage(model, usage, started, true, null)
+        val response = postToAnthropic(requestBody, model, "")
 
         @Suppress("UNCHECKED_CAST")
         val content = response["content"] as? List<Map<String, Any>>
@@ -287,6 +221,51 @@ class LlmExtractionService(
             .trim()
 
         return ClaudeResponse(text = cleanedText, stopReason = stopReason)
+    }
+
+    /**
+     * Envoi un payload a /v1/messages et recupere la reponse parsee. Factorise
+     * auth check, timeout, retry sur TimeoutException/IOException, mapping des
+     * erreurs 4xx, et enregistrement de la telemetrie ClaudeUsage (succes/echec).
+     * Le parse du contenu (text vs tool_use) reste la responsabilite du caller.
+     */
+    private fun postToAnthropic(
+        requestBody: Map<String, Any>,
+        model: String,
+        errorTag: String
+    ): Map<*, *> {
+        if (!isAvailable) throw IllegalStateException("Claude API key not configured. Configure it in Settings > Extraction IA.")
+        val started = System.currentTimeMillis()
+        val response = try {
+            getClient().post()
+                .uri("/v1/messages")
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(requestBody)
+                .retrieve()
+                .onStatus({ it.is4xxClientError }) { resp ->
+                    resp.bodyToMono(String::class.java).map { body ->
+                        log.error("Claude API 4xx error{}: {} — {}", errorTag, resp.statusCode(), body)
+                        val msg = when {
+                            body.contains("usage limits") || body.contains("rate_limit") ->
+                                "Quota API Anthropic atteint. Reessayez plus tard ou augmentez votre plan."
+                            body.contains("authentication") || body.contains("api_key") ->
+                                "Cle API Anthropic invalide. Verifiez la configuration dans Parametres > Extraction IA."
+                            else -> "Erreur API Claude$errorTag: $body"
+                        }
+                        RuntimeException(msg)
+                    }
+                }
+                .bodyToMono(Map::class.java)
+                .timeout(CLAUDE_CALL_TIMEOUT)
+                .retryWhen(CLAUDE_RETRY_SPEC)
+                .block() ?: throw RuntimeException("Empty response from Claude API")
+        } catch (e: Exception) {
+            recordUsage(model, null, started, false, e.message)
+            throw e
+        }
+        val usage = response["usage"] as? Map<*, *>
+        recordUsage(model, usage, started, true, null)
+        return response
     }
 
     /**

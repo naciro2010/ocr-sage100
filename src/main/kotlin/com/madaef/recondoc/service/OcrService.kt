@@ -284,7 +284,7 @@ class OcrService(
             // Mistral OCR ne renvoie pas de score natif. On se base sur la
             // reussite (pages_processed > 0) + presence de tables Markdown
             // dans la sortie comme proxy de qualite.
-            val hasTables = r.markdown.lines().any { line -> line.count { it == '|' } >= 3 }
+            val hasTables = OcrSelectionService.hasMarkdownTable(r.markdown)
             val conf = if (hasTables) 0.95 else 0.85
             OcrSelectionService.Candidate(
                 text = r.markdown,
