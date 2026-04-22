@@ -29,7 +29,8 @@ class ValidationEngine(
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
     @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
     @Value("\${app.anti-doublon.date-tolerance-days:3}") private val antiDoublonDateToleranceDays: Long,
-    @Value("\${app.anti-doublon.montant-tolerance-pct:0.01}") private val antiDoublonMontantTolerancePct: String
+    @Value("\${app.anti-doublon.montant-tolerance-pct:0.01}") private val antiDoublonMontantTolerancePct: String,
+    @Value("\${app.completude-lignes.seuil-ttc:50000}") private val completudeLignesSeuilTtc: String
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -141,6 +142,7 @@ class ValidationEngine(
             "R21" to emptySet(),
             "R22" to emptySet(),
             "R23" to setOf("R18"),
+            "R24" to emptySet(),
             "R12" to emptySet(),
             "R13" to emptySet(),
         )
@@ -793,6 +795,43 @@ class ValidationEngine(
                                 evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDocLocal, dateOp),
                                 evidence("source", "dateReception", "Date de reception du PV", pvDocLocal, dateReception)
                             )
+                        )
+                    }
+                }
+            }
+        }
+
+        // R24 : completude lignes facture au-dela d'un seuil montant. Au-dessus
+        // du seuil, une facture sans lignes detaillees signale soit une
+        // extraction degradee (Claude a manque le tableau), soit une facture
+        // reelle sans detail — les deux cas meritent une relecture humaine
+        // pour eviter de valider un montant significatif sans traçabilite.
+        if (isEnabled("R24") && allFactures.isNotEmpty()) {
+            measureRule("R24", results) {
+                val seuil = completudeLignesSeuilTtc.toBigDecimal()
+                for (f in allFactures) {
+                    val ttc = f.montantTtc ?: continue
+                    if (ttc < seuil) continue
+                    val nbLignes = f.lignes.size
+                    val numero = f.numeroFacture ?: "(sans numero)"
+                    if (nbLignes == 0) {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R24",
+                            libelle = "Completude lignes facture",
+                            statut = StatutCheck.AVERTISSEMENT,
+                            detail = "Facture ${numero} (${ttc} MAD TTC) sans lignes detaillees " +
+                                "alors que le montant depasse le seuil de ${seuil} MAD. " +
+                                "Relire le document source : l'extraction a peut-etre manque le tableau, " +
+                                "ou la facture elle-meme n'a pas de detail — les deux cas justifient une revue.",
+                            valeurAttendue = ">= 1 ligne",
+                            valeurTrouvee = "0 ligne"
+                        )
+                    } else {
+                        results += ResultatValidation(
+                            dossier = dossier, regle = "R24",
+                            libelle = "Completude lignes facture",
+                            statut = StatutCheck.CONFORME,
+                            detail = "Facture ${numero} (${ttc} MAD TTC) avec ${nbLignes} ligne(s) detaillee(s)"
                         )
                     }
                 }

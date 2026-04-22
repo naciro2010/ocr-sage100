@@ -315,6 +315,54 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R24 AVERTISSEMENT when large invoice has no detailed lines`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
+            numeroFacture = "F-BIG-001"
+            montantTtc = BigDecimal("75000.00")
+        })
+        dossierRepo.save(dossier)
+
+        val r24 = validationEngine.validate(dossier).first { it.regle == "R24" }
+        assertEquals(StatutCheck.AVERTISSEMENT, r24.statut, r24.detail)
+        assertTrue(r24.detail!!.contains("F-BIG-001"))
+    }
+
+    @Test
+    fun `R24 CONFORME when large invoice has detailed lines`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        val facture = Facture(dossier = dossier, document = d1).apply {
+            numeroFacture = "F-BIG-002"
+            montantTtc = BigDecimal("80000.00")
+        }
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Prestation A", montantTotalHt = BigDecimal("40000")))
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Prestation B", montantTotalHt = BigDecimal("26666.67")))
+        dossier.factures.add(facture)
+        dossierRepo.save(dossier)
+
+        val r24 = validationEngine.validate(dossier).first { it.regle == "R24" }
+        assertEquals(StatutCheck.CONFORME, r24.statut, r24.detail)
+    }
+
+    @Test
+    fun `R24 skipped for small invoice below threshold`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        assertTrue(results.none { it.regle == "R24" }, "R24 ne doit pas produire de resultat sous le seuil")
+    }
+
+    @Test
     fun `R11 CONFORME when RIB matches with different spacing`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE)
