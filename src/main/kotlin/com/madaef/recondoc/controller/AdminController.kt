@@ -67,7 +67,9 @@ class AdminController(
             "inputTokens" to (s[0] as? Number ?: 0).toLong(),
             "outputTokens" to (s[1] as? Number ?: 0).toLong(),
             "calls" to (s[2] as? Number ?: 0).toLong(),
-            "errors" to (s[3] as? Number ?: 0).toLong()
+            "errors" to (s[3] as? Number ?: 0).toLong(),
+            "cacheCreationInputTokens" to (s[4] as? Number ?: 0).toLong(),
+            "cacheReadInputTokens" to (s[5] as? Number ?: 0).toLong()
         )
     }
 

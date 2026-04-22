@@ -50,6 +50,8 @@ export interface ClaudeUsageSummary {
   outputTokens: number
   calls: number
   errors: number
+  cacheCreationInputTokens: number
+  cacheReadInputTokens: number
 }
 
 export interface ClaudeUsageDay {

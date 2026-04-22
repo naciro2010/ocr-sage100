@@ -19,7 +19,9 @@ interface ClaudeUsageRepository : JpaRepository<ClaudeUsage, UUID> {
         SELECT COALESCE(SUM(u.inputTokens), 0),
                COALESCE(SUM(u.outputTokens), 0),
                COUNT(u),
-               COUNT(CASE WHEN u.success = false THEN 1 END)
+               COUNT(CASE WHEN u.success = false THEN 1 END),
+               COALESCE(SUM(u.cacheCreationInputTokens), 0),
+               COALESCE(SUM(u.cacheReadInputTokens), 0)
         FROM ClaudeUsage u
         WHERE u.createdAt >= :since
     """)
