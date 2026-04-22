@@ -15,8 +15,9 @@ import java.awt.image.BufferedImage
 import java.io.InputStream
 import java.nio.file.Files
 import java.nio.file.Path
+import java.util.concurrent.ArrayBlockingQueue
 import java.util.concurrent.CompletableFuture
-import java.util.concurrent.Executors
+import java.util.concurrent.ThreadPoolExecutor
 import java.util.concurrent.TimeUnit
 import javax.imageio.ImageIO
 
@@ -65,13 +66,18 @@ class OcrService(
     private var tesseractAvailable: Boolean = false
     private var resolvedTessDataPath: String = tessDataPath
 
-    // Pool dedie pour les appels OCR paralleles. 4 threads = Tika (1) +
-    // Mistral (1) + PdfMarkdown (1) + marge. Pas de competition avec le
-    // pool HTTP general.
+    // Pool dedie pour les appels OCR paralleles. 4 threads + queue bornee
+    // 32 + CallerRunsPolicy : si le pool sature (burst multi-documents),
+    // le thread appelant execute la tache inline au lieu d'accumuler un
+    // backlog infini en memoire. Contre-pression naturelle sans perte.
     private val ocrThreadCounter = java.util.concurrent.atomic.AtomicInteger(0)
-    private val ocrExecutor = Executors.newFixedThreadPool(4) { r ->
-        Thread(r, "ocr-parallel-${ocrThreadCounter.incrementAndGet()}").apply { isDaemon = true }
-    }
+    private val ocrExecutor = ThreadPoolExecutor(
+        4, 4,
+        0L, TimeUnit.MILLISECONDS,
+        ArrayBlockingQueue(32),
+        { r -> Thread(r, "ocr-parallel-${ocrThreadCounter.incrementAndGet()}").apply { isDaemon = true } },
+        ThreadPoolExecutor.CallerRunsPolicy()
+    )
 
     // Shutdown propre : libere les threads du pool OCR quand Spring detruit
     // le bean. Sans ca, chaque rechargement de contexte Spring (typiquement
@@ -117,7 +123,7 @@ class OcrService(
         val pageCount: Int = 1
     )
 
-    enum class OcrEngine { TIKA, TESSERACT, MISTRAL_OCR, TIKA_PLUS_TESSERACT, COMBINED, PDFBOX_MARKDOWN }
+    enum class OcrEngine { TIKA, TESSERACT, MISTRAL_OCR, PDFBOX_MARKDOWN }
 
     fun extractText(inputStream: InputStream, fileName: String): String {
         return extractWithDetails(inputStream, fileName, null).text
@@ -160,39 +166,47 @@ class OcrService(
         fileName: String,
         filePath: Path?
     ): OcrResult {
-        val tikaPageCount = countPages(filePath)
+        // Chaque tache lancee porte son propre timeout. Sans ca le Markdown
+        // local (cible 15s) attendait le budget Mistral (90s) quand les deux
+        // tournaient de concert.
+        data class TimedTask(val timeoutSeconds: Long, val future: CompletableFuture<OcrSelectionService.Candidate?>)
+        val tasks = mutableListOf<TimedTask>()
+
+        if (filePath != null && isPdfFile(fileName)) {
+            tasks += TimedTask(
+                markdownTimeoutSeconds,
+                CompletableFuture.supplyAsync({ markdownCandidate(filePath) }, ocrExecutor)
+            )
+        }
+        if (filePath != null && mistralOcrClient.isAvailable()) {
+            tasks += TimedTask(
+                mistralTimeoutSeconds,
+                CompletableFuture.supplyAsync({ mistralCandidate(filePath) }, ocrExecutor)
+            )
+        }
+
+        val parallelResults = tasks.mapNotNull { task ->
+            try {
+                task.future.get(task.timeoutSeconds, TimeUnit.SECONDS)
+            } catch (e: Exception) {
+                log.warn("OCR parallel task failed/timed out for {}: {}", fileName, e.message)
+                task.future.cancel(true)
+                null
+            }
+        }
+
+        // pageCount pour Tika : reutilise celui retourne par un moteur concurrent
+        // quand il a tourne sur le meme PDF. Evite une seconde ouverture complete
+        // du fichier via PDFBox (Loader.loadPDF) sur le hot path. Fallback sur
+        // countPages uniquement si aucun autre moteur n'a abouti.
+        val pageCountFromOthers = parallelResults.firstOrNull { it.pageCount > 0 }?.pageCount
+        val tikaPageCount = pageCountFromOthers ?: countPages(filePath)
         val tikaCandidate = OcrSelectionService.Candidate(
             text = tikaText,
             engine = OcrEngine.TIKA,
             pageCount = tikaPageCount,
             confidence = computeTikaConfidence(tikaWords)
         )
-
-        val futures = mutableListOf<CompletableFuture<OcrSelectionService.Candidate?>>()
-        var mistralLaunched = false
-
-        if (filePath != null && isPdfFile(fileName)) {
-            futures += CompletableFuture.supplyAsync({ markdownCandidate(filePath) }, ocrExecutor)
-        }
-        if (filePath != null && mistralOcrClient.isAvailable()) {
-            mistralLaunched = true
-            futures += CompletableFuture.supplyAsync({ mistralCandidate(filePath) }, ocrExecutor)
-        }
-
-        // Attente bornee par les timeouts configures. Un timeout local
-        // annule le future concerne sans bloquer les autres.
-        val parallelResults = futures.mapNotNull { future ->
-            try {
-                future.get(
-                    (if (mistralLaunched) mistralTimeoutSeconds else markdownTimeoutSeconds),
-                    TimeUnit.SECONDS
-                )
-            } catch (e: Exception) {
-                log.warn("OCR parallel task failed/timed out for {}: {}", fileName, e.message)
-                future.cancel(true)
-                null
-            }
-        }
 
         val candidates = mutableListOf(tikaCandidate)
         candidates += parallelResults
