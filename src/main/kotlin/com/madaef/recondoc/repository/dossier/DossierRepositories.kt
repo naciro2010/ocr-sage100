@@ -237,6 +237,32 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
         ORDER BY AVG(r.durationMs) DESC
     """)
     fun aggregateDurationByRule(): List<Array<Any?>>
+
+    // Taux de correction manuelle par regle. Un verdict est considere "corrige"
+    // quand `statutOriginal` est renseigne (l'operateur a change le statut
+    // calcule). Les faux positifs sont les corrections NON_CONFORME -> CONFORME :
+    // la regle a crie alors que l'operateur a valide quand meme. Les faux
+    // negatifs (CONFORME -> NON_CONFORME) sont rares mais plus graves — la regle
+    // a laisse passer une erreur. Les deux taux sont exposes au dashboard admin.
+    @Query("""
+        SELECT r.regle,
+               COUNT(r),
+               COUNT(CASE WHEN r.statutOriginal IS NOT NULL THEN 1 END),
+               COUNT(CASE WHEN r.statutOriginal = 'NON_CONFORME'
+                           AND r.statut = com.madaef.recondoc.entity.dossier.StatutCheck.CONFORME
+                          THEN 1 END),
+               COUNT(CASE WHEN r.statutOriginal = 'CONFORME'
+                           AND r.statut = com.madaef.recondoc.entity.dossier.StatutCheck.NON_CONFORME
+                          THEN 1 END)
+        FROM ResultatValidation r
+        WHERE r.dateExecution >= :since
+        GROUP BY r.regle
+        HAVING COUNT(CASE WHEN r.statutOriginal IS NOT NULL THEN 1 END) > 0
+        ORDER BY COUNT(CASE WHEN r.statutOriginal = 'NON_CONFORME'
+                             AND r.statut = com.madaef.recondoc.entity.dossier.StatutCheck.CONFORME
+                            THEN 1 END) DESC
+    """)
+    fun aggregateCorrectionsByRule(since: java.time.LocalDateTime): List<Array<Any?>>
 }
 
 interface AuditLogRepository : JpaRepository<AuditLog, UUID> {

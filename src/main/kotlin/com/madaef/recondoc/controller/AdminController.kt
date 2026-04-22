@@ -39,6 +39,33 @@ class AdminController(
         }
     }
 
+    /**
+     * Taux de correction manuelle par regle sur la fenetre glissante.
+     * Permet d'identifier les regles qui crient a tort (faux positifs :
+     * le verdict auto NON_CONFORME est corrige manuellement en CONFORME)
+     * ou qui laissent passer (faux negatifs : CONFORME -> NON_CONFORME).
+     * Objectif : guider le retuning des regles deterministes et l'ecriture
+     * de regles CUSTOM pour les cas mal detectes.
+     */
+    @GetMapping("/rules/corrections")
+    fun rulesCorrections(@RequestParam(defaultValue = "90") days: Long): List<Map<String, Any?>> {
+        val since = LocalDateTime.now().minusDays(days)
+        return resultatRepository.aggregateCorrectionsByRule(since).map { row ->
+            val total = (row[1] as? Number)?.toLong() ?: 0L
+            val corrections = (row[2] as? Number)?.toLong() ?: 0L
+            val falsePositives = (row[3] as? Number)?.toLong() ?: 0L
+            val falseNegatives = (row[4] as? Number)?.toLong() ?: 0L
+            mapOf(
+                "regle" to row[0],
+                "total" to total,
+                "corrections" to corrections,
+                "falsePositives" to falsePositives,
+                "falseNegatives" to falseNegatives,
+                "correctionRate" to if (total > 0) corrections.toDouble() / total else 0.0
+            )
+        }
+    }
+
     @GetMapping("/claude-usage/dossier/{dossierId}")
     fun usageForDossier(@PathVariable dossierId: UUID): Map<String, Any> {
         val raw = claudeUsageRepository.aggregateByDossier(dossierId)
