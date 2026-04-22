@@ -77,19 +77,17 @@ class MistralOcrClient(
         val fileBytes = Files.readAllBytes(filePath)
         log.info("Uploading {} ({} KB) to Mistral /v1/files", fileName, fileBytes.size / 1024)
 
-        // NOTE: ne pas forcer contentType(MULTIPART_FORM_DATA) sur le WebClient,
-        // Spring doit pouvoir generer le boundary automatiquement. Sans ca,
-        // Mistral recoit un multipart mal forme et renvoie 422 "file required".
+        val fileResource = object : ByteArrayResource(fileBytes) {
+            override fun getFilename() = fileName
+        }
         val body = MultipartBodyBuilder().apply {
-            part("file", object : ByteArrayResource(fileBytes) {
-                override fun getFilename() = fileName
-            }).header("Content-Disposition", "form-data; name=\"file\"; filename=\"$fileName\"")
-              .contentType(mediaTypeFor(fileName))
+            part("file", fileResource).contentType(mediaTypeFor(fileName))
             part("purpose", "ocr")
         }.build()
 
         val response = getClient().post()
             .uri("/v1/files")
+            .contentType(MediaType.MULTIPART_FORM_DATA)
             .body(BodyInserters.fromMultipartData(body))
             .retrieve()
             .onStatus({ it.isError }, ::mapError)
