@@ -145,10 +145,15 @@ class LlmExtractionService(
         log.info("Calling Claude API (tool_use kind={}, model={}, tool={}, max_tokens={}, text={}chars)",
             kind, model, toolName, maxTokens, userContent.length)
 
+        // Prompt caching : on marque la definition de l'outil comme cache
+        // ephemere (5 min TTL cote Anthropic). Le schema JSON est identique
+        // pour tous les documents d'un meme type (ex: FACTURE), donc chaque
+        // appel suivant lit le prefixe depuis le cache -> ~90% moins cher.
         val tool = mapOf(
             "name" to toolName,
             "description" to "Structured extraction tool. Call this exactly once with the extracted data.",
-            "input_schema" to inputSchema
+            "input_schema" to inputSchema,
+            "cache_control" to mapOf("type" to "ephemeral")
         )
 
         // Pas de `temperature` ici non plus (cf. PR #78). `tool_choice` force
@@ -157,7 +162,7 @@ class LlmExtractionService(
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
-            "system" to systemPrompt,
+            "system" to cacheableSystem(systemPrompt),
             "tools" to listOf(tool),
             "tool_choice" to mapOf("type" to "tool", "name" to toolName),
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
@@ -197,7 +202,7 @@ class LlmExtractionService(
         val requestBody = mapOf(
             "model" to model,
             "max_tokens" to maxTokens,
-            "system" to systemPrompt,
+            "system" to cacheableSystem(systemPrompt),
             "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
 
@@ -222,6 +227,23 @@ class LlmExtractionService(
 
         return ClaudeResponse(text = cleanedText, stopReason = stopReason)
     }
+
+    /**
+     * Enveloppe le prompt systeme en content-block unique pour activer le
+     * prompt caching Anthropic (ephemere, TTL 5 min). Notre prompt systeme
+     * ne change pas entre deux documents du meme type : premiere requete
+     * facture 100% du prix (creation cache), les suivantes ~10% du prix sur
+     * le prefixe cache. Anthropic ignore silencieusement `cache_control` si
+     * le bloc est plus court que son minimum (1024 tokens Sonnet, 2048 Haiku),
+     * donc aucun risque de regression sur les prompts courts.
+     */
+    private fun cacheableSystem(systemPrompt: String): List<Map<String, Any>> = listOf(
+        mapOf(
+            "type" to "text",
+            "text" to systemPrompt,
+            "cache_control" to mapOf("type" to "ephemeral")
+        )
+    )
 
     /**
      * Envoi un payload a /v1/messages et recupere la reponse parsee. Factorise
@@ -275,17 +297,24 @@ class LlmExtractionService(
      */
     private fun recordUsage(model: String, usage: Map<*, *>?, started: Long, success: Boolean, error: String?) {
         try {
+            val cacheCreation = (usage?.get("cache_creation_input_tokens") as? Number)?.toInt() ?: 0
+            val cacheRead = (usage?.get("cache_read_input_tokens") as? Number)?.toInt() ?: 0
             val row = ClaudeUsage(
                 dossierId = MDC.get("dossierId")?.let { runCatching { UUID.fromString(it) }.getOrNull() },
                 documentId = MDC.get("documentId")?.let { runCatching { UUID.fromString(it) }.getOrNull() },
                 model = model,
                 inputTokens = (usage?.get("input_tokens") as? Number)?.toInt() ?: 0,
                 outputTokens = (usage?.get("output_tokens") as? Number)?.toInt() ?: 0,
+                cacheCreationInputTokens = cacheCreation,
+                cacheReadInputTokens = cacheRead,
                 durationMs = System.currentTimeMillis() - started,
                 success = success,
                 error = error?.take(2000)
             )
             claudeUsageRepository.save(row)
+            if (cacheRead > 0) {
+                log.debug("Prompt cache HIT model={} read={}tok creation={}tok", model, cacheRead, cacheCreation)
+            }
         } catch (e: Exception) {
             // Tracking must never break the extraction pipeline.
             log.warn("Failed to record Claude usage: {}", e.message)

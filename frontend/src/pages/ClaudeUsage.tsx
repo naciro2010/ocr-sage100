@@ -230,6 +230,29 @@ export default function ClaudeUsagePage() {
                 }} />
               </div>
             </div>
+            {(() => {
+              const totalInput = summary.inputTokens + summary.cacheReadInputTokens
+              const hitPct = totalInput > 0 ? (summary.cacheReadInputTokens / totalInput) * 100 : 0
+              return (
+                <div>
+                  <div className="indicator-row">
+                    <span className="indicator-label">Cache prompt (hit)</span>
+                    <span className="indicator-value">
+                      {totalInput > 0 ? `${hitPct.toFixed(0)} %` : '—'}
+                    </span>
+                  </div>
+                  <div className="indicator-track">
+                    <div className="indicator-fill" style={{
+                      width: `${hitPct}%`,
+                      background: 'var(--success, #22c55e)'
+                    }} />
+                  </div>
+                  <div className="stat-label" style={{ fontSize: 10, marginTop: 2 }}>
+                    {fmtTokens(summary.cacheReadInputTokens)} lus / {fmtTokens(summary.cacheCreationInputTokens)} crees
+                  </div>
+                </div>
+              )
+            })()}
             <div className="indicator-divider">
               <div className="stat-label" style={{ marginBottom: 4 }}>Cout moyen / appel</div>
               <div className="indicator-amount">{fmtUsd(avgCostPerCall)}</div>

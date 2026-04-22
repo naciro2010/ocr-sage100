@@ -26,6 +26,8 @@ class ClaudeUsage(
     @Column(nullable = false) var model: String,
     @Column(name = "input_tokens", nullable = false) var inputTokens: Int = 0,
     @Column(name = "output_tokens", nullable = false) var outputTokens: Int = 0,
+    @Column(name = "cache_creation_input_tokens", nullable = false) var cacheCreationInputTokens: Int = 0,
+    @Column(name = "cache_read_input_tokens", nullable = false) var cacheReadInputTokens: Int = 0,
     @Column(name = "duration_ms", nullable = false) var durationMs: Long = 0,
     @Column(nullable = false) var success: Boolean = true,
     @Column(columnDefinition = "TEXT") var error: String? = null,
