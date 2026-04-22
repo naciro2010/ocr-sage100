@@ -1,0 +1,13 @@
+-- V32 a cree ocr_cache.sha256 en CHAR(64) ; PostgreSQL le stocke en bpchar
+-- blank-padded, alors que l'entite JPA OcrCacheEntry declare le champ comme
+-- String length=64 (VARCHAR en standard Hibernate). Hibernate en mode
+-- `ddl-auto: validate` (profil prod Railway) rejette le demarrage :
+--   Schema-validation: wrong column type encountered in column [sha256]
+--   in table [ocr_cache]; found [bpchar (Types#CHAR)], but expecting
+--   [varchar(64) (Types#VARCHAR)]
+--
+-- Les tests CI (ddl-auto: none) ne l'ont pas detecte. Ce V33 aligne la
+-- colonne sur VARCHAR(64). Le cast implicite bpchar -> varchar est safe :
+-- CHAR(64) contient deja la representation hex SHA-256 (64 chars pleins),
+-- aucun padding a trimmer.
+ALTER TABLE ocr_cache ALTER COLUMN sha256 TYPE VARCHAR(64);
