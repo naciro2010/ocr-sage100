@@ -24,36 +24,35 @@ object ExtractionSchemas {
 
     // --- Helpers schema ---
 
-    private fun str(description: String? = null, pattern: String? = null, nullable: Boolean = true): Map<String, Any> {
+    private fun primitive(
+        baseType: String,
+        nullable: Boolean,
+        description: String?
+    ): MutableMap<String, Any> {
         val m = mutableMapOf<String, Any>()
-        m["type"] = if (nullable) listOf("string", "null") else "string"
-        if (description != null) m["description"] = description
-        if (pattern != null) m["pattern"] = pattern
-        return m
-    }
-
-    private fun num(description: String? = null, minimum: Number? = null, nullable: Boolean = true): Map<String, Any> {
-        val m = mutableMapOf<String, Any>()
-        m["type"] = if (nullable) listOf("number", "null") else "number"
-        if (description != null) m["description"] = description
-        if (minimum != null) m["minimum"] = minimum
-        return m
-    }
-
-    private fun bool(description: String? = null, nullable: Boolean = true): Map<String, Any> {
-        val m = mutableMapOf<String, Any>()
-        m["type"] = if (nullable) listOf("boolean", "null") else "boolean"
+        m["type"] = if (nullable) listOf(baseType, "null") else baseType
         if (description != null) m["description"] = description
         return m
     }
 
-    private fun enumField(values: List<Any>, description: String? = null, nullable: Boolean = true): Map<String, Any> {
-        val m = mutableMapOf<String, Any>()
-        m["type"] = if (nullable) listOf("number", "null") else "number"
-        m["enum"] = if (nullable) values + listOf<Any?>(null) else values
-        if (description != null) m["description"] = description
-        return m
-    }
+    private fun str(description: String? = null, pattern: String? = null, nullable: Boolean = true): Map<String, Any> =
+        primitive("string", nullable, description).also { if (pattern != null) it["pattern"] = pattern }
+
+    private fun num(description: String? = null, minimum: Number? = null, nullable: Boolean = true): Map<String, Any> =
+        primitive("number", nullable, description).also { if (minimum != null) it["minimum"] = minimum }
+
+    private fun bool(description: String? = null, nullable: Boolean = true): Map<String, Any> =
+        primitive("boolean", nullable, description)
+
+    private fun enumField(
+        values: List<Any>,
+        description: String? = null,
+        nullable: Boolean = true,
+        baseType: String = "number"
+    ): Map<String, Any> =
+        primitive(baseType, nullable, description).also {
+            it["enum"] = if (nullable) values + listOf<Any?>(null) else values
+        }
 
     private fun arrayOf(items: Map<String, Any>, description: String? = null): Map<String, Any> {
         val m = mutableMapOf<String, Any>("type" to "array", "items" to items)
@@ -172,7 +171,10 @@ object ExtractionSchemas {
                 "referenceSage" to str(),
                 "retenues" to arrayOf(obj(
                     properties = mapOf(
-                        "type" to mapOf<String, Any>("type" to "string", "enum" to listOf("TVA_SOURCE", "IS_HONORAIRES", "GARANTIE", "AUTRE")),
+                        "type" to enumField(
+                            listOf("TVA_SOURCE", "IS_HONORAIRES", "GARANTIE", "AUTRE"),
+                            nullable = false, baseType = "string"
+                        ),
                         "designation" to str(nullable = false),
                         "articleCGI" to str(),
                         "base" to num(nullable = false),
@@ -213,8 +215,10 @@ object ExtractionSchemas {
                     properties = mapOf(
                         "designation" to str(nullable = false),
                         "prixUnitaireHT" to num(nullable = false),
-                        "periodicite" to mapOf<String, Any>("type" to listOf("string", "null"),
-                            "enum" to listOf("MENSUEL", "TRIMESTRIEL", "ANNUEL", "JOURNALIER", null)),
+                        "periodicite" to enumField(
+                            listOf("MENSUEL", "TRIMESTRIEL", "ANNUEL", "JOURNALIER"),
+                            baseType = "string"
+                        ),
                         "entite" to str()
                     ),
                     required = listOf("designation", "prixUnitaireHT")
@@ -309,8 +313,10 @@ object ExtractionSchemas {
                     properties = mapOf(
                         "numero" to num(nullable = false),
                         "description" to str(nullable = false),
-                        "observation" to mapOf<String, Any>("type" to listOf("string", "null"),
-                            "enum" to listOf("Conforme", "NA", "Non conforme", null)),
+                        "observation" to enumField(
+                            listOf("Conforme", "NA", "Non conforme"),
+                            baseType = "string"
+                        ),
                         "commentaire" to str()
                     ),
                     required = listOf("numero", "description")
@@ -331,8 +337,10 @@ object ExtractionSchemas {
                 "dateEtablissement" to str(pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
                 "fournisseur" to str(),
                 "referenceFacture" to str(nullable = false),
-                "typeDossier" to mapOf<String, Any>("type" to listOf("string", "null"),
-                    "enum" to listOf("BC", "CONTRACTUEL", null)),
+                "typeDossier" to enumField(
+                    listOf("BC", "CONTRACTUEL"),
+                    baseType = "string"
+                ),
                 "pieces" to arrayOf(obj(
                     properties = mapOf(
                         "designation" to str(nullable = false),

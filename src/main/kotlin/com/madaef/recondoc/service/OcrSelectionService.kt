@@ -35,12 +35,13 @@ class OcrSelectionService {
         val text = candidate.text
         if (text.isBlank()) return 0
 
+        val lines = text.lines()
         val wordCount = text.split(Regex("\\s+")).count { it.length > 1 }
         val decimalAmounts = Regex("\\d+[.,]\\d{2}").findAll(text).count()
         val dates = Regex("\\b(\\d{4}-\\d{2}-\\d{2}|\\d{2}[/-]\\d{2}[/-]\\d{4})\\b").findAll(text).count()
-        val mdHeaders = text.lines().count { it.trimStart().startsWith("#") }
-        val tableRows = text.lines().count { line -> line.count { it == '|' } >= 3 }
-        val noiseLines = text.lines().count { it.trim().length in 1..2 }
+        val mdHeaders = lines.count { it.trimStart().startsWith("#") }
+        val tableRows = lines.count(::isMarkdownTableRow)
+        val noiseLines = lines.count { it.trim().length in 1..2 }
 
         return (1 * wordCount) +
             (10 * decimalAmounts) +
@@ -48,6 +49,19 @@ class OcrSelectionService {
             (5 * mdHeaders) +
             (15 * tableRows) -
             (5 * noiseLines)
+    }
+
+    companion object {
+        /**
+         * Vrai si la ligne ressemble a une ligne de tableau Markdown
+         * (au moins 3 separateurs `|`). Partage la meme heuristique que
+         * le scoring et les sondes de qualite OCR.
+         */
+        fun isMarkdownTableRow(line: String): Boolean =
+            line.count { it == '|' } >= 3
+
+        fun hasMarkdownTable(text: String): Boolean =
+            text.lineSequence().any(::isMarkdownTableRow)
     }
 
     /**
