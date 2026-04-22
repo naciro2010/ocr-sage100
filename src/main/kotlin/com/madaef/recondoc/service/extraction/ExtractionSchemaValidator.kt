@@ -136,8 +136,7 @@ class ExtractionSchemaValidator {
         var hasCriticalViolation = false
 
         for (rule in typeRules) {
-            val rawValue = data[rule.name] ?: data.entries
-                .firstOrNull { it.key.equals(rule.name, ignoreCase = true) }?.value
+            val rawValue = data.getFieldCaseInsensitive(rule.name)
             val check = validateField(rule, rawValue)
             if (check != null) {
                 violations += check

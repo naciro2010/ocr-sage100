@@ -104,9 +104,7 @@ class GroundingValidator {
         val alnumText by lazy { normalizeAlnum(rawText) }
 
         for (check in typeChecks) {
-            val raw = data[check.field] ?: data.entries
-                .firstOrNull { it.key.equals(check.field, ignoreCase = true) }?.value
-            val value = raw?.toString()?.trim()
+            val value = data.getFieldCaseInsensitive(check.field)?.toString()?.trim()
             if (value.isNullOrEmpty()) continue
 
             val grounded = when (check.kind) {

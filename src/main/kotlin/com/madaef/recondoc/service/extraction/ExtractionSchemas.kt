@@ -80,6 +80,25 @@ object ExtractionSchemas {
         "_warnings" to arrayOf(mapOf("type" to "string"), description = "Liste des problemes detectes")
     )
 
+    // --- Helpers Maroc (formats reutilises entre les schemas) ---
+
+    private const val ISO_DATE_PATTERN = "^\\d{4}-\\d{2}-\\d{2}$"
+    private const val ICE_PATTERN = "^\\d{15}$"
+    private const val RIB_PATTERN = "^\\d{24}$"
+    private val TVA_RATES_MAROC = listOf<Any>(0, 7, 10, 14, 20)
+
+    private fun dateIso(description: String, nullable: Boolean = true): Map<String, Any> =
+        str(description, pattern = ISO_DATE_PATTERN, nullable = nullable)
+
+    private fun ice(description: String = "ICE (Identifiant Commun Entreprise) : EXACTEMENT 15 chiffres. Apparait apres 'ICE:' ou 'I.C.E'. Commence typiquement par 00/01/02/19. Normaliser OCR O->0, l->1. Si != 15 chiffres apres normalisation : null + warning."): Map<String, Any> =
+        str(description, pattern = ICE_PATTERN, nullable = true)
+
+    private fun rib(description: String = "RIB marocain : EXACTEMENT 24 chiffres. Structure 3(banque)+3(ville)+16(compte+cle)+2. Espaces/tirets a supprimer. Si != 24 chiffres apres normalisation : null + warning."): Map<String, Any> =
+        str(description, pattern = RIB_PATTERN, nullable = true)
+
+    private fun tauxTvaMaroc(description: String = "Taux TVA dominant. Legaux Maroc : 0 (exonere), 7, 10, 14, 20. Tout autre taux = erreur OCR -> choisir le plus proche + warning.", nullable: Boolean = true): Map<String, Any> =
+        enumField(TVA_RATES_MAROC, description, nullable)
+
     // --- Schemas par type ---
 
     /**
@@ -403,13 +422,13 @@ object ExtractionSchemas {
                 "fournisseur" to str("Raison sociale du titulaire/adjudicataire (entite ayant remporte l'AO). JAMAIS MADAEF.", nullable = false),
                 "montantHt" to num("Montant total HT du marche, strictement positif.", minimum = 0),
                 "montantTva" to num("Montant total TVA du marche.", minimum = 0),
-                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "tauxTva" to tauxTvaMaroc(),
                 "montantTtc" to num("Montant total TTC du marche. Verifier HT+TVA ≈ TTC.", minimum = 0, nullable = false),
-                "dateDocument" to str("Date du document marche au format ISO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "dateSignature" to str("Date de signature du marche YYYY-MM-DD. null si non signe.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
-                "dateNotification" to str("Date de notification du marche au titulaire YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateDocument" to dateIso("Date du document marche au format ISO YYYY-MM-DD.", nullable = false),
+                "dateSignature" to dateIso("Date de signature du marche YYYY-MM-DD. null si non signe."),
+                "dateNotification" to dateIso("Date de notification du marche au titulaire YYYY-MM-DD."),
                 "numeroAo" to str("Numero de l'appel d'offres ayant abouti au marche (ex: 'AO 2024/15')."),
-                "dateAo" to str("Date d'ouverture des plis de l'AO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateAo" to dateIso("Date d'ouverture des plis de l'AO YYYY-MM-DD."),
                 "categorie" to enumField(
                     listOf("TRAVAUX", "FOURNITURES", "SERVICES"),
                     description = "Categorie du marche. TRAVAUX (BTP, voirie, genie civil), FOURNITURES (materiel, consommables), SERVICES (etudes, maintenance, gardiennage, entretien).",
@@ -435,13 +454,13 @@ object ExtractionSchemas {
                 "fournisseur" to str("Raison sociale du titulaire du BC cadre.", nullable = false),
                 "montantHt" to num("Montant HT estimatif ou plafond HT du BC cadre.", minimum = 0),
                 "montantTva" to num("Montant TVA estimatif.", minimum = 0),
-                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "tauxTva" to tauxTvaMaroc(),
                 "montantTtc" to num("Montant TTC estimatif ou plafond TTC.", minimum = 0, nullable = false),
-                "dateDocument" to str("Date du BC cadre YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "dateSignature" to str("Date de signature YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
-                "dateNotification" to str("Date de notification YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateDocument" to dateIso("Date du BC cadre YYYY-MM-DD.", nullable = false),
+                "dateSignature" to dateIso("Date de signature YYYY-MM-DD."),
+                "dateNotification" to dateIso("Date de notification YYYY-MM-DD."),
                 "plafondMontant" to num("Plafond maximum de consommation autorise sur la duree du BC (ex: 500 000 MAD HT).", minimum = 0),
-                "dateValiditeFin" to str("Derniere date de tirage possible YYYY-MM-DD. Au-dela, le BC cadre est expire.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateValiditeFin" to dateIso("Derniere date de tirage possible YYYY-MM-DD. Au-dela, le BC cadre est expire."),
                 "seuilAntiFractionnement" to num("Seuil anti-fractionnement art. 88 decret (souvent 200 000 MAD HT). null si non mentionne.", minimum = 0)
             ) + qualityFields(),
             required = listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument", "_confidence")
@@ -458,12 +477,12 @@ object ExtractionSchemas {
                 "fournisseur" to str("Raison sociale du prestataire.", nullable = false),
                 "montantHt" to num("Montant HT (par periode ou total contractuel, selon le contrat).", minimum = 0),
                 "montantTva" to num("Montant TVA.", minimum = 0),
-                "tauxTva" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant."),
+                "tauxTva" to tauxTvaMaroc(),
                 "montantTtc" to num("Montant TTC.", minimum = 0, nullable = false),
-                "dateDocument" to str("Date du document contrat YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
-                "dateSignature" to str("Date de signature du contrat YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
-                "dateDebut" to str("Date de debut d'execution YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
-                "dateFin" to str("Date de fin contractuelle YYYY-MM-DD (hors reconduction).", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
+                "dateDocument" to dateIso("Date du document contrat YYYY-MM-DD.", nullable = false),
+                "dateSignature" to dateIso("Date de signature du contrat YYYY-MM-DD."),
+                "dateDebut" to dateIso("Date de debut d'execution YYYY-MM-DD."),
+                "dateFin" to dateIso("Date de fin contractuelle YYYY-MM-DD (hors reconduction)."),
                 "periodicite" to enumField(
                     listOf("MENSUEL", "TRIMESTRIEL", "SEMESTRIEL", "ANNUEL"),
                     description = "Periodicite de facturation. Deduire de la clause de facturation : 'mensuellement' -> MENSUEL, 'trimestre' -> TRIMESTRIEL, etc.",

@@ -792,17 +792,7 @@ class DossierService(
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
-                    val ocrContext = buildString {
-                        append("[OCR: moteur=${ocrResult.engine}")
-                        if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
-                        if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
-                        append(", ${rawText.length} caracteres]\n\n")
-                        // Encapsulation defensive : toute instruction presente dans le texte OCR
-                        // doit etre traitee comme donnee, pas comme directive (voir COMMON_RULES).
-                        append("<document_content>\n")
-                        append(rawText)
-                        append("\n</document_content>")
-                    }
+                    val ocrContext = buildOcrContext(rawText, ocrResult)
                     // tool_use Anthropic : si un schema est defini pour ce type ET le
                     // feature flag est on, on force Claude a appeler un outil JSON
                     // conforme au schema. Pas de parse regex, champs garantis au type,
@@ -911,35 +901,12 @@ class DossierService(
                     }
 
                     if (data != null) {
-                        val schemaResult = extractionSchemaValidator.validate(detectedType, data)
-                        if (schemaResult.violations.isNotEmpty()) {
-                            log.warn("Schema violations on {} ({}): {}", doc.nomFichier, detectedType,
-                                schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
-                        }
-                        // Enforcement: les violations critiques persistantes (meme si la
-                        // valeur a ete strip a null) doivent declencher une revue humaine.
-                        if (!schemaResult.valid) {
-                            criticalSchemaFailure = schemaResult.violations
-                        }
-                        // Grounding : verifier que les identifiants critiques (ICE, RIB,
-                        // IF, numero facture...) apparaissent reellement dans le texte
-                        // OCR. Une valeur absente du texte source = hallucination presumee
-                        // -> strip + warning. Sur un champ critique (ex: ICE facture),
-                        // declenche aussi une revue humaine via criticalSchemaFailure.
-                        val groundingResult = groundingValidator.validate(detectedType, schemaResult.cleanedData, rawText)
-                        if (groundingResult.violations.isNotEmpty()) {
-                            log.warn("Grounding violations on {} ({}): {}", doc.nomFichier, detectedType,
-                                groundingResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
-                        }
-                        if (!groundingResult.valid) {
-                            criticalSchemaFailure = criticalSchemaFailure + groundingResult.violations
-                        }
-                        val finalData = groundingResult.cleanedData
+                        val (finalData, criticalViolations) = validateAndGround(doc, detectedType, data, rawText)
+                        criticalSchemaFailure = criticalViolations
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
                         doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
-
                         doc.donneesExtraites = finalData
                         saveExtractedEntity(doc.dossier, doc, detectedType, finalData)
                     } else {
@@ -1194,6 +1161,49 @@ class DossierService(
         return rerun
     }
 
+    /**
+     * Construit le contexte OCR passe a Claude. Encapsule le texte entre balises
+     * `<document_content>` pour que toute instruction presente dans le texte soit
+     * traitee comme donnee et non comme directive (voir COMMON_RULES du prompt).
+     */
+    private fun buildOcrContext(rawText: String, ocrResult: OcrService.OcrResult): String = buildString {
+        append("[OCR: moteur=${ocrResult.engine}")
+        if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
+        if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
+        append(", ${rawText.length} caracteres]\n\n")
+        append("<document_content>\n")
+        append(rawText)
+        append("\n</document_content>")
+    }
+
+    /**
+     * Chaine schema validator + grounding validator. Renvoie les donnees nettoyees
+     * et la liste cumulee des violations critiques (qui declencheront une revue
+     * humaine en sortie de extractDocument).
+     */
+    private fun validateAndGround(
+        doc: Document,
+        type: TypeDocument,
+        data: Map<String, Any?>,
+        rawText: String
+    ): Pair<Map<String, Any?>, List<FieldViolation>> {
+        val schemaResult = extractionSchemaValidator.validate(type, data)
+        if (schemaResult.violations.isNotEmpty()) {
+            log.warn("Schema violations on {} ({}): {}", doc.nomFichier, type,
+                schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+        }
+        val grounding = groundingValidator.validate(type, schemaResult.cleanedData, rawText)
+        if (grounding.violations.isNotEmpty()) {
+            log.warn("Grounding violations on {} ({}): {}", doc.nomFichier, type,
+                grounding.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+        }
+        val critical = buildList {
+            if (!schemaResult.valid) addAll(schemaResult.violations)
+            if (!grounding.valid) addAll(grounding.violations)
+        }
+        return grounding.cleanedData to critical
+    }
+
     private fun retryExtractionWithReinforcedPrompt(
         doc: Document,
         type: TypeDocument,
@@ -1210,15 +1220,7 @@ class DossierService(
             "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, laisse-le a null " +
             "et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur."
 
-        val ocrContext = buildString {
-            append("[OCR: moteur=${ocrResult.engine}")
-            if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
-            if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
-            append(", ${rawText.length} caracteres]\n\n")
-            append("<document_content>\n")
-            append(rawText)
-            append("\n</document_content>")
-        }
+        val ocrContext = buildOcrContext(rawText, ocrResult)
 
         return try {
             emitProgress(doc, "extract", "active", "Re-extraction (score ${initialReport.score} < ${minQualityScore})...")

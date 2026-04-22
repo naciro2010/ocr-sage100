@@ -128,8 +128,7 @@ class ExtractionQualityService {
     }
 
     private fun isFieldPresent(data: Map<String, Any?>, field: String): Boolean {
-        val v = data[field] ?: data.entries.firstOrNull { it.key.equals(field, ignoreCase = true) }?.value
-            ?: return false
+        val v = data.getFieldCaseInsensitive(field) ?: return false
         return when (v) {
             is String -> v.isNotBlank()
             is Collection<*> -> v.isNotEmpty()
@@ -157,7 +156,7 @@ class ExtractionQualityService {
     }
 
     private fun numericField(data: Map<String, Any?>, key: String): BigDecimal? {
-        val v = data[key] ?: data.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value ?: return null
+        val v = data.getFieldCaseInsensitive(key) ?: return null
         return when (v) {
             is Number -> BigDecimal(v.toString())
             is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->
