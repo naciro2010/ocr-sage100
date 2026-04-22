@@ -2,7 +2,7 @@ package com.madaef.recondoc.service
 
 import io.netty.channel.ChannelOption
 import org.slf4j.LoggerFactory
-import org.springframework.core.io.ByteArrayResource
+import org.springframework.core.io.FileSystemResource
 import org.springframework.http.HttpStatusCode
 import org.springframework.http.MediaType
 import org.springframework.http.client.MultipartBodyBuilder
@@ -74,20 +74,17 @@ class MistralOcrClient(
 
     private fun uploadFile(filePath: Path): String {
         val fileName = filePath.fileName.toString()
-        val fileBytes = Files.readAllBytes(filePath)
-        log.info("Uploading {} ({} KB) to Mistral /v1/files", fileName, fileBytes.size / 1024)
+        val fileSize = Files.size(filePath)
+        log.info("Uploading {} ({} KB) to Mistral /v1/files", fileName, fileSize / 1024)
 
-        // NOTE: ne pas forcer contentType(MULTIPART_FORM_DATA) sur le WebClient,
-        // Spring doit pouvoir generer le boundary automatiquement. Sans ca,
-        // Mistral recoit un multipart mal forme et renvoie 422 "file required".
         val body = MultipartBodyBuilder().apply {
-            part("file", object : ByteArrayResource(fileBytes) {
-                override fun getFilename() = fileName
-            }).header("Content-Disposition", "form-data; name=\"file\"; filename=\"$fileName\"")
-              .contentType(mediaTypeFor(fileName))
+            part("file", FileSystemResource(filePath)).contentType(mediaTypeFor(fileName))
             part("purpose", "ocr")
         }.build()
 
+        // Ne pas forcer Content-Type ni Content-Disposition : BodyInserters.fromMultipartData
+        // genere le boundary et les parts correctement. Un override explicite casse le parse
+        // cote Mistral (422 "file required") — verifie en prod avant cette PR.
         val response = getClient().post()
             .uri("/v1/files")
             .body(BodyInserters.fromMultipartData(body))
