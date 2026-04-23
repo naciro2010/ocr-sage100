@@ -198,42 +198,29 @@ class DossierService(
 
     @Transactional(readOnly = true)
     fun getDossierSummary(id: UUID): DossierSummaryResponse {
-        val dossier = dossierRepo.findById(id)
-            .orElseThrow { NoSuchElementException("Dossier not found: $id") }
-        val nbDocs = documentRepo.countByDossierId(id).toInt()
-        val nbConformes = resultatRepo.countByDossierIdAndStatut(id, StatutCheck.CONFORME).toInt()
-        val nbTotal = resultatRepo.countByDossierId(id).toInt()
+        // 1 seule requete SQL au lieu de 4 (find + 3 count). Les subqueries
+        // correlees sur dossier_id sont indexees -> meme cout DB qu'un count
+        // isole, mais 0 round-trip JDBC supplementaire.
+        val row = dossierRepo.findSummaryById(id)
+            ?: throw NoSuchElementException("Dossier not found: $id")
         return DossierSummaryResponse(
-            id = dossier.id!!, reference = dossier.reference,
-            type = dossier.type, statut = dossier.statut,
-            fournisseur = dossier.fournisseur, description = dossier.description,
-            montantTtc = dossier.montantTtc, montantHt = dossier.montantHt,
-            montantTva = dossier.montantTva, montantNetAPayer = dossier.montantNetAPayer,
-            dateCreation = dossier.dateCreation, dateValidation = dossier.dateValidation,
-            validePar = dossier.validePar, motifRejet = dossier.motifRejet,
-            nbDocuments = nbDocs, nbChecksConformes = nbConformes, nbChecksTotal = nbTotal
-        )
-    }
-
-    /**
-     * Snapshot complet de la page Detail Dossier en 1 transaction read-only.
-     * Reuse les methodes existantes (validees par les tests golden) ; le
-     * gain ne vient pas d'une nouvelle requete optimisee mais de :
-     *   - 1 seul roundtrip HTTP au lieu de 5,
-     *   - 1 seule transaction Postgres au lieu de 5 (1st-level cache
-     *     Hibernate partage entre summary + docs + audit),
-     *   - 1 seul ETag/304 cote client.
-     * Le service ne renvoie pas customRules (catalogue global, deja en
-     * cache long cote frontend) ni cascadeScope (calcule a la demande).
-     */
-    @Transactional(readOnly = true)
-    fun getDossierSnapshot(dossierId: UUID): DossierSnapshotResponse {
-        return DossierSnapshotResponse(
-            summary = getDossierSummary(dossierId),
-            documents = listDocumentsWithData(dossierId),
-            validationResults = getValidationResults(dossierId),
-            audit = getAuditLog(dossierId),
-            ruleConfig = dossierRuleConfigService.getRuleConfig(dossierId)
+            id = row[0] as UUID,
+            reference = row[1] as String,
+            type = if (row[2] is DossierType) row[2] as DossierType else DossierType.valueOf(row[2].toString()),
+            statut = if (row[3] is StatutDossier) row[3] as StatutDossier else StatutDossier.valueOf(row[3].toString()),
+            fournisseur = row[4] as? String,
+            description = row[5] as? String,
+            montantTtc = row[6] as? BigDecimal,
+            montantHt = row[7] as? BigDecimal,
+            montantTva = row[8] as? BigDecimal,
+            montantNetAPayer = row[9] as? BigDecimal,
+            dateCreation = row[10] as LocalDateTime,
+            dateValidation = row[11] as? LocalDateTime,
+            validePar = row[12] as? String,
+            motifRejet = row[13] as? String,
+            nbDocuments = (row[14] as Number).toInt(),
+            nbChecksConformes = (row[15] as Number).toInt(),
+            nbChecksTotal = (row[16] as Number).toInt()
         )
     }
 

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 
 const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
-import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope, getDossierSnapshot } from '../api/dossierApi'
+import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
 import { listCustomRules, type CustomRule } from '../api/customRulesApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
 import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
@@ -201,31 +201,18 @@ export default function DossierDetail() {
     listCustomRules().then(setCustomRules).catch(() => setCustomRules([]))
   }, [])
 
-  // Mount initial : un seul appel "snapshot" qui ramene summary + docs +
-  // validation + audit + ruleConfig en 1 roundtrip. Si l'endpoint echoue
-  // (vieux backend, panne reseau partielle), fallback sur les loaders
-  // individuels — l'UX reste resiliente.
+  // Chaque endpoint a sa responsabilite (REST atomique). Le navigateur
+  // multiplexe les 5 GET en parallele ; combines au cache HTTP/ETag/SW,
+  // chaque bloc affiche son skeleton individuel et apparait des qu'il est
+  // pret. Pas de cascade artificielle : si le summary tombe, les docs
+  // peuvent quand meme s'afficher.
   useEffect(() => {
-    if (!id) return
-    let cancelled = false
-    setSummaryError(''); setDocsError(''); setValidationError('')
-    getDossierSnapshot(id).then(snap => {
-      if (cancelled) return
-      setSummary(snap.summary)
-      if (snap.documents && (snap.documents as DocumentsWithData).documents) {
-        setDocsData(snap.documents as DocumentsWithData)
-      }
-      setValidationResults(snap.validationResults || [])
-      setAudit(snap.audit || [])
-      setRuleConfig(snap.ruleConfig || null)
-    }).catch(() => {
-      // Fallback granulaire : chaque bloc tente sa chance independamment.
-      loadSummary(); loadDocs(); loadValidation(); loadAudit(); loadRuleConfig()
-    })
-    // customRules vient d'un endpoint different (catalogue global) -> appel
-    // separe, deja en cache long cote client.
+    loadSummary()
+    loadDocs()
+    loadValidation()
+    loadAudit()
+    loadRuleConfig()
     loadCustomRules()
-    return () => { cancelled = true }
   }, [id, loadSummary, loadDocs, loadValidation, loadAudit, loadRuleConfig, loadCustomRules])
 
   const reloadAll = useCallback(() => {

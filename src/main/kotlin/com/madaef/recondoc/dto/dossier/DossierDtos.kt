@@ -186,28 +186,6 @@ data class AuditLogResponse(
     val dateAction: LocalDateTime
 )
 
-/**
- * Reponse "tout-en-un" pour la page Detail Dossier. Combine les 5 GET que
- * la page faisait jusqu'ici en parallele :
- *   /summary + /documents + /resultats-validation + /audit + /rule-config
- *
- * Gain : un seul roundtrip HTTP, une seule transaction reads-only Postgres
- * (les sessions Hibernate ne sont pas detruites entre les sous-requetes
- * comme c'est le cas avec 5 endpoints distincts -> on partage le 1st-level
- * cache et la connection pool est moins sollicitee).
- *
- * Tous les blocs gardent leur endpoint individuel : DossierDetail ne
- * recharge que le bloc qui l'interesse apres une mutation (ex. validation
- * relance -> seulement /resultats-validation, pas le snapshot complet).
- */
-data class DossierSnapshotResponse(
-    val summary: DossierSummaryResponse,
-    val documents: Map<String, Any?>,
-    val validationResults: List<ValidationResultResponse>,
-    val audit: List<AuditLogResponse>,
-    val ruleConfig: Map<String, Any>
-)
-
 // === Mapper functions ===
 
 fun DossierPaiement.toListResponse(): DossierListResponse {

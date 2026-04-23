@@ -166,19 +166,16 @@ export async function getDocumentsWithData(id: string): Promise<DocumentsWithDat
 }
 
 /**
- * Reponse "tout-en-un" backend. Mirroir de DossierSnapshotResponse.kt.
- * DossierDetail l'utilise au mount pour eviter 5 GET en parallele.
+ * Prefetch coordonne des donnees de la page Detail. Appelle les endpoints
+ * atomiques en parallele (REST clean, 1 ressource = 1 endpoint). Les
+ * resultats atterrissent dans le cache front + cache du Service Worker
+ * -> au clic, DossierDetail trouve toutes ses donnees deja la.
  */
-export interface DossierSnapshot {
-  summary: DossierSummary
-  documents: DocumentsWithData
-  validationResults: ValidationResult[]
-  audit: AuditEntry[]
-  ruleConfig: { global: Record<string, boolean>; overrides: Record<string, boolean> }
-}
-
-export async function getDossierSnapshot(id: string): Promise<DossierSnapshot> {
-  return cachedFetch<DossierSnapshot>(`${BASE}/${id}/snapshot`, 3000)
+export function prefetchDossierDetail(id: string) {
+  void getDossierSummary(id).catch(() => {})
+  void getDocumentsWithData(id).catch(() => {})
+  void getValidationResults(id).catch(() => {})
+  void getRuleConfig(id).catch(() => {})
 }
 
 export async function updateDossier(id: string, data: Record<string, unknown>): Promise<DossierDetail> {

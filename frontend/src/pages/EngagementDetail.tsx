@@ -5,7 +5,7 @@ import {
   ChevronRight, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { getEngagement, detachDossier, deleteEngagement } from '../api/engagementApi'
-import { getDossierSnapshot } from '../api/dossierApi'
+import { prefetchDossierDetail } from '../api/dossierApi'
 import * as Pages from '../routes/lazyPages'
 import type { EngagementResponse } from '../api/engagementTypes'
 import {
@@ -160,7 +160,7 @@ export default function EngagementDetail() {
               {engagement.dossiers.map(d => {
                 const prefetch = () => {
                   Pages.DossierDetail.preload()
-                  void getDossierSnapshot(d.id).catch(() => {})
+                  prefetchDossierDetail(d.id)
                 }
                 return (
                 <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
