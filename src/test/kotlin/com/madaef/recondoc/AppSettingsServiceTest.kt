@@ -70,7 +70,7 @@ class AppSettingsServiceTest {
     @Test
     fun `max_tokens defaults by kind`() {
         val svc = buildService(emptyMap())
-        assertEquals(256, svc.getAiMaxTokens("classification"))
+        assertEquals(512, svc.getAiMaxTokens("classification"))
         assertEquals(8192, svc.getAiMaxTokens("extraction"))
         assertEquals(4096, svc.getAiMaxTokens("rules_batch"))
     }
@@ -92,7 +92,7 @@ class AppSettingsServiceTest {
             "ai.max_tokens.classification" to "abc",
             "ai.max_tokens.extraction" to "0"
         ))
-        assertEquals(256, svc.getAiMaxTokens("classification"))
+        assertEquals(512, svc.getAiMaxTokens("classification"))
         assertEquals(8192, svc.getAiMaxTokens("extraction"))
     }
 }

@@ -103,7 +103,13 @@ class AppSettingsService(
 
     fun getAiMaxTokens(kind: String): Int {
         val default = when (kind) {
-            "classification" -> 256
+            // 512 (vs 256 initialement) : en mode tool_use le wrapping du bloc
+            // (id, name, input serialise) consomme quelques dizaines de tokens
+            // avant l'output utile. Avec 256, on a observe des stop_reason=max_tokens
+            // sur des documents longs -> exception "No tool_use block" -> INCONNU
+            // silencieux. 512 donne une marge sans cout mesurable (Claude facture
+            // les tokens GENERES, pas le max_tokens).
+            "classification" -> 512
             "extraction" -> 8192
             "rules_batch" -> 4096
             else -> 4096
