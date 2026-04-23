@@ -37,6 +37,15 @@ spring:
     multipart:
       max-file-size: 50MB
       max-request-size: 50MB
+  jackson:
+    default-property-inclusion: non_null
+  task:
+    execution:
+      pool:
+        core-size: ${ASYNC_CORE_SIZE:10}
+        max-size: ${ASYNC_MAX_SIZE:30}
+        queue-capacity: 200
+      thread-name-prefix: ocr-async-
 
 # Claude API configuration
 claude:
@@ -134,16 +143,6 @@ management:
       enabled: true
     diskspace:
       enabled: true
-
-  jackson:
-    default-property-inclusion: non_null
-  task:
-    execution:
-      pool:
-        core-size: ${ASYNC_CORE_SIZE:10}
-        max-size: ${ASYNC_MAX_SIZE:30}
-        queue-capacity: 200
-      thread-name-prefix: ocr-async-
 
 server:
   port: ${PORT:8080}

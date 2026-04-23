@@ -3,16 +3,42 @@ import type { DossierListItem, DossierDetail, DocumentInfo, ValidationResult, Pa
 const API_URL = import.meta.env.VITE_API_URL || ''
 const BASE = `${API_URL}/api/dossiers`
 
-// Cache + request deduplication
+// Cache + request deduplication.
+//
+// Strategie "stale-while-revalidate":
+//   - Si la donnee en cache est encore "fresh" (age < ttl) : on la rend
+//     immediatement sans appel reseau.
+//   - Si elle est "stale mais utilisable" (age < ttl + STALE_GRACE) : on la
+//     rend immediatement ET on revalide en arriere-plan, ce qui garde l'UI
+//     instantanee tout en gardant la donnee a jour.
+//   - Si elle est trop vieille ou absente : appel reseau classique.
+// La deduplication d'inflight reste indispensable : sans elle, monter un
+// composant qui appelle 6 endpoints en parallele 2 fois (StrictMode dev,
+// retry React) declenche 12 roundtrips au lieu de 6.
 const apiCache = new Map<string, { data: unknown; ts: number }>()
 const inflightRequests = new Map<string, Promise<unknown>>()
 const CACHE_TTL = 5000 // 5s
+const STALE_GRACE = 30_000 // 30s pendant lesquelles on peut servir le cache + revalider
 
 async function cachedFetch<T>(url: string, ttl = CACHE_TTL): Promise<T> {
   const cached = apiCache.get(url)
-  if (cached && (Date.now() - cached.ts) < ttl) return cached.data as T
+  const age = cached ? Date.now() - cached.ts : Infinity
 
-  // Deduplicate: if same URL is already in-flight, reuse its promise
+  if (cached && age < ttl) return cached.data as T
+
+  if (cached && age < ttl + STALE_GRACE) {
+    // Stale mais servable : on revalide en arriere-plan sans bloquer l'UI.
+    if (!inflightRequests.has(url)) {
+      const refresh = apiFetch(url)
+        .then(res => handleResponse<T>(res))
+        .then(data => { apiCache.set(url, { data, ts: Date.now() }); return data })
+        .catch(() => cached.data as T)
+        .finally(() => inflightRequests.delete(url))
+      inflightRequests.set(url, refresh)
+    }
+    return cached.data as T
+  }
+
   const inflight = inflightRequests.get(url)
   if (inflight) return inflight as Promise<T>
 
@@ -32,6 +58,24 @@ function invalidateCache(prefix: string) {
   for (const key of apiCache.keys()) {
     if (key.includes(prefix)) apiCache.delete(key)
   }
+}
+
+/** Vide le cache d'une URL precise. Utile apres une mutation ciblee. */
+export function invalidateUrl(url: string) {
+  apiCache.delete(url)
+}
+
+/**
+ * Prefetch idle : declenche les fetchs lents pendant que le navigateur est
+ * inactif. On reuse les memes URL que les vrais appels -> hit cache lors de
+ * la navigation. Pas de bloquage UI grace a requestIdleCallback.
+ */
+export function prefetchOnIdle(urls: string[], ttl = 60_000) {
+  const run = () => urls.forEach(u => { void cachedFetch(u, ttl).catch(() => {}) })
+  type RIC = (cb: () => void, opts?: { timeout: number }) => number
+  const ric = (window as unknown as { requestIdleCallback?: RIC }).requestIdleCallback
+  if (typeof ric === 'function') ric(run, { timeout: 2000 })
+  else setTimeout(run, 200)
 }
 
 function authHeaders(): Record<string, string> {
@@ -68,13 +112,24 @@ export async function createDossier(type: DossierType, fournisseur?: string, des
 }
 
 export async function listDossiers(page = 0, size = 20, signal?: AbortSignal): Promise<PageResponse<DossierListItem>> {
-  const res = await apiFetch(`${BASE}?page=${page}&size=${size}`, { signal })
-  return handleResponse(res)
+  // L'AbortSignal court-circuite la dedup/cache : un composant qui demonte
+  // doit avoir le droit d'annuler son fetch sans rendre la donnee polluee
+  // pour les autres consommateurs.
+  if (signal) {
+    const res = await apiFetch(`${BASE}?page=${page}&size=${size}`, { signal })
+    return handleResponse(res)
+  }
+  return cachedFetch<PageResponse<DossierListItem>>(`${BASE}?page=${page}&size=${size}`, 3000)
 }
 
 export async function getDashboardStats(signal?: AbortSignal): Promise<DashboardStats> {
-  const res = await apiFetch(`${BASE}/stats`, { signal })
-  return handleResponse(res)
+  if (signal) {
+    const res = await apiFetch(`${BASE}/stats`, { signal })
+    return handleResponse(res)
+  }
+  // Backend cache deja les stats 30s, mais SWR cote client supprime le
+  // roundtrip pour les navigations <30s.
+  return cachedFetch<DashboardStats>(`${BASE}/stats`, 15_000)
 }
 
 export async function getDossier(id: string, signal?: AbortSignal): Promise<DossierDetail> {
@@ -189,8 +244,9 @@ export async function changeDocumentType(dossierId: string, docId: string, typeD
 }
 
 export async function getAuditLog(dossierId: string): Promise<AuditEntry[]> {
-  const res = await apiFetch(`${BASE}/${dossierId}/audit`)
-  return handleResponse(res)
+  // Audit n'evolue qu'apres une action utilisateur ; les writes appellent
+  // invalidateCache(dossierId), donc le cache court reste correct.
+  return cachedFetch<AuditEntry[]>(`${BASE}/${dossierId}/audit`, 5000)
 }
 
 export async function finalizeDossier(dossierId: string, data: {
