@@ -35,9 +35,12 @@ class AuthController(
     @ResponseStatus(HttpStatus.CREATED)
     fun register(@RequestBody req: RegisterRequest): UserResponse {
         require(!userRepo.existsByEmail(req.email)) { "Email deja utilise" }
+        // Spring Security 7 : PasswordEncoder.encode retourne String? (null si
+        // entree null). On passe toujours req.password non-null, l'assertion
+        // !! est donc sure et documente l'invariant.
         val user = userRepo.save(AppUser(
             email = req.email,
-            password = encoder.encode(req.password),
+            password = encoder.encode(req.password)!!,
             nom = req.nom,
             role = try { UserRole.valueOf(req.role) } catch (_: Exception) { UserRole.OPERATEUR }
         ))

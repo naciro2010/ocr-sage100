@@ -1,7 +1,7 @@
 package com.madaef.recondoc.service.validation
 
-import com.fasterxml.jackson.databind.JsonNode
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.JsonNode
+import tools.jackson.databind.ObjectMapper
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.CustomValidationRuleRepository
 import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository

@@ -1,6 +1,6 @@
 package com.madaef.recondoc.service
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.madaef.recondoc.dto.dossier.*
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.*

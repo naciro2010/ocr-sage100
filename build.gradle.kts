@@ -36,7 +36,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
 
     // Kotlin
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    // Spring Boot 4 adopte Jackson 3 (group `tools.jackson.*`).
+    // Le module Kotlin vit desormais sous `tools.jackson.module:jackson-module-kotlin`.
+    implementation("tools.jackson.module:jackson-module-kotlin")
+    // Hibernate 7 conserve un JacksonJsonFormatMapper cable sur Jackson 2
+    // (`com.fasterxml.jackson.*`) pour deserialiser les colonnes JSON mappees
+    // en @JdbcTypeCode(SqlTypes.JSON). Sans le module Kotlin v2, les data
+    // classes Kotlin (ValidationEvidence, ...) ne peuvent pas etre recreees
+    // car elles n'ont pas de constructeur sans-argument.
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     // Database
@@ -63,7 +71,10 @@ dependencies {
     // resilience4j-spring-boot3 est compatible Spring Boot 4 (Jakarta EE 11 / Framework 7)
     implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
     implementation("io.github.resilience4j:resilience4j-reactor:2.3.0")
-    implementation("org.springframework.boot:spring-boot-starter-aop")
+    // Spring Boot 4 : `spring-boot-starter-aop` a ete renomme
+    // `spring-boot-starter-aspectj` dans le BOM 4.0.x (l'ancien artefact n'est
+    // plus publie). Fournit toujours spring-aop + aspectjweaver pour Resilience4j.
+    implementation("org.springframework.boot:spring-boot-starter-aspectj")
 
     // In-process cache for hot config lookups (rule config) — avoids Redis on Railway
     implementation("org.springframework.boot:spring-boot-starter-cache")
@@ -93,6 +104,9 @@ dependencies {
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Spring Boot 4 : @AutoConfigureMockMvc et l'autoconfig MockMvc sont
+    // sortis de spring-boot-starter-test, deplaces dans un module dedie.
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
@@ -102,7 +116,12 @@ dependencies {
 kotlin {
     compilerOptions {
         freeCompilerArgs.addAll("-Xjsr305=strict")
-        jvmTarget.set(JvmTarget.JVM_25)
+        // L'enum JvmTarget de Kotlin 2.2.20 ne contient pas encore JVM_25.
+        // On cible le bytecode 21 (fin LTS, supporte par 100% des JRE cibles,
+        // y compris JDK 25 en runtime). Les nouveautes JDK 25 accessibles
+        // restent exploitables via les APIs a runtime ; on ne perd rien sauf
+        // quelques bytecodes record/pattern-matching tres recents inutilises ici.
+        jvmTarget.set(JvmTarget.JVM_21)
     }
 }
 
