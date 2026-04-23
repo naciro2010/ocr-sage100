@@ -40,23 +40,26 @@ jobs:
         with:
           gradle-version: wrapper
 
+      - name: Gradle version
+        run: ./gradlew --version
+
       - name: Compile
-        run: ./gradlew compileKotlin compileTestKotlin --no-daemon
+        run: ./gradlew compileKotlin compileTestKotlin --no-daemon --stacktrace
 
       - name: Unit tests (H2)
-        run: ./gradlew test --no-daemon
+        run: ./gradlew test --no-daemon --stacktrace
         env:
           SPRING_PROFILES_ACTIVE: test
 
       - name: Integration tests (PostgreSQL)
-        run: ./gradlew test --no-daemon -Dspring.profiles.active=ci
+        run: ./gradlew test --no-daemon --stacktrace -Dspring.profiles.active=ci
         env:
           DATABASE_URL: jdbc:postgresql://localhost:5432/recondoc_test
           DATABASE_USERNAME: recondoc
           DATABASE_PASSWORD: recondoc
 
       - name: Build JAR
-        run: ./gradlew bootJar --no-daemon
+        run: ./gradlew bootJar --no-daemon --stacktrace
 
       - name: Upload test reports
         if: always()
