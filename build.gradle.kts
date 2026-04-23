@@ -11,6 +11,12 @@ plugins {
 group = "com.madaef.recondoc"
 version = "1.0.0"
 
+// Flyway gere par Spring Boot : on force une version recente pour couvrir
+// PostgreSQL 18 (Railway / prod). La version par defaut de SB 4.0.5 refuse
+// PG >= 18 avec l'avertissement "support has not been tested". Bump ciblee
+// pour eviter tout blocage operationnel sur les migrations.
+extra["flyway.version"] = "11.14.0"
+
 java {
     toolchain {
         languageVersion = JavaLanguageVersion.of(25)
