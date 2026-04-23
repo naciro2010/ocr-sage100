@@ -137,6 +137,17 @@ class AppSettingsService(
         return isAiEnabled() && getAiApiKey().isNotBlank()
     }
 
+    /**
+     * Pseudonymisation des PII avant envoi vers Claude. Par defaut ACTIVEE
+     * (conformite Loi 09-08 / CNDP Maroc + RGPD). Desactiver explicitement via
+     * `ai.pseudonymization.enabled = false` releve le risque de non-conformite :
+     * a reserver au debug local.
+     */
+    fun isPseudonymizationEnabled(): Boolean {
+        val raw = get("ai.pseudonymization.enabled") ?: return true
+        return raw != "false"
+    }
+
     // --- Claude pricing ($ per 1M tokens). Defaults match Anthropic public pricing
     // at the time of writing. Override per-model via keys ai.price.<model>.in / .out
     // so finance can update rates when the contract changes, without a redeploy.

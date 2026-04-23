@@ -68,6 +68,7 @@ class DossierService(
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val groundingValidator: GroundingValidator,
+    private val pseudonymizationService: com.madaef.recondoc.service.extraction.PseudonymizationService,
     private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
@@ -792,7 +793,16 @@ class DossierService(
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
-                    val ocrContext = buildOcrContext(rawText, ocrResult)
+                    // Pseudonymisation des PII avant tout appel Claude (souverainete
+                    // Maroc / Loi 09-08). Les emails, telephones MA, RIB 24 chiffres
+                    // et noms avec civilite sont remplaces par des tokens opaques.
+                    // ICE / IF / RC / montants / fournisseurs ne sont PAS masques
+                    // (identifiants B2B publics necessaires aux regles de validation).
+                    // La mapping reste en memoire le temps de l'extraction et n'est
+                    // jamais persistee. Detokenisation appliquee avant validateAndGround
+                    // pour que le grounding (qui lit rawText non masque) fonctionne.
+                    val plainOcrContext = buildOcrContext(rawText, ocrResult)
+                    val (ocrContext, piiMapping) = pseudonymizationService.tokenize(plainOcrContext)
                     // tool_use Anthropic : si un schema est defini pour ce type ET le
                     // feature flag est on, on force Claude a appeler un outil JSON
                     // conforme au schema. Pas de parse regex, champs garantis au type,
@@ -909,7 +919,13 @@ class DossierService(
                     }
 
                     if (data != null) {
-                        val (finalData, criticalViolations) = validateAndGround(doc, detectedType, data, rawText)
+                        // Detokenize avant validation : le grounding validator compare
+                        // les valeurs extraites au rawText (non masque). Si on lui
+                        // passe des tokens [EMAIL_N] / [RIB_N], il les rejette comme
+                        // absents du texte -> faux critical violations.
+                        @Suppress("UNCHECKED_CAST")
+                        val restoredData = pseudonymizationService.detokenize(data, piiMapping) as Map<String, Any?>
+                        val (finalData, criticalViolations) = validateAndGround(doc, detectedType, restoredData, rawText)
                         criticalSchemaFailure = criticalViolations
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
@@ -1234,7 +1250,11 @@ class DossierService(
             "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, " +
             "laisse-le a null et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur.\n" +
             "</retry_context>\n\n"
-        val ocrContext = buildOcrContext(rawText, ocrResult)
+        // Pseudonymisation des PII egalement sur la re-extraction (souverainete
+        // Maroc). Mapping local a ce retry : la valeur reelle est restauree juste
+        // avant le grounding + la persistence en base.
+        val plainOcrContext = buildOcrContext(rawText, ocrResult)
+        val (ocrContext, piiMapping) = pseudonymizationService.tokenize(plainOcrContext)
         val retryUser = retryHint + ocrContext
 
         return try {
@@ -1243,7 +1263,7 @@ class DossierService(
             // le mode texte libre est la principale source de hallucination residuelle
             // (JSON mal forme accepte par parseLlmResponse au regex pres).
             val schema = if (toolUseEnabled) ExtractionSchemas.forType(type) else null
-            val retryData: Map<String, Any?> = if (schema != null) {
+            val retryDataMasked: Map<String, Any?> = if (schema != null) {
                 try {
                     llmService.callClaudeTool(
                         basePrompt, retryUser, schema.name, schema.inputSchema, CallKind.EXTRACTION
@@ -1258,6 +1278,9 @@ class DossierService(
                 val retryJson = llmService.callClaude(basePrompt, retryUser)
                 parseLlmResponse(retryJson) ?: return null
             }
+            // Detokenize avant validation : grounding compare au rawText non masque.
+            @Suppress("UNCHECKED_CAST")
+            val retryData = pseudonymizationService.detokenize(retryDataMasked, piiMapping) as Map<String, Any?>
             val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
             // Grounding aussi sur la re-extraction : pas de regression du niveau
             // de protection anti-hallucination entre la 1ere et la 2e passe.

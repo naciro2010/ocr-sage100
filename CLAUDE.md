@@ -97,6 +97,38 @@ PDF/Image upload
 - `ERP_ACTIVE`: Which ERP connector to use (SAGE_1000, SAGE_X3, SAGE_50)
 - `BUCKET_*`: S3-compatible object storage for uploaded files
 
+## RGPD — sous-traitants IA (a maintenir a jour)
+
+**Consigne permanente** : tout PR qui touche la chaine externe (OCR, LLM, API tierce) doit mettre a jour ce bloc **et** la memoire `project_rgpd.md`. Si un nouveau provider, un nouveau champ envoye, un changement de region/retention, une activation DPA/ZDR ou une demande d'effacement intervient, la mise a jour est obligatoire dans le meme PR.
+
+### Donnees personnelles envoyees a l'exterieur
+
+| Destinataire | Donnees envoyees | Region | Retention par defaut |
+|---|---|---|---|
+| Mistral OCR (`api.mistral.ai`) | Image/PDF complet des scans | France / UE | ~30 j (ZDR possible B2B) |
+| Anthropic Claude (`api.anthropic.com`) | Texte OCR **pseudonymise** + prompts + few-shots synthetiques | USA (AWS, DPF UE-US) | 30 j par defaut, ZDR via contrat entreprise |
+
+Nature des PII originales : emails, telephones MA, RIB 24 chiffres, noms precedes de civilite, ICE/IF/RC (B2B), raison sociale fournisseurs, signatures manuscrites sur PV.
+
+### Protections en place
+- **Pseudonymisation automatique avant Claude** (`PseudonymizationService`, actif par defaut via `ai.pseudonymization.enabled=true`) : emails, telephones MA, RIB 24 chiffres, noms avec civilite remplaces par tokens opaques `[EMAIL_N]` / `[PHONE_N]` / `[RIB_N]` / `[PERSON_N]`. ICE / IF / RC / montants / raisons sociales non masques (identifiants B2B publics / necessaires aux regles R09-R14). Mapping in-memory uniquement, jamais persiste. Detokenisation appliquee AVANT grounding + stockage : les donnees reelles ne quittent jamais le SI Maroc.
+- Cache OCR SHA-256 (evite re-envois Mistral)
+- Logs applicatifs sans contenu OCR
+- Prompt caching : seulement few-shots synthetiques, jamais de donnees clients
+- GroundingValidator refuse les valeurs absentes du texte OCR (pas d'hallucination stockee)
+
+### Checklist DPO MADAEF (etat a tenir a jour ici)
+- [x] Pseudonymisation automatique active cote applicatif (`PseudonymizationService`)
+- [ ] DPA signe avec Anthropic (+ adhesion Data Privacy Framework)
+- [ ] DPA signe avec Mistral
+- [ ] Zero Data Retention Anthropic active
+- [ ] Inscription au registre des traitements (art. 30 RGPD)
+- [ ] Clauses Contractuelles Types pour transfert US (si DPF insuffisant)
+- [ ] Information des signataires PV / politique fournisseur a jour
+- [ ] Procedure droit a l'effacement documentee (S3 + Postgres + propagation sous-traitants)
+
+Details et historique : memoire `project_rgpd.md` + consigne `feedback_rgpd_maintenance.md`.
+
 ## Vision Produit & Regles Metier
 
 ### Objectif principal

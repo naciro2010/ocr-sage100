@@ -1,5 +1,6 @@
 package com.madaef.recondoc.service.extraction
 
+import com.madaef.recondoc.service.AppSettingsService
 import org.springframework.stereotype.Service
 
 /**
@@ -22,7 +23,11 @@ import org.springframework.stereotype.Service
  * seul le trajet vers Anthropic est pseudonymise.
  */
 @Service
-class PseudonymizationService {
+class PseudonymizationService(
+    private val appSettingsService: AppSettingsService? = null
+) {
+
+    fun isEnabled(): Boolean = appSettingsService?.isPseudonymizationEnabled() ?: true
 
     data class PiiMapping(
         val forward: Map<String, String>,
@@ -42,8 +47,10 @@ class PseudonymizationService {
         PERSON("PERSON")
     }
 
-    fun tokenize(text: String): Pair<String, PiiMapping> =
-        tokenizeWith(text, PiiMapping.EMPTY)
+    fun tokenize(text: String): Pair<String, PiiMapping> {
+        if (!isEnabled()) return text to PiiMapping.EMPTY
+        return tokenizeWith(text, PiiMapping.EMPTY)
+    }
 
     /**
      * Fusionne avec un mapping existant pour garantir la stabilite des
@@ -52,6 +59,7 @@ class PseudonymizationService {
      * regles de coherence cross-documents (R09-R11, R14).
      */
     fun tokenizeWith(text: String, existing: PiiMapping): Pair<String, PiiMapping> {
+        if (!isEnabled()) return text to existing
         if (text.isEmpty()) return text to existing
 
         val forward = existing.forward.toMutableMap()

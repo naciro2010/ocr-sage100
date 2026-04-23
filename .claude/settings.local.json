@@ -90,7 +90,14 @@
       "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 compileKotlin)",
       "Bash(gh run *)",
       "Bash(/Users/ennacirimohamed/workspace/github/ocr-sage100/gradlew -p /Users/ennacirimohamed/workspace/github/ocr-sage100 test --no-daemon)",
-      "Bash(gh pr *)"
+      "Bash(gh pr *)",
+      "Bash(railway status *)",
+      "Bash(grep *)",
+      "Bash(railway list *)",
+      "Bash(railway service *)",
+      "mcp__Railway__link-service",
+      "Bash(awk 'NR==1,/^}/' /Users/ennacirimohamed/workspace/github/ocr-sage100/src/main/kotlin/com/madaef/recondoc/service/AppSettingsService.kt)",
+      "Bash(gh api *)"
     ],
     "deny": []
   },

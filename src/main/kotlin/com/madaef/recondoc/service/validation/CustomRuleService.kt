@@ -9,6 +9,7 @@ import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.repository.dossier.RuleConfigRepository
 import com.madaef.recondoc.service.extraction.CallKind
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.extraction.PseudonymizationService
 import org.slf4j.LoggerFactory
 import org.springframework.stereotype.Service
 import org.springframework.transaction.annotation.Transactional
@@ -34,7 +35,8 @@ class CustomRuleService(
     private val resultatRepository: ResultatValidationRepository,
     private val overrideRepo: DossierRuleOverrideRepository,
     private val ruleConfigRepo: RuleConfigRepository,
-    private val ruleConfigCache: RuleConfigCache
+    private val ruleConfigCache: RuleConfigCache,
+    private val pseudonymizationService: PseudonymizationService = PseudonymizationService()
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -142,7 +144,18 @@ class CustomRuleService(
         val involvedIds = docs.mapNotNull { it.id?.toString() }
 
         return try {
-            val raw = llm.callClaude(BATCH_SYSTEM_PROMPT, buildBatchUserPrompt(applicable, payload), CallKind.RULES_BATCH)
+            // Pseudonymisation des donnees extraites du dossier (souverainete Maroc /
+            // Loi 09-08) : emails, tel MA, RIB 24 chiffres, noms avec civilite sont
+            // remplaces par des tokens opaques [EMAIL_N] / [PHONE_N] / ... avant
+            // l'envoi a Claude. Les verdicts renvoyes sont detokenises avant parse
+            // pour que 'detail' et 'evidences' contiennent les valeurs reelles en
+            // base. Inerte si ai.pseudonymization.enabled = false.
+            val (userPrompt, mapping) = pseudonymizationService.tokenize(
+                buildBatchUserPrompt(applicable, payload)
+            )
+            val rawMasked = llm.callClaude(BATCH_SYSTEM_PROMPT, userPrompt, CallKind.RULES_BATCH)
+            val raw = if (mapping.isEmpty) rawMasked
+                      else pseudonymizationService.detokenize(rawMasked, mapping) as String
             val verdicts = parseBatchResponse(raw)
             val missing = applicable.filter { verdicts[it.code] == null }.map { it.code }
             if (missing.isNotEmpty()) {
@@ -215,7 +228,15 @@ class CustomRuleService(
         val involvedIds = docs.mapNotNull { it.id?.toString() }
 
         return try {
-            val raw = llm.callClaude(SYSTEM_PROMPT, buildUserPrompt(rule, payload, requiredFields), CallKind.RULES_BATCH)
+            // Idem batch : pseudonymisation a l'envoi, detokenisation a la reception
+            // pour que les verdicts persistes en base contiennent les valeurs
+            // reelles (R09-R14 continuent de lire les champs originaux).
+            val (userPrompt, mapping) = pseudonymizationService.tokenize(
+                buildUserPrompt(rule, payload, requiredFields)
+            )
+            val rawMasked = llm.callClaude(SYSTEM_PROMPT, userPrompt, CallKind.RULES_BATCH)
+            val raw = if (mapping.isEmpty) rawMasked
+                      else pseudonymizationService.detokenize(rawMasked, mapping) as String
             parseResponse(rule, dossier, raw, involvedIds)
         } catch (e: Exception) {
             log.warn("Custom rule {} failed for dossier {}: {}", rule.code, dossier.id, e.message)

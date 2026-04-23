@@ -6,7 +6,8 @@ import org.springframework.stereotype.Service
 
 @Service
 class ClassificationService(
-    private val llmExtractionService: LlmExtractionService
+    private val llmExtractionService: LlmExtractionService,
+    private val pseudonymizationService: PseudonymizationService = PseudonymizationService()
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
 
@@ -80,7 +81,15 @@ class ClassificationService(
         // Le mode tool_use force Claude a renvoyer un objet {categorie, confidence}
         // conforme au schema -> plus de parse regex, plus de JSON tronque, plus
         // de reponse hors-contrat.
-        val wrapped = "<document_content>\n$rawText\n</document_content>"
+        //
+        // Pseudonymisation appliquee avant l'envoi (souverainete Maroc / Loi 09-08) :
+        // les PII detectees dans le texte sont remplacees par des tokens opaques.
+        // La classification s'appuie sur des marqueurs structurels (en-tete, TVA,
+        // codes de formulaires CCF-EN-XX), jamais sur des noms de personnes ou RIB,
+        // donc le masquage n'affecte pas le verdict. La mapping est ignoree (retour
+        // = enum TypeDocument uniquement).
+        val plainWrapped = "<document_content>\n$rawText\n</document_content>"
+        val (wrapped, _) = pseudonymizationService.tokenize(plainWrapped)
 
         val first = classifyViaLlm(wrapped, maxTokensOverride = null)
         if (first != null) return first

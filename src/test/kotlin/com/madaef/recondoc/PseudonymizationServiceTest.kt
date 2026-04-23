@@ -1,7 +1,10 @@
 package com.madaef.recondoc
 
+import com.madaef.recondoc.service.AppSettingsService
 import com.madaef.recondoc.service.extraction.PseudonymizationService
 import org.junit.jupiter.api.Test
+import org.mockito.Mockito.mock
+import org.mockito.Mockito.`when`
 import kotlin.test.assertEquals
 import kotlin.test.assertFalse
 import kotlin.test.assertNotNull
@@ -9,6 +12,9 @@ import kotlin.test.assertTrue
 
 class PseudonymizationServiceTest {
 
+    // PseudonymizationService accepte un AppSettingsService nullable ; sans
+    // settings fourni, le flag par defaut est actif (true). Les tests metier
+    // tournent donc avec la pseudonymisation activee.
     private val service = PseudonymizationService()
 
     @Test
@@ -182,5 +188,27 @@ class PseudonymizationServiceTest {
         val token1 = mapping.forward["a@b.ma"]
         assertNotNull(token1)
         assertEquals("a@b.ma", mapping.backward[token1])
+    }
+
+    @Test
+    fun `feature flag desactive fait passer le texte inchange sans mapping`() {
+        val mockSettings = mock(AppSettingsService::class.java)
+        `when`(mockSettings.isPseudonymizationEnabled()).thenReturn(false)
+        val disabledService = PseudonymizationService(mockSettings)
+        val plain = "Email : sensitive@acme.ma, tel +212 612 34 56 78, RIB 007810000112345678901234"
+        val (masked, mapping) = disabledService.tokenize(plain)
+        assertEquals(plain, masked)
+        assertTrue(mapping.isEmpty)
+    }
+
+    @Test
+    fun `feature flag actif via settings masque comme attendu`() {
+        val mockSettings = mock(AppSettingsService::class.java)
+        `when`(mockSettings.isPseudonymizationEnabled()).thenReturn(true)
+        val enabledService = PseudonymizationService(mockSettings)
+        val (masked, mapping) = enabledService.tokenize("Contact : a@b.ma")
+        assertTrue(masked.contains("[EMAIL_1]"))
+        assertFalse(masked.contains("a@b.ma"))
+        assertEquals(1, mapping.backward.size)
     }
 }
