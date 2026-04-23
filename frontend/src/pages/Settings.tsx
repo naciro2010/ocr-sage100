@@ -14,7 +14,7 @@ import {
   Shield, Globe, Key, Info, ShieldCheck,
   FileText, Layers, Zap, Sparkles, CircuitBoard,
   ArrowRight, Database, Server, Clock,
-  Plus, Trash2,
+  Plus, Trash2, Lock, MapPin, UserX,
   Pencil, FlaskConical, Wand2, Save, X as XIcon,
 } from 'lucide-react'
 import {
@@ -89,7 +89,7 @@ const CONTROL_LAYERS: Array<{
 
 export default function Settings() {
   const { toast } = useToast()
-  const [activeTab, setActiveTab] = useState<'pipeline' | 'cles' | 'health' | 'rules' | 'about'>('pipeline')
+  const [activeTab, setActiveTab] = useState<'pipeline' | 'cles' | 'confidentialite' | 'health' | 'rules' | 'about'>('pipeline')
   const [aiSettings, setAiSettings] = useState<AiSettingsResponse | null>(null)
   const [aiEnabled, setAiEnabled] = useState(false)
   const [aiApiKey, setAiApiKey] = useState('')
@@ -169,6 +169,7 @@ export default function Settings() {
         {([
           ['pipeline', 'Pipeline'],
           ['cles', 'Cles API'],
+          ['confidentialite', 'Confidentialite & Souverainete'],
           ['health', 'Etat systeme'],
           ['rules', 'Regles'],
           ['about', 'A propos'],
@@ -485,9 +486,13 @@ export default function Settings() {
               </div>
               <div className="privacy-card">
                 <div className="privacy-card-icon"><Globe size={16} /></div>
-                <div className="privacy-card-title">Conforme RGPD</div>
-                <div className="privacy-card-desc">Pas de donnees nominatives sensibles transmises. Fichiers sources stockes en UE.</div>
-                <div className="privacy-card-source">DPA disponible</div>
+                <div className="privacy-card-title">Conforme RGPD &amp; Loi 09-08</div>
+                <div className="privacy-card-desc">
+                  Les PII sont pseudonymisees avant envoi (emails, telephones, RIB, noms avec civilite).
+                  Fichiers sources stockes cote Maroc, seul le texte masque transite.
+                  Voir onglet <strong>Confidentialite &amp; Souverainete</strong>.
+                </div>
+                <div className="privacy-card-source">CNDP Maroc · DPA disponible</div>
               </div>
             </div>
 
@@ -705,6 +710,165 @@ export default function Settings() {
               Les cles sont stockees chiffrees en base (<code style={codeStyle}>app_settings</code>).
               Pour revenir aux variables d'environnement, desactivez le toggle et sauvegardez avec un champ vide —
               la chaine de resolution tombe sur <code style={codeStyle}>CLAUDE_API_KEY</code> / <code style={codeStyle}>MISTRAL_API_KEY</code>.
+            </span>
+          </div>
+        </div>
+      )}
+
+      {/* =========================================================== */}
+      {/* CONFIDENTIALITE & SOUVERAINETE TAB                           */}
+      {/* =========================================================== */}
+      {activeTab === 'confidentialite' && (
+        <div role="tabpanel" id="tab-panel-confidentialite">
+          <SettingsHero
+            eyebrow="Confidentialite · Souverainete Maroc"
+            title={<>Vos donnees restent au <span style={{ color: 'var(--accent-deep)' }}>Maroc</span>. Les PII sont masquees avant tout appel Claude.</>}
+            icon={<Lock size={24} aria-hidden="true" />}
+            lead="Conformite Loi 09-08 (CNDP) et RGPD : les donnees a caractere personnel sont pseudonymisees automatiquement avant envoi vers les services cloud. Seules les references B2B publiques (ICE, IF, numeros de factures, montants) transitent en clair pour les besoins des regles de validation. Les valeurs reelles sont restaurees cote serveur apres la reponse, avant toute ecriture en base."
+            status="active"
+            statusLabel="Pseudonymisation active"
+            kpi="09-08"
+            kpiLabel="Loi Maroc"
+          />
+
+          <div className="flow-zones" style={{ marginTop: 18 }}>
+            <div className="flow-zone flow-zone-internal">
+              <span className="flow-zone-tag">Cote Maroc</span>
+              <h5>Vos documents</h5>
+              <div className="flow-zone-sub">Upload PDF/image sur votre bucket.</div>
+              <ul>
+                <li>Fichiers originaux : S3 prive</li>
+                <li>Donnees extraites : Postgres chiffre</li>
+                <li>Mapping PII : en memoire, jamais persiste</li>
+              </ul>
+              <div className="flow-zone-meta">Souverainete preservee</div>
+            </div>
+
+            <div className="flow-arrow" aria-hidden="true">
+              <span className="flow-arrow-label">Tokens opaques</span>
+            </div>
+
+            <div className="flow-zone flow-zone-external">
+              <span className="flow-zone-tag">Cote cloud</span>
+              <h5>Claude API (USA)</h5>
+              <div className="flow-zone-sub">Ne voit que le texte pseudonymise.</div>
+              <ul>
+                <li>Emails &rarr; [EMAIL_1]</li>
+                <li>Telephones MA &rarr; [PHONE_1]</li>
+                <li>RIB 24 chiffres &rarr; [RIB_1]</li>
+                <li>Noms avec civilite &rarr; [PERSON_1]</li>
+              </ul>
+              <div className="flow-zone-meta">Anthropic · DPF UE-US</div>
+            </div>
+
+            <div className="flow-arrow" aria-hidden="true">
+              <span className="flow-arrow-label">JSON masque</span>
+            </div>
+
+            <div className="flow-zone flow-zone-internal">
+              <span className="flow-zone-tag">Retour Maroc</span>
+              <h5>Detokenisation</h5>
+              <div className="flow-zone-sub">Valeurs reelles restaurees avant stockage.</div>
+              <ul>
+                <li>Mapping applique a la reponse</li>
+                <li>Validation grounding sur texte reel</li>
+                <li>Base Postgres : donnees en clair</li>
+              </ul>
+              <div className="flow-zone-meta">Fiabilite 100% preservee</div>
+            </div>
+          </div>
+
+          <div className="privacy-grid" style={{ marginTop: 18 }}>
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><UserX size={16} /></div>
+              <div className="privacy-card-title">Pseudonymisation automatique</div>
+              <div className="privacy-card-desc">
+                Avant chaque appel Claude, le service <code style={codeStyle}>PseudonymizationService</code> remplace
+                les PII detectees (emails, telephones Maroc, RIB, noms avec civilite) par des tokens
+                opaques. Le mapping est conserve en memoire le temps de l'extraction puis detruit.
+              </div>
+              <div className="privacy-card-source">Actif par defaut</div>
+            </div>
+
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><Shield size={16} /></div>
+              <div className="privacy-card-title">Loi 09-08 &amp; CNDP Maroc</div>
+              <div className="privacy-card-desc">
+                Les donnees personnelles au sens de la loi marocaine 09-08 (signataires, coordonnees,
+                comptes bancaires) ne transitent jamais en clair hors du Royaume. Les identifiants
+                B2B publics (ICE, IF, RC) restent visibles car necessaires a la validation metier.
+              </div>
+              <div className="privacy-card-source">Commission CNDP</div>
+            </div>
+
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><Globe size={16} /></div>
+              <div className="privacy-card-title">RGPD &amp; Data Privacy Framework</div>
+              <div className="privacy-card-desc">
+                Le transfert vers Anthropic (USA) repose sur le Data Privacy Framework UE-US
+                (equivalence CCT). Mistral OCR est heberge en France/UE. Tous les transferts sont
+                chiffres TLS 1.3 et limites au texte strictement necessaire au traitement.
+              </div>
+              <div className="privacy-card-source">DPA disponibles</div>
+            </div>
+
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><MapPin size={16} /></div>
+              <div className="privacy-card-title">Localisation des donnees</div>
+              <div className="privacy-card-desc">
+                Fichiers originaux : bucket S3 sous votre controle. Donnees extraites :
+                PostgreSQL chiffre. Logs applicatifs : identifiants et scores uniquement,
+                jamais le contenu OCR. Aucune donnee ne quitte le perimetre sans pseudonymisation.
+              </div>
+              <div className="privacy-card-source">Infrastructure maitrisee</div>
+            </div>
+
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><Clock size={16} /></div>
+              <div className="privacy-card-title">Retention limitee cote cloud</div>
+              <div className="privacy-card-desc">
+                Anthropic et Mistral conservent les requetes au maximum 30 jours a des fins
+                de securite puis les suppriment automatiquement. L'option Zero Data Retention
+                (ZDR) est disponible sur contrat entreprise.
+              </div>
+              <div className="privacy-card-source">Politiques sous-traitants</div>
+            </div>
+
+            <div className="privacy-card">
+              <div className="privacy-card-icon"><CheckCircle size={16} /></div>
+              <div className="privacy-card-title">Droit a l'effacement</div>
+              <div className="privacy-card-desc">
+                La suppression d'un dossier purge les donnees extraites en base et les fichiers
+                originaux sur S3. Le mapping de pseudonymisation n'etant jamais persiste, il
+                disparait automatiquement a la fin de chaque extraction.
+              </div>
+              <div className="privacy-card-source">Art. 17 RGPD · Art. 7 Loi 09-08</div>
+            </div>
+          </div>
+
+          <div className="alert alert-info" style={{ marginTop: 18 }}>
+            <Info size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              <strong>Donnees volontairement non masquees</strong> car identifiants B2B publics ou
+              necessaires aux regles de validation cross-documents (R09-R14) :
+              <code style={codeStyle}>ICE</code> (registre public marocain),
+              <code style={codeStyle}>IF</code>, <code style={codeStyle}>RC</code>,
+              <code style={codeStyle}>CNSS</code>, raisons sociales fournisseurs, montants, dates,
+              numeros de factures. Cette decision preserve la fiabilite des controles
+              (OBJECTIF #1 du projet) sans exposer de donnees a caractere personnel au sens
+              de la Loi 09-08.
+            </span>
+          </div>
+
+          <div className="alert alert-info" style={{ marginTop: 10 }}>
+            <Lock size={14} style={{ flexShrink: 0 }} aria-hidden="true" />
+            <span>
+              Pour les administrateurs : la pseudonymisation est activee par defaut et
+              ne peut pas etre desactivee depuis l'interface pour eviter toute non-conformite
+              accidentelle en production. Un operateur avec acces base peut la desactiver
+              temporairement pour debug local via la cle
+              <code style={codeStyle}>ai.pseudonymization.enabled = false</code>
+              dans <code style={codeStyle}>app_settings</code>.
             </span>
           </div>
         </div>
