@@ -3,9 +3,9 @@ import org.jetbrains.kotlin.gradle.dsl.JvmTarget
 plugins {
     id("org.springframework.boot") version "4.0.5"
     id("io.spring.dependency-management") version "1.1.7"
-    kotlin("jvm") version "2.2.20"
-    kotlin("plugin.spring") version "2.2.20"
-    kotlin("plugin.jpa") version "2.2.20"
+    kotlin("jvm") version "2.3.20"
+    kotlin("plugin.spring") version "2.3.20"
+    kotlin("plugin.jpa") version "2.3.20"
 }
 
 group = "com.madaef.recondoc"
@@ -124,22 +124,15 @@ dependencies {
 kotlin {
     compilerOptions {
         freeCompilerArgs.addAll("-Xjsr305=strict")
-        // L'enum JvmTarget de Kotlin 2.2.20 ne contient pas encore JVM_25.
-        // On cible le bytecode 21 (fin LTS, supporte par 100% des JRE cibles,
-        // y compris JDK 25 en runtime). Les nouveautes JDK 25 accessibles
-        // restent exploitables via les APIs a runtime ; on ne perd rien sauf
-        // quelques bytecodes record/pattern-matching tres recents inutilises ici.
-        jvmTarget.set(JvmTarget.JVM_21)
+        // Kotlin 2.3.x supporte JvmTarget.JVM_25 : bytecode Java 25 full.
+        jvmTarget.set(JvmTarget.JVM_25)
     }
 }
 
-// Toolchain JDK 25 pour RUN les outils (compilateurs, tests), mais bytecode
-// cible 21 cote Java pour rester aligne avec Kotlin (`JvmTarget.JVM_21`).
-// Sans cet alignement, Gradle 9.1 + Kotlin 2.2.20 echoue avec
-// "Inconsistent JVM Target Compatibility Between Java and Kotlin Tasks"
-// car compileJava prendrait par defaut la release du toolchain (25).
+// On pin explicitement la release cote Java pour rester aligne avec Kotlin
+// (cf Gradle KGP : "Inconsistent JVM Target Compatibility" sinon).
 tasks.withType<JavaCompile>().configureEach {
-    options.release.set(21)
+    options.release.set(25)
 }
 
 tasks.withType<Test> {
