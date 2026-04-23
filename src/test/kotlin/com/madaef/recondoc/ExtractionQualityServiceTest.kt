@@ -260,6 +260,57 @@ class ExtractionQualityServiceTest {
         assertTrue("dateBc" in r.missingMandatory, "dateBc doit etre detecte comme missing")
     }
 
+    // --- Anti auto-tromperie : penaliser _confidence haute contredite par les faits ---
+
+    @Test
+    fun `confidence haute avec 2+ champs obligatoires manquants est penalisee a 0_5`() {
+        // Claude a declare _confidence=0.95 alors que 3 champs obligatoires
+        // (dateFacture, fournisseur, ice) sont null : signal d'auto-validation
+        // abusive, la confidence doit etre cappee a 0.5 pour que le score
+        // composite reflete la realite.
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-1",
+            "montantTTC" to 1000.0
+        ), confOcr = 90.0, confExtract = 0.95)
+        val r = service.evaluate(doc)
+        assertTrue(r.confidenceExtraction <= 0.5,
+            "confidence auto-declaree doit etre cappee quand plusieurs obligatoires manquent, got ${r.confidenceExtraction}")
+    }
+
+    @Test
+    fun `confidence haute coherente avec completude n'est pas penalisee`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-001",
+            "dateFacture" to "2026-03-15",
+            "montantTTC" to 12000.0,
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "tauxTVA" to 20,
+            "fournisseur" to "ACME SARL",
+            "ice" to "123456789012345"
+        ), confOcr = 90.0, confExtract = 0.95)
+        val r = service.evaluate(doc)
+        assertEquals(0.95, r.confidenceExtraction, "confidence haute legitime ne doit pas etre penalisee")
+    }
+
+    @Test
+    fun `confidence haute sur facture avec arithmetique HT TVA TTC incoherente est penalisee`() {
+        // coherence arith < 0.7 doit suffire a plafonner la confidence meme
+        // si tous les champs obligatoires sont presents.
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-1",
+            "dateFacture" to "2026-01-01",
+            "montantTTC" to 20000.0, // incoherent
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "fournisseur" to "ACME",
+            "ice" to "001509176000008"
+        ), confOcr = 90.0, confExtract = 0.92)
+        val r = service.evaluate(doc)
+        assertTrue(r.confidenceExtraction <= 0.5,
+            "confidence auto-declaree doit etre cappee si coherence arith est cassee, got ${r.confidenceExtraction}")
+    }
+
     @Test
     fun `OP sans numeroOp ou dateEmission est marque incomplet`() {
         val doc = buildDocument(TypeDocument.ORDRE_PAIEMENT, mapOf(
@@ -270,5 +321,80 @@ class ExtractionQualityServiceTest {
         val r = service.evaluate(doc)
         assertTrue("numeroOp" in r.missingMandatory)
         assertTrue("dateEmission" in r.missingMandatory)
+    }
+
+    // --- Couche engagement : MARCHE, BC_CADRE, CONTRAT_CADRE (Maroc) ---
+
+    @Test
+    fun `MARCHE complet utilise les cles reference objet fournisseur montantTtc dateDocument`() {
+        val doc = buildDocument(TypeDocument.MARCHE, mapOf(
+            "reference" to "M-2024-001",
+            "objet" to "Travaux d'entretien du golf royal",
+            "fournisseur" to "ACME BTP SARL",
+            "montantTtc" to 1200000.00,
+            "montantHt" to 1000000.00,
+            "montantTva" to 200000.00,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-06-15",
+            "categorie" to "TRAVAUX",
+            "delaiExecutionMois" to 12,
+            "retenueGarantiePct" to 7,
+            "cautionDefinitivePct" to 3,
+            "numeroAo" to "AO 2024/15",
+            "dateAo" to "2024-05-20",
+            "revisionPrixAutorisee" to true
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "MARCHE complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `BON_COMMANDE_CADRE complet utilise les cles du prompt`() {
+        val doc = buildDocument(TypeDocument.BON_COMMANDE_CADRE, mapOf(
+            "reference" to "BCC-2024-001",
+            "objet" to "Fournitures de bureau",
+            "fournisseur" to "ACME SARL",
+            "montantTtc" to 500000.00,
+            "montantHt" to 416666.67,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-03-10",
+            "plafondMontant" to 500000.00,
+            "dateValiditeFin" to "2026-03-10",
+            "seuilAntiFractionnement" to 200000.00
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "BC cadre complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `CONTRAT_CADRE complet utilise les cles du prompt`() {
+        val doc = buildDocument(TypeDocument.CONTRAT_CADRE, mapOf(
+            "reference" to "CM-2024-015",
+            "objet" to "Contrat de maintenance climatisation",
+            "fournisseur" to "ACME SARL",
+            "montantTtc" to 120000.00,
+            "montantHt" to 100000.00,
+            "tauxTva" to 20,
+            "dateDocument" to "2024-01-15",
+            "dateDebut" to "2024-02-01",
+            "dateFin" to "2026-01-31",
+            "periodicite" to "MENSUEL",
+            "reconductionTacite" to true,
+            "preavisResiliationJours" to 90
+        ))
+        val r = service.evaluate(doc)
+        assertEquals(emptyList(), r.missingMandatory, "Contrat cadre complet ne doit avoir aucun mandatory missing")
+    }
+
+    @Test
+    fun `MARCHE sans reference ou fournisseur est marque incomplet`() {
+        val doc = buildDocument(TypeDocument.MARCHE, mapOf(
+            "objet" to "Travaux",
+            "montantTtc" to 1000000.00,
+            "dateDocument" to "2024-06-15"
+        ))
+        val r = service.evaluate(doc)
+        assertTrue("reference" in r.missingMandatory)
+        assertTrue("fournisseur" in r.missingMandatory)
     }
 }

@@ -68,36 +68,30 @@ class ClassificationService(
             return keywordResult
         }
 
-        // Fallback to LLM classification with confidence scoring
+        // Fallback to LLM classification with confidence scoring via tool_use.
+        // Le mode tool_use force Claude a renvoyer un objet {categorie, confidence}
+        // conforme au schema -> plus de parse regex, plus de JSON tronque, plus
+        // de reponse hors-contrat.
         try {
             val wrapped = "<document_content>\n$rawText\n</document_content>"
-            val result = llmExtractionService.callClaude(CLASSIFICATION_PROMPT, wrapped, CallKind.CLASSIFICATION)
-            val cleaned = result.trim()
-
-            // Try JSON format first: {"categorie":"...", "confidence": 0.95}
-            val jsonMatch = Regex("""\{[^}]*"categorie"\s*:\s*"([^"]+)"[^}]*"confidence"\s*:\s*([\d.]+)[^}]*\}""").find(cleaned)
-            if (jsonMatch != null) {
-                val categorie = jsonMatch.groupValues[1].uppercase().replace(" ", "_")
-                val confidence = jsonMatch.groupValues[2].toDoubleOrNull() ?: 0.0
-                val type = TypeDocument.entries.find { it.name == categorie }
-                if (type != null) {
-                    if (confidence < CONFIDENCE_THRESHOLD) {
-                        log.warn("LLM classification {} with low confidence {}, marking as INCONNU", type, confidence)
-                        return TypeDocument.INCONNU
-                    }
-                    log.info("Document classified by LLM: {} (confidence={})", type, confidence)
-                    return type
+            val schema = ExtractionSchemas.CLASSIFICATION
+            val toolResp = llmExtractionService.callClaudeTool(
+                CLASSIFICATION_PROMPT, wrapped, schema.name, schema.inputSchema, CallKind.CLASSIFICATION
+            )
+            val categorieStr = (toolResp.toolInput["categorie"] as? String)?.uppercase()?.replace(" ", "_")
+            val confidence = (toolResp.toolInput["confidence"] as? Number)?.toDouble() ?: 0.0
+            val type = TypeDocument.entries.find { it.name == categorieStr }
+            if (type != null) {
+                if (confidence < CONFIDENCE_THRESHOLD) {
+                    log.warn("LLM classification {} with low confidence {}, marking as INCONNU", type, confidence)
+                    return TypeDocument.INCONNU
                 }
+                log.info("Document classified by LLM tool_use: {} (confidence={})", type, confidence)
+                return type
             }
-
-            // Fallback: plain text response (backward compat)
-            val plainType = TypeDocument.entries.find { it.name == cleaned.uppercase().replace(" ", "_") }
-            if (plainType != null) {
-                log.info("Document classified by LLM (plain): {}", plainType)
-                return plainType
-            }
+            log.warn("LLM tool_use returned unknown categorie '{}'", categorieStr)
         } catch (e: Exception) {
-            log.warn("LLM classification failed: {}", e.message)
+            log.warn("LLM classification (tool_use) failed: {}", e.message)
         }
 
         log.warn("Could not classify document, marking as INCONNU for manual review")

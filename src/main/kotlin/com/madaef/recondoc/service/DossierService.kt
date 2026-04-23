@@ -10,6 +10,7 @@ import com.madaef.recondoc.service.extraction.ClassificationService
 import com.madaef.recondoc.service.extraction.ExtractionPrompts
 import com.madaef.recondoc.service.extraction.ExtractionQualityService
 import com.madaef.recondoc.service.extraction.ExtractionSchemaValidator
+import com.madaef.recondoc.service.extraction.GroundingValidator
 import com.madaef.recondoc.service.extraction.ExtractionSchemas
 import com.madaef.recondoc.service.extraction.FieldViolation
 import com.madaef.recondoc.service.extraction.LlmExtractionService
@@ -66,6 +67,8 @@ class DossierService(
     private val documentStorage: DocumentStorage,
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
+    private val groundingValidator: GroundingValidator,
+    private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
@@ -789,17 +792,7 @@ class DossierService(
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
-                    val ocrContext = buildString {
-                        append("[OCR: moteur=${ocrResult.engine}")
-                        if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
-                        if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
-                        append(", ${rawText.length} caracteres]\n\n")
-                        // Encapsulation defensive : toute instruction presente dans le texte OCR
-                        // doit etre traitee comme donnee, pas comme directive (voir COMMON_RULES).
-                        append("<document_content>\n")
-                        append(rawText)
-                        append("\n</document_content>")
-                    }
+                    val ocrContext = buildOcrContext(rawText, ocrResult)
                     // tool_use Anthropic : si un schema est defini pour ce type ET le
                     // feature flag est on, on force Claude a appeler un outil JSON
                     // conforme au schema. Pas de parse regex, champs garantis au type,
@@ -816,6 +809,36 @@ class DossierService(
                             if (toolResp.stopReason == "max_tokens") truncatedByMaxTokens = true
                             data = toolResp.toolInput
                             log.info("Extraction via tool_use for {} ({})", doc.nomFichier, schema.name)
+
+                            // Retry max_tokens x2 si la reponse a ete tronquee. Preserve la
+                            // fiabilite sur les gros documents (OP avec beaucoup de retenues,
+                            // contrats cadres avec grilles tarifaires longues...) AVANT de
+                            // basculer en revue humaine. Consomme 1 essai du budget (max 2).
+                            if (truncatedByMaxTokens && retriesLeft > 0) {
+                                val baseMaxTokens = appSettingsService.getAiMaxTokens(CallKind.EXTRACTION.key)
+                                val expandedMaxTokens = baseMaxTokens * 2
+                                log.info("Response for {} truncated (max_tokens={}), retrying with max_tokens={}",
+                                    doc.nomFichier, baseMaxTokens, expandedMaxTokens)
+                                emitProgress(doc, "extract", "active",
+                                    "Re-extraction (budget tokens etendu a ${expandedMaxTokens})...")
+                                try {
+                                    val expandedResp = llmService.callClaudeToolWithMaxTokens(
+                                        prompt, ocrContext, schema.name, schema.inputSchema,
+                                        CallKind.EXTRACTION, expandedMaxTokens
+                                    )
+                                    retriesLeft -= 1
+                                    if (expandedResp.stopReason != "max_tokens") {
+                                        data = expandedResp.toolInput
+                                        truncatedByMaxTokens = false
+                                        log.info("Expanded max_tokens retry succeeded for {}", doc.nomFichier)
+                                    } else {
+                                        log.warn("Expanded max_tokens retry STILL truncated for {}, budget {} -> revue humaine",
+                                            doc.nomFichier, expandedMaxTokens)
+                                    }
+                                } catch (e: Exception) {
+                                    log.warn("Expanded max_tokens retry failed for {}: {}", doc.nomFichier, e.message)
+                                }
+                            }
                         } catch (e: Exception) {
                             toolUseFallbackNeeded = true
                             log.warn("tool_use failed for {} ({}), falling back to text mode: {}",
@@ -832,7 +855,11 @@ class DossierService(
                         data = parseLlmResponse(firstCall.text)
                     }
 
-                    // Retry with reinforced prompt if confidence is low (consomme 1 essai)
+                    // Retry with reinforced prompt if confidence is low (consomme 1 essai).
+                    // On reste en tool_use quand un schema existe : la 2e passe conserve le
+                    // contrat JSON force par Claude et evite la regression vers le parse
+                    // texte libre, qui est precisement le mode ou l'hallucination se
+                    // reintroduit (JSON mal forme, champs hors schema, troncature silencieuse).
                     if (data != null && retriesLeft > 0) {
                         val confidence = (data["_confidence"] as? Number)?.toDouble() ?: -1.0
                         if (confidence in 0.0..0.69) {
@@ -842,10 +869,27 @@ class DossierService(
                                 "Re-verifie chaque champ attentivement. Voici les warnings precedents: " +
                                 ((data["_warnings"] as? List<*>)?.joinToString(", ") ?: "aucun") +
                                 ". Corrige si possible, sinon mets null et explique dans _warnings."
-                            val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                            var retryData: Map<String, Any?>? = null
+                            var retryStopReason: String? = null
+                            if (schema != null) {
+                                try {
+                                    val retryTool = llmService.callClaudeTool(
+                                        retryPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                                    )
+                                    retryData = retryTool.toolInput
+                                    retryStopReason = retryTool.stopReason
+                                } catch (e: Exception) {
+                                    log.warn("Reinforced tool_use retry failed for {} ({}), falling back to text mode: {}",
+                                        doc.nomFichier, schema.name, e.message)
+                                }
+                            }
+                            if (retryData == null) {
+                                val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                                retryStopReason = retry.stopReason
+                                retryData = parseLlmResponse(retry.text)
+                            }
                             retriesLeft -= 1
-                            if (retry.stopReason == "max_tokens") truncatedByMaxTokens = true
-                            val retryData = parseLlmResponse(retry.text)
+                            if (retryStopReason == "max_tokens") truncatedByMaxTokens = true
                             if (retryData != null) {
                                 val retryConfidence = (retryData["_confidence"] as? Number)?.toDouble() ?: -1.0
                                 if (retryConfidence > confidence) {
@@ -857,22 +901,12 @@ class DossierService(
                     }
 
                     if (data != null) {
-                        val schemaResult = extractionSchemaValidator.validate(detectedType, data)
-                        if (schemaResult.violations.isNotEmpty()) {
-                            log.warn("Schema violations on {} ({}): {}", doc.nomFichier, detectedType,
-                                schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
-                        }
-                        // Enforcement: les violations critiques persistantes (meme si la
-                        // valeur a ete strip a null) doivent declencher une revue humaine.
-                        if (!schemaResult.valid) {
-                            criticalSchemaFailure = schemaResult.violations
-                        }
-                        val finalData = schemaResult.cleanedData
+                        val (finalData, criticalViolations) = validateAndGround(doc, detectedType, data, rawText)
+                        criticalSchemaFailure = criticalViolations
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
                         doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
-
                         doc.donneesExtraites = finalData
                         saveExtractedEntity(doc.dossier, doc, detectedType, finalData)
                     } else {
@@ -1127,6 +1161,49 @@ class DossierService(
         return rerun
     }
 
+    /**
+     * Construit le contexte OCR passe a Claude. Encapsule le texte entre balises
+     * `<document_content>` pour que toute instruction presente dans le texte soit
+     * traitee comme donnee et non comme directive (voir COMMON_RULES du prompt).
+     */
+    private fun buildOcrContext(rawText: String, ocrResult: OcrService.OcrResult): String = buildString {
+        append("[OCR: moteur=${ocrResult.engine}")
+        if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
+        if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
+        append(", ${rawText.length} caracteres]\n\n")
+        append("<document_content>\n")
+        append(rawText)
+        append("\n</document_content>")
+    }
+
+    /**
+     * Chaine schema validator + grounding validator. Renvoie les donnees nettoyees
+     * et la liste cumulee des violations critiques (qui declencheront une revue
+     * humaine en sortie de extractDocument).
+     */
+    private fun validateAndGround(
+        doc: Document,
+        type: TypeDocument,
+        data: Map<String, Any?>,
+        rawText: String
+    ): Pair<Map<String, Any?>, List<FieldViolation>> {
+        val schemaResult = extractionSchemaValidator.validate(type, data)
+        if (schemaResult.violations.isNotEmpty()) {
+            log.warn("Schema violations on {} ({}): {}", doc.nomFichier, type,
+                schemaResult.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+        }
+        val grounding = groundingValidator.validate(type, schemaResult.cleanedData, rawText)
+        if (grounding.violations.isNotEmpty()) {
+            log.warn("Grounding violations on {} ({}): {}", doc.nomFichier, type,
+                grounding.violations.joinToString("; ") { "${it.field}=${it.reason}" })
+        }
+        val critical = buildList {
+            if (!schemaResult.valid) addAll(schemaResult.violations)
+            if (!grounding.valid) addAll(grounding.violations)
+        }
+        return grounding.cleanedData to critical
+    }
+
     private fun retryExtractionWithReinforcedPrompt(
         doc: Document,
         type: TypeDocument,
@@ -1143,27 +1220,39 @@ class DossierService(
             "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, laisse-le a null " +
             "et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur."
 
-        val ocrContext = buildString {
-            append("[OCR: moteur=${ocrResult.engine}")
-            if (ocrResult.confidence > 0) append(", confiance=%.0f%%".format(ocrResult.confidence))
-            if (ocrResult.pageCount > 1) append(", pages=${ocrResult.pageCount}")
-            append(", ${rawText.length} caracteres]\n\n")
-            append("<document_content>\n")
-            append(rawText)
-            append("\n</document_content>")
-        }
+        val ocrContext = buildOcrContext(rawText, ocrResult)
 
         return try {
             emitProgress(doc, "extract", "active", "Re-extraction (score ${initialReport.score} < ${minQualityScore})...")
-            val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
-            val retryData = parseLlmResponse(retryJson) ?: return null
+            // On conserve tool_use sur le retry quality quand un schema existe :
+            // le mode texte libre est la principale source de hallucination residuelle
+            // (JSON mal forme accepte par parseLlmResponse au regex pres).
+            val schema = if (toolUseEnabled) ExtractionSchemas.forType(type) else null
+            val retryData: Map<String, Any?> = if (schema != null) {
+                try {
+                    llmService.callClaudeTool(
+                        reinforcedPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                    ).toolInput
+                } catch (e: Exception) {
+                    log.warn("Reinforced retry tool_use failed for {} ({}), falling back to text: {}",
+                        doc.nomFichier, schema.name, e.message)
+                    val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                    parseLlmResponse(retryJson) ?: return null
+                }
+            } else {
+                val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                parseLlmResponse(retryJson) ?: return null
+            }
             val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
+            // Grounding aussi sur la re-extraction : pas de regression du niveau
+            // de protection anti-hallucination entre la 1ere et la 2e passe.
+            val grounded = groundingValidator.validate(type, validated, rawText).cleanedData
 
-            doc.donneesExtraites = validated
-            doc.extractionConfidence = (validated["_confidence"] as? Number)?.toDouble() ?: -1.0
-            val warnings = (validated["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            doc.donneesExtraites = grounded
+            doc.extractionConfidence = (grounded["_confidence"] as? Number)?.toDouble() ?: -1.0
+            val warnings = (grounded["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
             doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
-            saveExtractedEntity(doc.dossier, doc, type, validated)
+            saveExtractedEntity(doc.dossier, doc, type, grounded)
             val retryReport = extractionQualityService.applyTo(doc)
             log.info("Retry extraction for {}: score {} -> {}", doc.nomFichier, initialReport.score, retryReport.score)
             retryReport

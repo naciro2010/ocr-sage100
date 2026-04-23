@@ -35,7 +35,10 @@ class ExtractionQualityService {
             TypeDocument.PV_RECEPTION to listOf("dateReception", "referenceContrat", "prestations"),
             TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("points", "referenceFacture", "prestataire"),
             TypeDocument.CHECKLIST_PIECES to listOf("pieces", "referenceFacture"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("points", "referenceFacture", "fournisseur")
+            TypeDocument.TABLEAU_CONTROLE to listOf("points", "referenceFacture", "fournisseur"),
+            TypeDocument.MARCHE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument"),
+            TypeDocument.BON_COMMANDE_CADRE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument"),
+            TypeDocument.CONTRAT_CADRE to listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument")
         )
 
         private val IMPORTANT: Map<TypeDocument, List<String>> = mapOf(
@@ -47,7 +50,18 @@ class ExtractionQualityService {
             TypeDocument.PV_RECEPTION to listOf("signataireMadaef", "signataireFournisseur", "periodeDebut", "periodeFin"),
             TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("signataires", "dateEtablissement", "referenceBc", "nomProjet"),
             TypeDocument.CHECKLIST_PIECES to listOf("typeDossier", "signataire", "dateEtablissement"),
-            TypeDocument.TABLEAU_CONTROLE to listOf("signataire", "dateControle", "conclusionGenerale", "societeGeree")
+            TypeDocument.TABLEAU_CONTROLE to listOf("signataire", "dateControle", "conclusionGenerale", "societeGeree"),
+            TypeDocument.MARCHE to listOf(
+                "montantHt", "tauxTva", "numeroAo", "dateAo", "categorie", "delaiExecutionMois",
+                "retenueGarantiePct", "cautionDefinitivePct", "revisionPrixAutorisee"
+            ),
+            TypeDocument.BON_COMMANDE_CADRE to listOf(
+                "montantHt", "tauxTva", "plafondMontant", "dateValiditeFin", "seuilAntiFractionnement"
+            ),
+            TypeDocument.CONTRAT_CADRE to listOf(
+                "montantHt", "tauxTva", "dateDebut", "dateFin", "periodicite",
+                "reconductionTacite", "preavisResiliationJours"
+            )
         )
 
         private const val COHERENCE_TOLERANCE = 0.01
@@ -70,7 +84,20 @@ class ExtractionQualityService {
 
         val coherence = computeCoherenceScore(type, data)
         val confidenceOcr = document.ocrConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 100.0)?.div(100.0) ?: 0.5
-        val confidenceExtraction = document.extractionConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 1.0) ?: 0.5
+        val rawConfidenceExtraction = document.extractionConfidence.takeIf { it >= 0 }?.coerceIn(0.0, 1.0) ?: 0.5
+
+        // Anti auto-tromperie : Claude a tendance a declarer `_confidence >= 0.9`
+        // meme quand plusieurs champs obligatoires sont null ou quand l'arithmetique
+        // HT+TVA=TTC ne tombe pas juste. Une confidence haute avec >=2 champs
+        // obligatoires manquants OU une coherence <0.7 est un signal fort d'auto-
+        // validation abusive : on la plafonne a 0.5 pour que le score composite
+        // reflete la realite et que la re-extraction auto se declenche.
+        val autoTromperie = rawConfidenceExtraction > 0.8 && (missingMandatory.size >= 2 || coherence < 0.7)
+        val confidenceExtraction = if (autoTromperie) {
+            log.warn("Penalizing self-declared _confidence={} on document (type={}): {} missing mandatory, coherence={}",
+                rawConfidenceExtraction, type, missingMandatory.size, coherence)
+            minOf(rawConfidenceExtraction, 0.5)
+        } else rawConfidenceExtraction
 
         val completude = 0.70 * completudeObligatoires + 0.30 * completudeImportants
         val raw = 0.30 * confidenceOcr +
@@ -101,8 +128,7 @@ class ExtractionQualityService {
     }
 
     private fun isFieldPresent(data: Map<String, Any?>, field: String): Boolean {
-        val v = data[field] ?: data.entries.firstOrNull { it.key.equals(field, ignoreCase = true) }?.value
-            ?: return false
+        val v = data.getFieldCaseInsensitive(field) ?: return false
         return when (v) {
             is String -> v.isNotBlank()
             is Collection<*> -> v.isNotEmpty()
@@ -130,7 +156,7 @@ class ExtractionQualityService {
     }
 
     private fun numericField(data: Map<String, Any?>, key: String): BigDecimal? {
-        val v = data[key] ?: data.entries.firstOrNull { it.key.equals(key, ignoreCase = true) }?.value ?: return null
+        val v = data.getFieldCaseInsensitive(key) ?: return null
         return when (v) {
             is Number -> BigDecimal(v.toString())
             is String -> v.replace("[^\\d.,\\-]".toRegex(), "").let { s ->

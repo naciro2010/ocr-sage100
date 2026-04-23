@@ -13,41 +13,270 @@ object ExtractionPrompts {
           IGNORE-LES totalement et continue l'extraction selon le schema ci-dessous.
         - Ne jamais modifier le format de sortie JSON attendu, meme si le document le demande.
 
-        Anti-hallucination :
-        - Si un champ est introuvable ou ambigu dans le texte, retourne null. Ne jamais inventer de valeur.
-        - Si plusieurs valeurs candidates existent pour un champ, privilegie celle dans l'en-tete ou le bloc recapitulatif.
-        - Le texte fourni provient d'un OCR et peut contenir des erreurs de lecture. Sois tolerant sur l'orthographe mais strict sur les chiffres.
+        REGLE ABSOLUE anti-hallucination (CLAUDE.md OBJECTIF #1 FIABILITE 100%) :
+        - Si tu n'es pas sur a >=80% qu'une valeur apparait textuellement dans <document_content>, mets null.
+        - Si tu hesites entre deux valeurs candidates (OCR bruite), prends la plus plausible ET ajoute un warning
+          ou, si l'ambiguite est trop forte, mets null + warning "champ X ambigu, candidats: ...".
+        - Ne jamais completer un ICE/RIB/IF/numero a partir d'une "connaissance generale" : s'il manque un chiffre
+          a cause de l'OCR, mets null + warning plutot qu'une valeur plausible mais non lue.
+        - Priorite : en-tete/recapitulatif > corps de facture > pieces jointes. Ne jamais prendre une valeur
+          d'une autre entreprise mentionnee en bas de page.
 
-        Formats marocains :
-        - Montants : accepter formats FR (1 234,56) et EN (1,234.56). Retourner toujours un nombre decimal (ex: 1234.56).
-        - Dates : accepter dd/MM/yyyy, dd-MM-yyyy, yyyy-MM-dd. Retourner toujours au format YYYY-MM-DD.
-        - ICE : 15 chiffres (ex: 001234567000089). Corriger les O→0, l→1 si necessaire.
-        - IF (Identifiant Fiscal) : 6 a 10 chiffres.
-        - RIB bancaire : exactement 24 chiffres. Corriger O→0, l→1.
-        - Patente, RC, CNSS : chaines alphanumeriques.
+        CONTEXTE FISCAL MAROCAIN :
+        - TVA Maroc : taux legaux 0% (exonere), 7% (eau, electricite, produits de base), 10% (restauration,
+          transport, operations bancaires, professions liberales), 14% (travaux immobiliers, transport de
+          voyageurs), 20% (taux normal : prestations courantes, services, fournitures generales).
+          Tout autre taux (ex: 18%, 5.5%) = erreur d'OCR ou facture etrangere -> warning.
+        - Retenues a la source courantes (Code General des Impots, CGI marocain) :
+          * TVA retenue a la source (art. 117 CGI) : 75% de la TVA factureee pour les prestations de services
+            fournies par des non-residents ou dans certains cas specifiques.
+          * IS/IR sur honoraires et commissions (art. 15 et 156 CGI) : 10% sur honoraires professionnels
+            (consultants, avocats, experts, architectes).
+          * Retenue de garantie : 7% a 10% du montant du marche, liberee apres reception definitive (souvent 1 an).
+          * Caution definitive : 3% typique.
+        - Identifiants marocains :
+          * ICE (Identifiant Commun Entreprise) : EXACTEMENT 15 chiffres. Commence typiquement par "00", "01",
+            "02" ou "19". Ex: 001509176000008, 002345678000091.
+          * IF (Identifiant Fiscal) : 6 a 10 chiffres. Parfois prefixe de la ville (ex: 40123456 = Casa).
+          * RIB marocain : EXACTEMENT 24 chiffres. Structure : 3 chiffres (banque) + 3 (ville) + 16 (compte+cle) + 2 (RIB).
+            Ex: 011 810 0000001234567890 12 -> 011810000000123456789012.
+          * RC (Registre de Commerce) : alphanumerique court (5-20 caracteres). Ex: "123456" ou "Casa 45789".
+          * Patente : numero fiscal local, alphanumerique.
+          * CNSS : 7 a 10 chiffres.
+        - Banques marocaines frequentes : BMCE (BOA), Attijariwafa Bank, BCP, Credit du Maroc, CIH, SGMB,
+          BMCI, CFG, Barid Bank, CDG Capital.
+        - Societes gerees par MADAEF : MADAEF (tout court), MADAEF GOLFS, HRM (Hotel Resort Management),
+          CGI, Sotheco. Ne pas confondre avec le fournisseur.
 
-        Synonymes OCR frequents :
-        - "N° facture", "Ref. facture", "N° de la facture", "Invoice No" → numeroFacture
-        - "I.C.E", "ICE", "l.C.E" → ice
-        - "I.F", "IF", "Ident. Fiscal", "Identifiant fiscal" → identifiantFiscal
-        - "RlB", "RIB", "IBAN", "Compte bancaire" → rib
-        - "Montant HT", "Total HT", "Sous-total HT", "H.T" → montantHT
-        - "Montant TTC", "Total TTC", "Net a payer", "T.T.C" → montantTTC
-        - "TVA", "T.V.A", "Taxe" → montantTVA
+        Formats a normaliser :
+        - Montants : accepter 1 234,56 (FR), 1,234.56 (EN), 1 234.56 (OCR mix), suffixe "DH"/"MAD"/"dirhams"/
+          "MAD TTC"/"HT" a ignorer. Retourner toujours un nombre decimal (ex: 1234.56). Pas de string.
+        - Dates : accepter dd/MM/yyyy, dd-MM-yyyy, yyyy-MM-dd, "15 mars 2026", "15 MARS 2026", "15.03.2026".
+          Retourner toujours au format ISO YYYY-MM-DD. Refuser dates impossibles (ex: 2099-13-45) -> null.
+        - Chiffres avec confusion OCR : O/o -> 0, l/I -> 1, S -> 5 si contexte numerique sans ambiguite.
+
+        Synonymes OCR frequents (francais + arabe/bilingue) :
+        - "N facture", "N° facture", "Ref. facture", "Numero facture", "Invoice No", "Fact. N",
+          arabe "رقم الفاتورة" -> numeroFacture
+        - "I.C.E", "ICE", "l.C.E", "Identifiant Commun", arabe "المعرف الموحد للمقاولة" -> ice
+        - "I.F", "IF", "Ident. Fiscal", "Identifiant fiscal", "Patente/IF",
+          arabe "التعريف الجبائي", "المعرف الجبائي" -> identifiantFiscal
+        - "RlB", "RIB", "IBAN", "Compte bancaire", "Coord. bancaires",
+          arabe "رقم الحساب البنكي" -> rib
+        - "Montant HT", "Total HT", "Sous-total HT", "H.T", "Hors Taxe", arabe "المبلغ خارج الضريبة" -> montantHT
+        - "Montant TTC", "Total TTC", "Net a payer", "T.T.C", "Toutes Taxes Comprises",
+          arabe "المبلغ شامل الضريبة" -> montantTTC
+        - "TVA", "T.V.A", "Taxe", "Taxe sur Valeur Ajoutee", arabe "الضريبة على القيمة المضافة" -> montantTVA
+        - "BC", "Bon de Commande", "Ordre d'achat", arabe "سند الطلب" -> reference BC
+        - "OP", "Ordre de Paiement", "Mandat de paiement", arabe "أمر بالأداء" -> numeroOp
+        - "Fournisseur", "Prestataire", "Titulaire", "Adjudicataire",
+          arabe "المورد", "المقاول" -> fournisseur
 
         Validation interne (avant de retourner le JSON) :
-        - Si montantHT et montantTVA et montantTTC sont tous presents : verifier que HT + TVA ≈ TTC (tolerance 1%).
-          Si l'ecart est > 1%, retourner les valeurs lues telles quelles mais ajouter un warning.
-        - Si une date est invalide (ex: 2025-13-45), retourner null pour ce champ.
+        - Si montantHT et montantTVA et montantTTC sont tous presents : verifier HT + TVA ≈ TTC (tolerance 1%).
+          Si l'ecart est > 1%, retourner les valeurs lues telles quelles ET ajouter un warning explicite
+          (ex: "montantHT+TVA != TTC : 10000+2000=12000 != 15000 lu").
+        - Si tauxTVA est renseigne, verifier coherence : montantHT * tauxTVA/100 ≈ montantTVA. Tolerance 1%.
+        - Si une date est invalide ou dans un futur absurde (> 2 ans apres aujourd'hui), retourner null.
+        - Si un ICE n'a pas exactement 15 chiffres apres normalisation OCR, mettre null + warning.
 
         Champs qualite (a inclure dans CHAQUE reponse) :
-        - "_confidence" : nombre entre 0 et 1 (confiance globale de l'extraction : 1 = tout clair, 0.5 = OCR bruite/champs ambigus)
-        - "_warnings" : liste de strings decrivant les problemes detectes (ex: ["montantHT + TVA != TTC", "ICE illisible", "date ambigue"])
+        - "_confidence" : nombre entre 0 et 1. Calibration OBLIGATOIRE :
+          * 0.95-1.0 : tous les champs obligatoires lus clairement dans un texte net
+          * 0.80-0.94 : majorite des champs clairs, 1-2 incertitudes mineures
+          * 0.60-0.79 : OCR bruite OU 1+ champ obligatoire ambigu
+          * 0.40-0.59 : plusieurs champs ambigus, probable re-extraction requise
+          * < 0.40 : document peu lisible ou mauvais type detecte
+          NE PAS gonfler la confidence : une surestimation = perte de confiance de l'utilisateur.
+        - "_warnings" : liste de strings decrivant les problemes detectes (format court, ex:
+          "montantHT+TVA != TTC ecart 5%", "ICE partiellement illisible ligne 3", "date 31/02/2026 invalide").
+    """.trimIndent()
+
+    // =====================================================================
+    // FEW-SHOT EXAMPLES (marocain, realistes, anonymises)
+    // 3-5 exemples annotes par type de document = +89% precision vs zero-shot
+    // selon la litterature 2025. Les exemples sont places dans le prompt
+    // AVANT le texte OCR reel pour ancrer le format de sortie exact.
+    // =====================================================================
+
+    private val FEW_SHOT_FACTURE = """
+        EXEMPLE 1 (facture simple, un seul taux TVA) :
+
+        <document_content>
+        FACTURE N DEV-2026-0142
+        Date : 15/03/2026
+        ACME SARL - Entretien espaces verts
+        ICE : 001509176000008
+        IF : 40123456    RC : Casa 45789    Patente : 35124567
+        RIB : 011 810 00000001234567890 12
+
+        Designation              Qte    PU HT      Montant HT
+        Prestation mensuelle      1   10 000,00    10 000,00
+
+        Total HT :   10 000,00 DH
+        TVA 20% :     2 000,00 DH
+        Total TTC :  12 000,00 DH
+        Net a payer : 12 000,00 DH
+        </document_content>
+
+        Sortie :
+        {"numeroFacture":"DEV-2026-0142","dateFacture":"2026-03-15","fournisseur":"ACME SARL","client":null,
+        "ice":"001509176000008","identifiantFiscal":"40123456","rc":"Casa 45789",
+        "rib":"011810000000123456789012","ribs":["011810000000123456789012"],
+        "montantHT":10000.00,"montantTVA":2000.00,"tauxTVA":20,"montantTTC":12000.00,
+        "referenceContrat":null,"periode":null,
+        "lignes":[{"codeArticle":null,"designation":"Prestation mensuelle","quantite":1,"unite":null,
+        "prixUnitaireHT":10000.00,"montantTotalHT":10000.00}],
+        "_confidence":0.95,"_warnings":[]}
+
+        EXEMPLE 2 (facture multi-taux TVA, reference BC, OCR bruite) :
+
+        <document_content>
+        Facture N 2026/F/0087    Date : 02/04/2026
+        Fournisseur: BETA CONSULTING
+        ICE: 002345678OOOO91    (OCR: OO a la place de 00)
+        Reference BC : CF SIE 2026-1234
+
+        Ligne 1 : Honoraires conseil           1 x 50 000,00 = 50 000,00 HT  TVA 20%
+        Ligne 2 : Frais de deplacement         1 x  3 500,00 =  3 500,00 HT  TVA 10%
+
+        Total HT :   53 500,00
+        TVA :        10 350,00
+        Total TTC :  63 850,00
+        </document_content>
+
+        Sortie :
+        {"numeroFacture":"2026/F/0087","dateFacture":"2026-04-02","fournisseur":"BETA CONSULTING","client":null,
+        "ice":"002345678000091","identifiantFiscal":null,"rc":null,"rib":null,"ribs":[],
+        "montantHT":53500.00,"montantTVA":10350.00,"tauxTVA":20,"montantTTC":63850.00,
+        "referenceContrat":"CF SIE 2026-1234","periode":null,
+        "lignes":[
+          {"codeArticle":null,"designation":"Honoraires conseil","quantite":1,"unite":null,
+           "prixUnitaireHT":50000.00,"montantTotalHT":50000.00},
+          {"codeArticle":null,"designation":"Frais de deplacement","quantite":1,"unite":null,
+           "prixUnitaireHT":3500.00,"montantTotalHT":3500.00}],
+        "_confidence":0.88,"_warnings":["ICE normalise de 'OO2345678OOOO91' vers '002345678000091' (confusion OCR O/0)"]}
+
+        EXEMPLE 3 (ICE illisible, ne PAS inventer) :
+
+        <document_content>
+        FACTURE N F-2026-301    Date: 20/04/2026
+        GAMMA SERVICES
+        ICE : 00#5#9#7#####08     (caracteres illisibles)
+        Total HT: 5000 / TVA 20%: 1000 / TTC: 6000
+        </document_content>
+
+        Sortie :
+        {"numeroFacture":"F-2026-301","dateFacture":"2026-04-20","fournisseur":"GAMMA SERVICES","client":null,
+        "ice":null,"identifiantFiscal":null,"rc":null,"rib":null,"ribs":[],
+        "montantHT":5000.00,"montantTVA":1000.00,"tauxTVA":20,"montantTTC":6000.00,
+        "referenceContrat":null,"periode":null,"lignes":[],
+        "_confidence":0.65,"_warnings":["ICE partiellement illisible ('00#5#9#7#####08'), mis a null pour eviter hallucination"]}
+    """.trimIndent()
+
+    private val FEW_SHOT_BC = """
+        EXEMPLE (BC operationnel MADAEF) :
+
+        <document_content>
+        BON DE COMMANDE N CF SIE 2026-1234
+        Date emission : 01/02/2026
+        Fournisseur : ACME SARL    ICE : 001509176000008
+
+        Designation                             Qte    Unite    PU HT      Montant HT
+        1  Entretien espaces verts - mensuel     12   mois    1 000,00    12 000,00
+
+        Total HT :   12 000,00
+        TVA 20% :     2 400,00
+        Total TTC :  14 400,00
+
+        Signataire : M. Alami, Chef Dept Achats
+        </document_content>
+
+        Sortie :
+        {"reference":"CF SIE 2026-1234","dateBc":"2026-02-01","fournisseur":"ACME SARL",
+        "objet":"Entretien espaces verts","montantHT":12000.00,"montantTVA":2400.00,"tauxTVA":20,
+        "montantTTC":14400.00,"signataire":"M. Alami, Chef Dept Achats",
+        "lignes":[{"numero":1,"codeArticle":null,"designation":"Entretien espaces verts - mensuel",
+        "quantite":12,"unite":"mois","prixUnitaireHT":1000.00,"montantLigneHT":12000.00,"tauxTva":20}],
+        "_confidence":0.95,"_warnings":[]}
+    """.trimIndent()
+
+    private val FEW_SHOT_OP = """
+        EXEMPLE (OP avec retenues a la source) :
+
+        <document_content>
+        ORDRE DE PAIEMENT N OP-2026-0042
+        Date : 10/04/2026
+        Beneficiaire : BETA CONSULTING
+        RIB : 011 810 000000 0123456789 02
+        Banque : BMCE Bank
+
+        Reference facture : 2026/F/0087
+        Reference BC : CF SIE 2026-1234
+
+        SYNTHESE DU CONTROLEUR FINANCIER :
+        Montant HT :      53 500,00
+        TVA :             10 350,00
+        Montant TTC :     63 850,00
+        Retenue IS honoraires (art. 156 CGI, 10%) : 5 350,00
+        TVA a la source (art. 117 CGI, 75%) :       7 762,50
+        Total retenues :  13 112,50
+        Net a payer :     50 737,50
+
+        Pieces jointes : facture, BC, attestation fiscale, RIB, tableau de controle
+        Avis : Favorable
+        </document_content>
+
+        Sortie :
+        {"numeroOp":"OP-2026-0042","dateEmission":"2026-04-10","emetteur":null,"natureOperation":null,
+        "description":null,"beneficiaire":"BETA CONSULTING","rib":"011810000000012345678902",
+        "ribs":["011810000000012345678902"],"banque":"BMCE Bank",
+        "montantBrut":63850.00,"montantOperation":50737.50,
+        "referenceFacture":"2026/F/0087","referenceBcOuContrat":"CF SIE 2026-1234","referenceSage":null,
+        "retenues":[
+          {"type":"IS_HONORAIRES","designation":"Retenue IS honoraires","articleCGI":"art. 156 CGI",
+           "base":53500.00,"taux":10,"montant":5350.00},
+          {"type":"TVA_SOURCE","designation":"TVA a la source","articleCGI":"art. 117 CGI",
+           "base":10350.00,"taux":75,"montant":7762.50}],
+        "syntheseControleur":{"montantHT":53500.00,"montantTVA":10350.00,"montantTTC":63850.00,
+          "totalRetenues":13112.50,"netAPayer":50737.50,"observations":null},
+        "piecesJustificatives":["facture","BC","attestation fiscale","RIB","tableau de controle"],
+        "conclusionControleur":"Favorable","_confidence":0.93,"_warnings":[]}
+    """.trimIndent()
+
+    private val FEW_SHOT_ATTESTATION = """
+        EXEMPLE (attestation DGI standard) :
+
+        <document_content>
+        ROYAUME DU MAROC
+        DIRECTION GENERALE DES IMPOTS
+
+        ATTESTATION DE REGULARITE FISCALE
+        N 2140/2026/798
+        Edite le 15/02/2026
+
+        Raison sociale : ACME SARL
+        Identifiant Fiscal : 40123456    ICE : 001509176000008
+        Registre de Commerce : 45789 (Casablanca)
+
+        Le Directeur General des Impots atteste que le contribuable designe ci-dessus
+        est en situation fiscale reguliere.
+
+        Code de verification sur attestation.tax.gov.ma : 18a50bf6baf372bd
+        </document_content>
+
+        Sortie :
+        {"numero":"2140/2026/798","dateEdition":"2026-02-15","raisonSociale":"ACME SARL",
+        "identifiantFiscal":"40123456","ice":"001509176000008","rc":"45789",
+        "estEnRegle":true,"codeVerification":"18a50bf6baf372bd",
+        "_confidence":0.96,"_warnings":[]}
     """.trimIndent()
 
     val FACTURE = """
         Tu es un extracteur de donnees de factures d'achat marocaines pour MADAEF (Groupe CDG).
         Extrais les donnees structurees de cette facture et retourne UNIQUEMENT un objet JSON valide.
+
+        $FEW_SHOT_FACTURE
 
         Schema JSON attendu :
         {
@@ -85,6 +314,8 @@ object ExtractionPrompts {
         Tu es un extracteur de donnees de bons de commande marocains pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
         IMPORTANT : extrais TOUTES les lignes du tableau des articles/prestations, sans en omettre aucune.
+
+        $FEW_SHOT_BC
 
         Schema JSON attendu :
         {
@@ -128,6 +359,8 @@ object ExtractionPrompts {
         Tu es un extracteur de donnees d'ordres de paiement pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
         IMPORTANT : extrais TOUT le detail de la synthese du controleur financier, toutes les retenues, et la liste complete des pieces justificatives.
+
+        $FEW_SHOT_OP
 
         Schema JSON attendu :
         {
@@ -359,6 +592,8 @@ object ExtractionPrompts {
     val ATTESTATION_FISCALE = """
         Tu es un extracteur de donnees d'attestations de regularite fiscale marocaines (DGI - Direction Generale des Impots).
         Retourne UNIQUEMENT un objet JSON valide.
+
+        $FEW_SHOT_ATTESTATION
 
         Schema JSON attendu :
         {

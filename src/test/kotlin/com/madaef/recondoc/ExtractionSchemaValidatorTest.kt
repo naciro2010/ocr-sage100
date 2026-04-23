@@ -240,6 +240,91 @@ class ExtractionSchemaValidatorTest {
         assertTrue(r.cleanedData["rib"] != null, "RIB valide ne doit pas etre strip")
     }
 
+    // --- Verrouillage des noms de dates aligne entre prompts et validator ---
+
+    @Test
+    fun `BC avec dateBc mal formee leve une violation (alignement prompt)`() {
+        val r = validator.validate(TypeDocument.BON_COMMANDE, mapOf(
+            "reference" to "BC-1", "fournisseur" to "ACME",
+            "montantTTC" to 100, "dateBc" to "2099-13-45"
+        ))
+        assertTrue(r.violations.any { it.field == "dateBc" },
+            "validator doit lire dateBc (pas dateBC) — verrou contre la regression de cle")
+    }
+
+    @Test
+    fun `ORDRE_PAIEMENT avec dateEmission mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.ORDRE_PAIEMENT, mapOf(
+            "numeroOp" to "OP-1", "beneficiaire" to "ACME",
+            "montantOperation" to 100, "dateEmission" to "pas-une-date"
+        ))
+        assertTrue(r.violations.any { it.field == "dateEmission" })
+    }
+
+    @Test
+    fun `CONTRAT_AVENANT avec dateSignature mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.CONTRAT_AVENANT, mapOf(
+            "referenceContrat" to "C-1", "dateSignature" to "hier"
+        ))
+        assertTrue(r.violations.any { it.field == "dateSignature" },
+            "validator doit lire dateSignature (pas dateContrat)")
+    }
+
+    @Test
+    fun `ATTESTATION_FISCALE avec dateEdition mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.ATTESTATION_FISCALE, mapOf(
+            "numero" to "ATT-1", "raisonSociale" to "ACME",
+            "dateEdition" to "9999-99-99"
+        ))
+        assertTrue(r.violations.any { it.field == "dateEdition" })
+    }
+
+    // --- Couche engagement (Maroc, decret 2-12-349) ---
+
+    @Test
+    fun `MARCHE avec montantTtc negatif leve une violation critique`() {
+        val r = validator.validate(TypeDocument.MARCHE, mapOf(
+            "reference" to "M-2024-001",
+            "fournisseur" to "ACME BTP",
+            "montantTtc" to -1000
+        ))
+        assertFalse(r.valid)
+        assertTrue(r.violations.any { it.field == "montantTtc" && it.reason.contains("negatif") })
+    }
+
+    @Test
+    fun `MARCHE avec reference vide leve une violation NON_VIDE critique`() {
+        val r = validator.validate(TypeDocument.MARCHE, mapOf(
+            "reference" to "",
+            "fournisseur" to "ACME BTP",
+            "montantTtc" to 1000
+        ))
+        assertFalse(r.valid)
+        assertTrue(r.violations.any { it.field == "reference" && it.reason.contains("vide") })
+    }
+
+    @Test
+    fun `BON_COMMANDE_CADRE avec dateValiditeFin invalide leve une violation`() {
+        val r = validator.validate(TypeDocument.BON_COMMANDE_CADRE, mapOf(
+            "reference" to "BCC-2024-001",
+            "fournisseur" to "ACME",
+            "montantTtc" to 500000,
+            "dateValiditeFin" to "pas-une-date"
+        ))
+        assertTrue(r.violations.any { it.field == "dateValiditeFin" })
+    }
+
+    @Test
+    fun `CONTRAT_CADRE avec dateDebut mal formee leve une violation`() {
+        val r = validator.validate(TypeDocument.CONTRAT_CADRE, mapOf(
+            "reference" to "CM-2024-015",
+            "fournisseur" to "ACME",
+            "montantTtc" to 100000,
+            "dateDebut" to "2099-13-45"
+        ))
+        assertTrue(r.violations.any { it.field == "dateDebut" })
+    }
+
     @Test
     fun `ICE avec OCR cryptographique OO1 reste 001 (pas de strip arbitraire)`() {
         val r = validator.validate(TypeDocument.FACTURE, mapOf(
