@@ -58,6 +58,14 @@ class ClassificationService(
         """.trimIndent()
 
         private const val CONFIDENCE_THRESHOLD = 0.6
+
+        // Budget elargi pour le retry de classification. Avant PR #94 le chemin
+        // texte libre avait deux fallbacks implicites (JSON parse + plain text) ;
+        // en tool_use strict, la moindre cause d'echec (timeout reseau, overload,
+        // stop_reason=max_tokens, categorie hors enum, confidence basse) tombe
+        // directement sur INCONNU. On retente une fois avec plus de tokens avant
+        // de bloquer en revue humaine. Cout marginal (~1 appel classification).
+        private const val RETRY_MAX_TOKENS = 1024
     }
 
     fun classify(rawText: String): TypeDocument {
@@ -72,30 +80,57 @@ class ClassificationService(
         // Le mode tool_use force Claude a renvoyer un objet {categorie, confidence}
         // conforme au schema -> plus de parse regex, plus de JSON tronque, plus
         // de reponse hors-contrat.
-        try {
-            val wrapped = "<document_content>\n$rawText\n</document_content>"
+        val wrapped = "<document_content>\n$rawText\n</document_content>"
+
+        val first = classifyViaLlm(wrapped, maxTokensOverride = null)
+        if (first != null) return first
+
+        // Retry unique avec budget elargi avant de tomber sur INCONNU. Filet de
+        // securite contre les echecs transitoires (reseau, overload) et contre
+        // les tronquages tool_use sur documents longs.
+        log.warn("Classification LLM 1er essai non concluant, retry avec max_tokens={}", RETRY_MAX_TOKENS)
+        val second = classifyViaLlm(wrapped, maxTokensOverride = RETRY_MAX_TOKENS)
+        if (second != null) return second
+
+        log.warn("Could not classify document after retry, marking as INCONNU for manual review")
+        return TypeDocument.INCONNU
+    }
+
+    private fun classifyViaLlm(wrapped: String, maxTokensOverride: Int?): TypeDocument? {
+        return try {
             val schema = ExtractionSchemas.CLASSIFICATION
-            val toolResp = llmExtractionService.callClaudeTool(
-                CLASSIFICATION_PROMPT, wrapped, schema.name, schema.inputSchema, CallKind.CLASSIFICATION
-            )
+            val toolResp = if (maxTokensOverride != null) {
+                llmExtractionService.callClaudeToolWithMaxTokens(
+                    CLASSIFICATION_PROMPT, wrapped, schema.name, schema.inputSchema,
+                    CallKind.CLASSIFICATION, maxTokensOverride
+                )
+            } else {
+                llmExtractionService.callClaudeTool(
+                    CLASSIFICATION_PROMPT, wrapped, schema.name, schema.inputSchema, CallKind.CLASSIFICATION
+                )
+            }
             val categorieStr = (toolResp.toolInput["categorie"] as? String)?.uppercase()?.replace(" ", "_")
             val confidence = (toolResp.toolInput["confidence"] as? Number)?.toDouble() ?: 0.0
             val type = TypeDocument.entries.find { it.name == categorieStr }
-            if (type != null) {
-                if (confidence < CONFIDENCE_THRESHOLD) {
-                    log.warn("LLM classification {} with low confidence {}, marking as INCONNU", type, confidence)
-                    return TypeDocument.INCONNU
+            when {
+                type == null -> {
+                    log.warn("LLM tool_use returned unknown categorie '{}' (override={})", categorieStr, maxTokensOverride)
+                    null
                 }
-                log.info("Document classified by LLM tool_use: {} (confidence={})", type, confidence)
-                return type
+                confidence < CONFIDENCE_THRESHOLD -> {
+                    log.warn("LLM classification {} confidence basse {} (override={})", type, confidence, maxTokensOverride)
+                    null
+                }
+                else -> {
+                    log.info("Document classified by LLM tool_use: {} (confidence={}, override={})",
+                        type, confidence, maxTokensOverride)
+                    type
+                }
             }
-            log.warn("LLM tool_use returned unknown categorie '{}'", categorieStr)
         } catch (e: Exception) {
-            log.warn("LLM classification (tool_use) failed: {}", e.message)
+            log.warn("LLM classification (tool_use, override={}) failed: {}", maxTokensOverride, e.message)
+            null
         }
-
-        log.warn("Could not classify document, marking as INCONNU for manual review")
-        return TypeDocument.INCONNU
     }
 
     private fun classifyByKeywords(text: String): TypeDocument? {
