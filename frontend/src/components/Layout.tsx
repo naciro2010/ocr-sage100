@@ -2,6 +2,15 @@ import { useState, useEffect } from 'react'
 import { NavLink, Outlet, useLocation } from 'react-router-dom'
 import { Activity, BarChart3, Briefcase, FolderOpen, Settings, Shield, ShieldAlert, Search, LogOut, Moon, Sun, CheckCircle, Users } from 'lucide-react'
 import SearchPanel from './SearchPanel'
+import * as Pages from '../routes/lazyPages'
+
+const preloadDashboard = () => { Pages.Dashboard.preload() }
+const preloadEngagements = () => { Pages.EngagementList.preload() }
+const preloadDossiers = () => { Pages.DossierList.preload() }
+const preloadFournisseurs = () => { Pages.FournisseurList.preload() }
+const preloadClaudeUsage = () => { Pages.ClaudeUsage.preload() }
+const preloadRulesHealth = () => { Pages.RulesHealth.preload() }
+const preloadSettings = () => { Pages.Settings.preload() }
 
 interface Props {
   user?: { nom: string; role: string; email: string }
@@ -45,19 +54,19 @@ export default function Layout({ user, onLogout }: Props) {
         <div className="nav-section">Navigation</div>
         <ul className="nav-links">
           <li>
-            <NavLink to="/" end>
+            <NavLink to="/" end onMouseEnter={preloadDashboard} onFocus={preloadDashboard} onTouchStart={preloadDashboard}>
               <BarChart3 size={16} /> <span>Tableau de bord</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/engagements" className={() => {
+            <NavLink to="/engagements" onMouseEnter={preloadEngagements} onFocus={preloadEngagements} onTouchStart={preloadEngagements} className={() => {
               return location.pathname.startsWith('/engagements') ? 'active' : ''
             }}>
               <Briefcase size={16} /> <span>Engagements</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/dossiers" className={() => {
+            <NavLink to="/dossiers" onMouseEnter={preloadDossiers} onFocus={preloadDossiers} onTouchStart={preloadDossiers} className={() => {
               const loc = location
               return loc.pathname === '/dossiers' && !loc.search.includes('statut=VALIDE') ? 'active' : ''
             }}>
@@ -65,7 +74,7 @@ export default function Layout({ user, onLogout }: Props) {
             </NavLink>
           </li>
           <li>
-            <NavLink to="/dossiers?statut=VALIDE" className={() => {
+            <NavLink to="/dossiers?statut=VALIDE" onMouseEnter={preloadDossiers} onFocus={preloadDossiers} onTouchStart={preloadDossiers} className={() => {
               const loc = location
               return loc.pathname === '/dossiers' && loc.search.includes('statut=VALIDE') ? 'active' : ''
             }}>
@@ -73,22 +82,22 @@ export default function Layout({ user, onLogout }: Props) {
             </NavLink>
           </li>
           <li>
-            <NavLink to="/fournisseurs">
+            <NavLink to="/fournisseurs" onMouseEnter={preloadFournisseurs} onFocus={preloadFournisseurs} onTouchStart={preloadFournisseurs}>
               <Users size={16} /> <span>Fournisseurs</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/admin/claude-usage">
+            <NavLink to="/admin/claude-usage" onMouseEnter={preloadClaudeUsage} onFocus={preloadClaudeUsage} onTouchStart={preloadClaudeUsage}>
               <Activity size={16} /> <span>Consommation IA</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/admin/rules-health">
+            <NavLink to="/admin/rules-health" onMouseEnter={preloadRulesHealth} onFocus={preloadRulesHealth} onTouchStart={preloadRulesHealth}>
               <ShieldAlert size={16} /> <span>Sante des regles</span>
             </NavLink>
           </li>
           <li>
-            <NavLink to="/settings">
+            <NavLink to="/settings" onMouseEnter={preloadSettings} onFocus={preloadSettings} onTouchStart={preloadSettings}>
               <Settings size={16} /> <span>Parametres</span>
             </NavLink>
           </li>
