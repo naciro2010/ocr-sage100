@@ -77,6 +77,12 @@ object ExtractionPrompts {
           Si l'ecart est > 1%, retourner les valeurs lues telles quelles ET ajouter un warning explicite
           (ex: "montantHT+TVA != TTC : 10000+2000=12000 != 15000 lu").
         - Si tauxTVA est renseigne, verifier coherence : montantHT * tauxTVA/100 ≈ montantTVA. Tolerance 1%.
+        - Si le document contient des lignes (facture, BC) : verifier somme(lignes.montantTotalHT ou
+          montantLigneHT) ≈ montantHT (tolerance 1%). En cas d'ecart > 1% : RELIRE chaque ligne avec plus
+          de soin (confusions OCR frequentes : virgule decimale mal placee, 1 lu "7", 6 lu "8", espaces
+          interpretes comme milliers). Corriger les montants de ligne si possible. Si l'ecart persiste
+          apres relecture, garder les valeurs lues ET ajouter un warning explicite
+          (ex: "sommeLignesHT=9800 != montantHT=12000 (ecart 18%)").
         - Si une date est invalide ou dans un futur absurde (> 2 ans apres aujourd'hui), retourner null.
         - Si un ICE n'a pas exactement 15 chiffres apres normalisation OCR, mettre null + warning.
 
@@ -304,7 +310,11 @@ object ExtractionPrompts {
         - montantTVA : somme TOTALE de la TVA sur toutes les lignes, meme si les taux sont differents (ex: 20% sur certaines lignes, 0% sur d'autres).
         - tauxTVA : le taux TVA dominant (applique au plus grand montant HT). Taux marocains courants : 0%, 7%, 10%, 14%, 20%.
         - montantHT et montantTTC doivent etre les totaux generaux de la facture (pas les lignes individuelles).
-        - Priorite pour les montants : "TOTAL" ou "NET A PAYER" > "Sous-total" > somme des lignes.
+        - Source pour les montants : "TOTAL" ou "NET A PAYER" > "Sous-total" > somme calculee. MAIS
+          avant de valider ces valeurs, VERIFIER que sum(lignes.montantTotalHT) ≈ montantHT (tolerance
+          1%). En cas de desaccord, c'est signe qu'UNE DES DEUX lectures est fausse : relire chaque
+          ligne ET le total imprime, corriger l'erreur OCR la plus probable. Si l'ecart persiste,
+          garder le total imprime mais ajouter un warning explicite "sommeLignesHT=X != montantHT=Y".
         - rib : le RIB principal (premier trouve). ribs : liste de TOUS les RIB trouves dans le document.
 
         $COMMON_RULES
@@ -349,7 +359,10 @@ object ExtractionPrompts {
         - Si le tableau a des sous-totaux par section, extrais chaque ligne individuelle, pas les sous-totaux.
         - montantTVA : somme TOTALE de la TVA. Si plusieurs taux TVA existent, additionne toutes les TVA.
         - tauxTVA : le taux TVA dominant (applique au plus grand montant HT).
-        - montantHT et montantTTC : totaux generaux du bon de commande.
+        - montantHT et montantTTC : totaux generaux du bon de commande. VERIFIER que sum(lignes.montantLigneHT) ≈
+          montantHT (tolerance 1%). En cas de desaccord : relire chaque ligne (confusions OCR virgule
+          decimale, 1/7, 6/8). Si l'ecart persiste apres relecture, warning explicite
+          "sommeLignesHT=X != montantHT=Y".
         - La reference peut etre prefixee "CF SIE" suivie d'un numero.
 
         $COMMON_RULES

@@ -139,20 +139,74 @@ class ExtractionQualityService {
 
     private fun computeCoherenceScore(type: TypeDocument, data: Map<String, Any?>): Double {
         return when (type) {
-            TypeDocument.FACTURE -> factureArithCoherence(data)
+            TypeDocument.FACTURE -> combineCoherence(
+                htTvaTtcCoherence(data),
+                sommeLignesVsTotal(data, "montantTotalHT", "montantHT")
+            )
+            TypeDocument.BON_COMMANDE -> combineCoherence(
+                htTvaTtcCoherence(data),
+                sommeLignesVsTotal(data, "montantLigneHT", "montantHT")
+            )
             else -> 1.0
         }
     }
 
-    private fun factureArithCoherence(data: Map<String, Any?>): Double {
+    /**
+     * Coherence HT + TVA ≈ TTC (tolerance 1%). Retourne null si l'un des trois
+     * champs est absent (pas de penalite dans ce cas, la completude s'en charge).
+     */
+    private fun htTvaTtcCoherence(data: Map<String, Any?>): Double? {
         val ht = numericField(data, "montantHT")
         val tva = numericField(data, "montantTVA")
         val ttc = numericField(data, "montantTTC")
-        if (ht == null || tva == null || ttc == null || ttc == BigDecimal.ZERO) return 0.5
+        if (ht == null || tva == null || ttc == null || ttc == BigDecimal.ZERO) return null
         val expected = ht.add(tva)
         val diff = expected.subtract(ttc).abs()
         val ratio = diff.divide(ttc.abs().max(BigDecimal.ONE), 6, RoundingMode.HALF_UP).toDouble()
-        return if (ratio <= COHERENCE_TOLERANCE) 1.0 else (1.0 - (ratio * 5.0)).coerceAtLeast(0.0)
+        return coherenceFromRatio(ratio)
+    }
+
+    /**
+     * Coherence somme(lignes.<lineAmountKey>) ≈ <totalHtKey>. Bloque les
+     * extractions ou Claude a pris un total correct mais a mal lu une ligne
+     * (ou l'inverse), ce qui casse R01/R03 (concordance montants facture/BC)
+     * et fait passer des faux negatifs critiques. Retourne null si le document
+     * n'a pas de lignes ou pas de total HT -> pas de penalite injustifiee.
+     */
+    private fun sommeLignesVsTotal(
+        data: Map<String, Any?>,
+        lineAmountKey: String,
+        totalHtKey: String
+    ): Double? {
+        val total = numericField(data, totalHtKey) ?: return null
+        if (total.signum() == 0) return null
+        val lignes = data.getFieldCaseInsensitive("lignes") as? List<*> ?: return null
+        if (lignes.isEmpty()) return null
+        val sommeBd = lignes
+            .mapNotNull { line ->
+                @Suppress("UNCHECKED_CAST")
+                (line as? Map<String, Any?>)?.let { numericField(it, lineAmountKey) }
+            }
+            .fold(BigDecimal.ZERO) { acc, v -> acc.add(v) }
+        // Aucune ligne avec montant exploitable : on ne force pas de coherence.
+        if (sommeBd.signum() == 0) return null
+        val diff = sommeBd.subtract(total).abs()
+        val ratio = diff.divide(total.abs().max(BigDecimal.ONE), 6, RoundingMode.HALF_UP).toDouble()
+        return coherenceFromRatio(ratio)
+    }
+
+    private fun coherenceFromRatio(ratio: Double): Double =
+        if (ratio <= COHERENCE_TOLERANCE) 1.0 else (1.0 - (ratio * 5.0)).coerceAtLeast(0.0)
+
+    /**
+     * Combine plusieurs signaux de coherence (HT+TVA=TTC, somme lignes=HT...) :
+     * moyenne arithmetique des signaux disponibles, avec un plancher 0.5 si
+     * aucun signal n'a pu etre evalue (equivalent a l'ancien comportement).
+     */
+    private fun combineCoherence(vararg signals: Double?): Double {
+        val present = signals.filterNotNull()
+        if (present.isEmpty()) return 0.5
+        return present.average()
     }
 
     private fun numericField(data: Map<String, Any?>, key: String): BigDecimal? {
