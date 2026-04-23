@@ -27,6 +27,10 @@ repositories {
     mavenCentral()
 }
 
+// Configuration dediee pour resoudre le jar mockito-core et le passer en
+// -javaagent aux tests (JDK 21+ durcit l'auto-attach, JDK 25 le refuse).
+val mockitoAgent: Configuration = configurations.create("mockitoAgent")
+
 dependencies {
     // Spring Boot
     implementation("org.springframework.boot:spring-boot-starter-web")
@@ -111,6 +115,10 @@ dependencies {
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("com.h2database:h2")
+    // Mockito inline utilise Byte Buddy pour instrumenter les classes finales ;
+    // sur JDK 25 l'auto-attach (Attach API) est refuse par defaut, on fournit
+    // donc mockito-core comme `-javaagent` explicite (voir tasks Test plus bas).
+    mockitoAgent("org.mockito:mockito-core") { isTransitive = false }
 }
 
 kotlin {
@@ -125,6 +133,22 @@ kotlin {
     }
 }
 
+// Toolchain JDK 25 pour RUN les outils (compilateurs, tests), mais bytecode
+// cible 21 cote Java pour rester aligne avec Kotlin (`JvmTarget.JVM_21`).
+// Sans cet alignement, Gradle 9.1 + Kotlin 2.2.20 echoue avec
+// "Inconsistent JVM Target Compatibility Between Java and Kotlin Tasks"
+// car compileJava prendrait par defaut la release du toolchain (25).
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(21)
+}
+
 tasks.withType<Test> {
     useJUnitPlatform()
+    // JDK 24+ restreint l'auto-attach d'agents ; JDK 25 le refuse par defaut,
+    // ce qui casse Mockito inline (ByteBuddy self-attach via Attach API).
+    // On pousse mockito-core comme -javaagent explicite : c'est la methode
+    // officielle recommandee par Mockito a partir de 5.12+ pour JDK 21+.
+    jvmArgumentProviders += CommandLineArgumentProvider {
+        listOf("-javaagent:${mockitoAgent.asPath}")
+    }
 }
