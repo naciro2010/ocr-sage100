@@ -215,6 +215,28 @@ class DossierService(
         )
     }
 
+    /**
+     * Snapshot complet de la page Detail Dossier en 1 transaction read-only.
+     * Reuse les methodes existantes (validees par les tests golden) ; le
+     * gain ne vient pas d'une nouvelle requete optimisee mais de :
+     *   - 1 seul roundtrip HTTP au lieu de 5,
+     *   - 1 seule transaction Postgres au lieu de 5 (1st-level cache
+     *     Hibernate partage entre summary + docs + audit),
+     *   - 1 seul ETag/304 cote client.
+     * Le service ne renvoie pas customRules (catalogue global, deja en
+     * cache long cote frontend) ni cascadeScope (calcule a la demande).
+     */
+    @Transactional(readOnly = true)
+    fun getDossierSnapshot(dossierId: UUID): DossierSnapshotResponse {
+        return DossierSnapshotResponse(
+            summary = getDossierSummary(dossierId),
+            documents = listDocumentsWithData(dossierId),
+            validationResults = getValidationResults(dossierId),
+            audit = getAuditLog(dossierId),
+            ruleConfig = dossierRuleConfigService.getRuleConfig(dossierId)
+        )
+    }
+
     @Transactional(readOnly = true)
     fun listDocuments(dossierId: UUID): List<DocumentResponse> {
         return documentRepo.findByDossierId(dossierId).map { it.toResponse() }

@@ -165,6 +165,22 @@ export async function getDocumentsWithData(id: string): Promise<DocumentsWithDat
   return cachedFetch(`${BASE}/${id}/documents`, 5000)
 }
 
+/**
+ * Reponse "tout-en-un" backend. Mirroir de DossierSnapshotResponse.kt.
+ * DossierDetail l'utilise au mount pour eviter 5 GET en parallele.
+ */
+export interface DossierSnapshot {
+  summary: DossierSummary
+  documents: DocumentsWithData
+  validationResults: ValidationResult[]
+  audit: AuditEntry[]
+  ruleConfig: { global: Record<string, boolean>; overrides: Record<string, boolean> }
+}
+
+export async function getDossierSnapshot(id: string): Promise<DossierSnapshot> {
+  return cachedFetch<DossierSnapshot>(`${BASE}/${id}/snapshot`, 3000)
+}
+
 export async function updateDossier(id: string, data: Record<string, unknown>): Promise<DossierDetail> {
   const res = await apiFetch(`${BASE}/${id}`, {
     method: 'PUT',

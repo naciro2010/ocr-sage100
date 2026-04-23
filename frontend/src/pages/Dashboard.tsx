@@ -4,6 +4,7 @@ import { getDashboardStats, listDossiers, createDossier, uploadDocuments } from 
 import type { DossierListItem, DashboardStats } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
+import { getDossierSnapshot } from '../api/dossierApi'
 import * as Pages from '../routes/lazyPages'
 import {
   BarChart3, FolderOpen, CheckCircle, AlertTriangle, Clock, ArrowRight,
@@ -242,8 +243,15 @@ export default function Dashboard() {
               <tbody>
                 {recent.map(d => {
                   const c = STATUT_CONFIG[d.statut]
+                  // Au survol d'une ligne : on charge le bundle JS du detail
+                  // ET le snapshot data en parallele -> au clic, la page
+                  // s'affiche instantanement (cache hit cote dossierApi).
+                  const prefetch = () => {
+                    Pages.DossierDetail.preload()
+                    void getDossierSnapshot(d.id).catch(() => {})
+                  }
                   return (
-                    <tr key={d.id}>
+                    <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
                       <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
                       <td>{d.fournisseur || '\u2014'}</td>
                       <td><span className="tag">{d.type}</span></td>

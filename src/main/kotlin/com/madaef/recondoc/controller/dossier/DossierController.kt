@@ -108,6 +108,18 @@ class DossierController(
             .body(summary)
     }
 
+    /**
+     * Endpoint "tout-en-un" pour la page Detail. Combine summary + documents
+     * + resultats-validation + audit + rule-config. Cote front, ouvrir un
+     * dossier passe de 5 GET paralleles a 1 seul roundtrip + 1 seul ETag.
+     */
+    @GetMapping("/{id}/snapshot")
+    fun getSnapshot(@PathVariable id: UUID): ResponseEntity<DossierSnapshotResponse> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3, must-revalidate")
+            .body(dossierService.getDossierSnapshot(id))
+    }
+
     @PutMapping("/{id}")
     fun update(@PathVariable id: UUID, @RequestBody request: UpdateDossierRequest): DossierResponse {
         dossierService.updateDossier(id, request)

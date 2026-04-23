@@ -77,7 +77,15 @@ class SpaConfig : WebMvcConfigurer {
             override fun doFilterInternal(request: HttpServletRequest, response: HttpServletResponse, chain: FilterChain) {
                 val uri = request.requestURI
                 val isApi = uri.startsWith("/api/") || uri.startsWith("/actuator/")
-                val isAsset = uri.startsWith("/assets/") || uri.matches(Regex("^/.+\\.(js|css|svg|png|jpg|jpeg|woff2?|ico)$"))
+                // Le Service Worker DOIT etre revalide a chaque chargement
+                // (sinon une nouvelle version du SW deploiee n'est jamais prise
+                // en compte par les onglets ouverts). Meme regle pour
+                // manifest.json si on en ajoute un.
+                val isServiceWorker = uri == "/sw.js" || uri == "/manifest.json"
+                val isAsset = !isServiceWorker && (
+                    uri.startsWith("/assets/") ||
+                    uri.matches(Regex("^/.+\\.(js|css|svg|png|jpg|jpeg|woff2?|ico)$"))
+                )
                 if (!isApi && !isAsset) {
                     response.setHeader(HttpHeaders.CACHE_CONTROL, "no-cache, must-revalidate")
                 }
