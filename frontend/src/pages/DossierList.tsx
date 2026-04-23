@@ -6,6 +6,7 @@ import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import DocumentSearchModal from '../components/dossier/DocumentSearchModal'
+import * as Pages from '../routes/lazyPages'
 import {
   FolderOpen, Plus, ChevronLeft, ChevronRight, RefreshCw, Loader2,
   X, Trash2, Upload, Download, FileText, Search, Filter, CheckCircle2, XCircle
@@ -154,6 +155,7 @@ export default function DossierList() {
   const handlePrefetch = useCallback((dossierId: string) => {
     if (prefetchedRef.current.has(dossierId)) return
     prefetchedRef.current.add(dossierId)
+    Pages.DossierDetail.preload()
     getDossierSummary(dossierId)
     getDocumentsWithData(dossierId)
   }, [])
