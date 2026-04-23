@@ -865,16 +865,24 @@ class DossierService(
                         if (confidence in 0.0..0.69) {
                             log.info("Low confidence ({}) for {}, retrying with reinforced prompt", confidence, doc.nomFichier)
                             emitProgress(doc, "extract", "active", "Re-verification (confiance faible)...")
-                            val retryPrompt = prompt + "\n\nATTENTION: La premiere extraction avait une confiance de ${(confidence * 100).toInt()}%. " +
-                                "Re-verifie chaque champ attentivement. Voici les warnings precedents: " +
+                            // Hint de retry place dans le USER message plutot que concatene
+                            // au system prompt : preserve le cache Anthropic du system
+                            // (few-shots + descriptions schema, ~6-8k tokens) sur la 2e
+                            // passe. Le system prompt doit rester bit-a-bit identique a
+                            // l'appel initial pour que le cache hit.
+                            val retryHint = "<retry_context>\n" +
+                                "ATTENTION : la premiere extraction avait une confiance de ${(confidence * 100).toInt()}%. " +
+                                "Re-verifie chaque champ attentivement. Warnings precedents : " +
                                 ((data["_warnings"] as? List<*>)?.joinToString(", ") ?: "aucun") +
-                                ". Corrige si possible, sinon mets null et explique dans _warnings."
+                                ". Corrige si possible, sinon mets null et explique dans _warnings.\n" +
+                                "</retry_context>\n\n"
+                            val retryUser = retryHint + ocrContext
                             var retryData: Map<String, Any?>? = null
                             var retryStopReason: String? = null
                             if (schema != null) {
                                 try {
                                     val retryTool = llmService.callClaudeTool(
-                                        retryPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                                        prompt, retryUser, schema.name, schema.inputSchema, CallKind.EXTRACTION
                                     )
                                     retryData = retryTool.toolInput
                                     retryStopReason = retryTool.stopReason
@@ -884,7 +892,7 @@ class DossierService(
                                 }
                             }
                             if (retryData == null) {
-                                val retry = llmService.callClaudeFull(retryPrompt, ocrContext, CallKind.EXTRACTION)
+                                val retry = llmService.callClaudeFull(prompt, retryUser, CallKind.EXTRACTION)
                                 retryStopReason = retry.stopReason
                                 retryData = parseLlmResponse(retry.text)
                             }
@@ -1215,12 +1223,19 @@ class DossierService(
         val missingFields = initialReport.missingMandatory
         if (missingFields.isEmpty()) return null
 
-        val reinforcedPrompt = basePrompt + "\n\nATTENTION: L'extraction initiale a obtenu un score qualite de ${initialReport.score}/100. " +
-            "Les champs OBLIGATOIRES suivants n'ont pas ete trouves ou sont invalides: ${missingFields.joinToString(", ")}. " +
-            "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, laisse-le a null " +
-            "et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur."
-
+        // Hint de retry place dans le USER message plutot que concatene au system
+        // prompt : preserve le cache Anthropic du system (few-shots + descriptions
+        // schema, ~6-8k tokens) sur la 2e passe. Le system prompt doit rester
+        // bit-a-bit identique a l'appel initial pour que le cache hit.
+        val retryHint = "<retry_context>\n" +
+            "ATTENTION : l'extraction initiale a obtenu un score qualite de ${initialReport.score}/100. " +
+            "Les champs OBLIGATOIRES suivants n'ont pas ete trouves ou sont invalides : " +
+            "${missingFields.joinToString(", ")}. " +
+            "Relis attentivement le document pour les retrouver. Si malgre ca un champ reste introuvable, " +
+            "laisse-le a null et explique dans _warnings pourquoi. NE JAMAIS inventer une valeur.\n" +
+            "</retry_context>\n\n"
         val ocrContext = buildOcrContext(rawText, ocrResult)
+        val retryUser = retryHint + ocrContext
 
         return try {
             emitProgress(doc, "extract", "active", "Re-extraction (score ${initialReport.score} < ${minQualityScore})...")
@@ -1231,16 +1246,16 @@ class DossierService(
             val retryData: Map<String, Any?> = if (schema != null) {
                 try {
                     llmService.callClaudeTool(
-                        reinforcedPrompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                        basePrompt, retryUser, schema.name, schema.inputSchema, CallKind.EXTRACTION
                     ).toolInput
                 } catch (e: Exception) {
                     log.warn("Reinforced retry tool_use failed for {} ({}), falling back to text: {}",
                         doc.nomFichier, schema.name, e.message)
-                    val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                    val retryJson = llmService.callClaude(basePrompt, retryUser)
                     parseLlmResponse(retryJson) ?: return null
                 }
             } else {
-                val retryJson = llmService.callClaude(reinforcedPrompt, ocrContext)
+                val retryJson = llmService.callClaude(basePrompt, retryUser)
                 parseLlmResponse(retryJson) ?: return null
             }
             val validated = extractionSchemaValidator.validate(type, retryData).cleanedData
