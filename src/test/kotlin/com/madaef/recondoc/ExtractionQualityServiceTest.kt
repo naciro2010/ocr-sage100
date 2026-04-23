@@ -386,6 +386,149 @@ class ExtractionQualityServiceTest {
         assertEquals(emptyList(), r.missingMandatory, "Contrat cadre complet ne doit avoir aucun mandatory missing")
     }
 
+    // --- Coherence somme(lignes) ≈ montantHT (facture + BC) ---
+    // Evite les faux negatifs R01/R03/R16 : un total HT correct mais des lignes
+    // mal lues (ou l'inverse) doit deprimer la coherence pour declencher la
+    // re-extraction automatique (score < 60) avant que la validation metier
+    // ne compare ce total a un autre document.
+
+    @Test
+    fun `facture avec lignes coherentes avec le total a coherence pleine`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-010",
+            "dateFacture" to "2026-03-10",
+            "fournisseur" to "ACME SARL",
+            "ice" to "001234567890123",
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "montantTTC" to 12000.0,
+            "tauxTVA" to 20,
+            "lignes" to listOf(
+                mapOf("designation" to "L1", "quantite" to 1, "prixUnitaireHT" to 6000, "montantTotalHT" to 6000),
+                mapOf("designation" to "L2", "quantite" to 2, "prixUnitaireHT" to 2000, "montantTotalHT" to 4000)
+            )
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique >= 0.99,
+            "HT+TVA=TTC ET somme lignes = HT -> coherence 1.0, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `facture avec somme des lignes incoherente avec montantHT deprime la coherence`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-011",
+            "dateFacture" to "2026-03-10",
+            "fournisseur" to "ACME SARL",
+            "ice" to "001234567890123",
+            "montantHT" to 12000.0,
+            "montantTVA" to 2400.0,
+            "montantTTC" to 14400.0,
+            "tauxTVA" to 20,
+            "lignes" to listOf(
+                mapOf("designation" to "L1", "montantTotalHT" to 6000),
+                mapOf("designation" to "L2", "montantTotalHT" to 3800)
+            )
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique < 0.9,
+            "sum(lignes)=9800 != montantHT=12000 (ecart 18%) doit deprimer coherence, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `facture sans lignes garde coherence basee sur HT TVA TTC seulement`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-012",
+            "dateFacture" to "2026-03-10",
+            "fournisseur" to "ACME SARL",
+            "ice" to "001234567890123",
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "montantTTC" to 12000.0,
+            "tauxTVA" to 20
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique >= 0.99,
+            "pas de lignes -> coherence = HT+TVA=TTC uniquement, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `BC avec lignes coherentes avec le total a coherence pleine`() {
+        val doc = buildDocument(TypeDocument.BON_COMMANDE, mapOf(
+            "reference" to "CF SIE 2026-0100",
+            "dateBc" to "2026-02-15",
+            "fournisseur" to "ACME SARL",
+            "objet" to "Prestation",
+            "montantHT" to 15000.0,
+            "montantTVA" to 3000.0,
+            "montantTTC" to 18000.0,
+            "tauxTVA" to 20,
+            "signataire" to "X",
+            "lignes" to listOf(
+                mapOf("designation" to "L1", "quantite" to 3, "prixUnitaireHT" to 5000, "montantLigneHT" to 15000)
+            )
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique >= 0.99,
+            "BC coherent doit avoir coherence = 1, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `BC avec somme des lignes incoherente deprime la coherence`() {
+        val doc = buildDocument(TypeDocument.BON_COMMANDE, mapOf(
+            "reference" to "CF SIE 2026-0101",
+            "dateBc" to "2026-02-15",
+            "fournisseur" to "ACME SARL",
+            "objet" to "Prestation",
+            "montantHT" to 15000.0,
+            "montantTVA" to 3000.0,
+            "montantTTC" to 18000.0,
+            "tauxTVA" to 20,
+            "signataire" to "X",
+            "lignes" to listOf(
+                mapOf("designation" to "L1", "montantLigneHT" to 4000),
+                mapOf("designation" to "L2", "montantLigneHT" to 5000)
+            )
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique < 0.9,
+            "BC sum(lignes)=9000 != montantHT=15000 doit deprimer coherence, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `BC sans lignes garde coherence basee sur HT TVA TTC`() {
+        val doc = buildDocument(TypeDocument.BON_COMMANDE, mapOf(
+            "reference" to "CF SIE 2026-0102",
+            "dateBc" to "2026-02-15",
+            "fournisseur" to "ACME SARL",
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "montantTTC" to 12000.0
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique >= 0.99,
+            "BC sans lignes -> coherence = HT+TVA=TTC, got ${r.coherenceArithmetique}")
+    }
+
+    @Test
+    fun `facture avec lignes coherentes mais HT TVA TTC faux deprime coherence`() {
+        val doc = buildFacture(mapOf(
+            "numeroFacture" to "F-2026-013",
+            "dateFacture" to "2026-03-10",
+            "fournisseur" to "ACME",
+            "ice" to "001234567890123",
+            "montantHT" to 10000.0,
+            "montantTVA" to 2000.0,
+            "montantTTC" to 15000.0, // incoherent avec HT+TVA
+            "tauxTVA" to 20,
+            "lignes" to listOf(
+                mapOf("designation" to "L1", "montantTotalHT" to 10000)
+            )
+        ))
+        val r = service.evaluate(doc)
+        assertTrue(r.coherenceArithmetique < 0.9,
+            "HT+TVA=12000 != TTC=15000 doit deprimer meme si lignes coherentes, got ${r.coherenceArithmetique}")
+    }
+
     @Test
     fun `MARCHE sans reference ou fournisseur est marque incomplet`() {
         val doc = buildDocument(TypeDocument.MARCHE, mapOf(
