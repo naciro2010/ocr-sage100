@@ -1,6 +1,7 @@
 package com.madaef.recondoc
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
+import tools.jackson.databind.json.JsonMapper
 import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.repository.ClaudeUsageRepository
 import com.madaef.recondoc.service.AppSettingsService
@@ -219,7 +220,8 @@ class ClassificationServiceTest {
     private class FakeLlm(
         private val scripted: List<LlmOutcome>
     ) : LlmExtractionService(
-        ObjectMapper(),
+        // Jackson 3 : ObjectMapper est abstract, on construit via JsonMapper.
+        JsonMapper.builder().build(),
         mock(AppSettingsService::class.java),
         mock(ClaudeUsageRepository::class.java)
     ) {

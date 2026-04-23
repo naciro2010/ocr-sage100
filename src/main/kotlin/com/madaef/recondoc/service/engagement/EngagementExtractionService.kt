@@ -1,6 +1,6 @@
 package com.madaef.recondoc.service.engagement
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.madaef.recondoc.entity.dossier.TypeDocument
 import com.madaef.recondoc.entity.engagement.*
 import com.madaef.recondoc.repository.engagement.EngagementRepository

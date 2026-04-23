@@ -5,8 +5,12 @@ import com.madaef.recondoc.service.MistralOcrClient
 import io.github.resilience4j.circuitbreaker.CircuitBreaker
 import io.github.resilience4j.circuitbreaker.CircuitBreakerRegistry
 import org.slf4j.LoggerFactory
-import org.springframework.boot.actuate.health.Health
-import org.springframework.boot.actuate.health.HealthIndicator
+// Spring Boot 4.0 : Health / HealthIndicator ont migre de
+// `org.springframework.boot.actuate.health` vers
+// `org.springframework.boot.health.contributor` (module spring-boot-health,
+// toujours transitivement tire par spring-boot-starter-actuator).
+import org.springframework.boot.health.contributor.Health
+import org.springframework.boot.health.contributor.HealthIndicator
 import org.springframework.stereotype.Component
 
 /**

@@ -58,7 +58,8 @@ class SecurityConfig {
         if (!userRepo.existsByEmail("admin@madaef.ma")) {
             userRepo.save(AppUser(
                 email = "admin@madaef.ma",
-                password = encoder.encode("admin123"),
+                // Spring Security 7 : encode() retourne String? (cf AuthController).
+                password = encoder.encode("admin123")!!,
                 nom = "Administrateur",
                 role = com.madaef.recondoc.entity.UserRole.ADMIN
             ))

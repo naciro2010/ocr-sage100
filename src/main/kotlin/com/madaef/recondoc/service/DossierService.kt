@@ -1,6 +1,6 @@
 package com.madaef.recondoc.service
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.madaef.recondoc.dto.dossier.*
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.*
@@ -73,6 +73,8 @@ class DossierService(
     private val fournisseurMatchingService: FournisseurMatchingService,
     private val engagementRepository: EngagementRepository,
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
+    private val dossierRuleConfigService: com.madaef.recondoc.service.dossier.DossierRuleConfigService,
+    private val dossierExportService: com.madaef.recondoc.service.dossier.DossierExportService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
     @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int,
@@ -1009,148 +1011,42 @@ class DossierService(
         return results
     }
 
+    // --- Config des regles : delegue a DossierRuleConfigService ---
+    // Les methodes restent exposees sur DossierService pour la compatibilite du
+    // code client (CustomRuleController, tests). A deprecier une fois tous les
+    // appelants migres vers l'injection directe de DossierRuleConfigService.
+
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierRuleConfigService.getRuleConfig]. */
     @Transactional(readOnly = true)
-    fun getRuleConfig(dossierId: UUID): Map<String, Any> {
-        val globals = ruleConfigCache.listGlobal().associate { it.regle to it.enabled }
-        val overrides = ruleConfigCache.listOverrides(dossierId).associate { it.regle to it.enabled }
-        return mapOf("global" to globals, "overrides" to overrides)
-    }
+    fun getRuleConfig(dossierId: UUID): Map<String, Any> =
+        dossierRuleConfigService.getRuleConfig(dossierId)
 
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierRuleConfigService.updateDossierRuleConfig]. */
     @Transactional
-    fun updateDossierRuleConfig(dossierId: UUID, rules: Map<String, Boolean>) {
-        for ((regle, enabled) in rules) {
-            val existing = overrideRepo.findByDossierIdAndRegle(dossierId, regle)
-            if (existing != null) {
-                existing.enabled = enabled
-                ruleConfigCache.saveOverride(existing)
-            } else {
-                ruleConfigCache.saveOverride(DossierRuleOverride(dossierId = dossierId, regle = regle, enabled = enabled))
-            }
-        }
-        audit(dossierId, "RULE_CONFIG", "Config regles modifiee: $rules")
-    }
+    fun updateDossierRuleConfig(dossierId: UUID, rules: Map<String, Boolean>) =
+        dossierRuleConfigService.updateDossierRuleConfig(dossierId, rules)
 
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierRuleConfigService.getGlobalRuleConfig]. */
     @Transactional(readOnly = true)
-    fun getGlobalRuleConfig(): List<Map<String, Any>> {
-        return ruleConfigCache.listGlobal().map { mapOf("regle" to it.regle, "enabled" to it.enabled) }
-    }
+    fun getGlobalRuleConfig(): List<Map<String, Any>> =
+        dossierRuleConfigService.getGlobalRuleConfig()
 
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierRuleConfigService.updateGlobalRuleConfig]. */
     @Transactional
-    fun updateGlobalRuleConfig(rules: Map<String, Boolean>) {
-        for ((regle, enabled) in rules) {
-            val existing = ruleConfigRepo.findByRegle(regle)
-            if (existing != null) {
-                existing.enabled = enabled
-                existing.updatedAt = java.time.LocalDateTime.now()
-                ruleConfigCache.saveGlobal(existing)
-            } else {
-                ruleConfigCache.saveGlobal(RuleConfig(regle = regle, enabled = enabled))
-            }
-        }
-    }
+    fun updateGlobalRuleConfig(rules: Map<String, Boolean>) =
+        dossierRuleConfigService.updateGlobalRuleConfig(rules)
 
+    // --- Finalisation et exports : delegue a DossierExportService ---
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierExportService.finalizeDossier]. */
     @Transactional
-    fun finalizeDossier(dossierId: UUID, request: FinalizeRequest): Map<String, Any> {
-        val dossier = getDossierFull(dossierId)
-        log.info("Finalizing dossier {} with {} points", dossier.reference, request.points.size)
+    fun finalizeDossier(dossierId: UUID, request: FinalizeRequest): Map<String, Any> =
+        dossierExportService.finalizeDossier(dossierId, request)
 
-        // Emit progress so the frontend knows finalization started
-        try {
-            progressService.emit(dossierId, DocumentProgress(
-                documentId = "finalize", nomFichier = "Finalisation",
-                step = "tc", statut = "active", detail = "Generation du Tableau de Controle..."
-            ))
-        } catch (_: Exception) {}
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierExportService.exportTC]. */
+    fun exportTC(dossierId: UUID): ByteArray = dossierExportService.exportTC(dossierId)
 
-        // Generate TC PDF
-        val tcPdf = pdfGenerator.generateTC(dossier, request)
-        val tcPointer = documentStorage.store(dossierId, "TC_${dossier.reference}.pdf", tcPdf)
-        val tcDoc = Document(
-            dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE,
-            nomFichier = "TC_${dossier.reference}.pdf", cheminFichier = tcPointer,
-            statutExtraction = StatutExtraction.EXTRAIT
-        )
-        documentRepo.save(tcDoc)
-
-        try {
-            progressService.emit(dossierId, DocumentProgress(
-                documentId = "finalize", nomFichier = "Finalisation",
-                step = "op", statut = "active", detail = "Generation de l'Ordre de Paiement..."
-            ))
-        } catch (_: Exception) {}
-
-        // Generate OP PDF
-        val opPdf = pdfGenerator.generateOP(dossier, request)
-        val opPointer = documentStorage.store(dossierId, "OP_${dossier.reference}.pdf", opPdf)
-        val opDoc = Document(
-            dossier = dossier, typeDocument = TypeDocument.ORDRE_PAIEMENT,
-            nomFichier = "OP_${dossier.reference}.pdf", cheminFichier = opPointer,
-            statutExtraction = StatutExtraction.EXTRAIT
-        )
-        documentRepo.save(opDoc)
-
-        // Update dossier status
-        dossier.statut = StatutDossier.VALIDE
-        dossier.dateValidation = java.time.LocalDateTime.now()
-        dossier.validePar = request.signataire
-
-        audit(dossierId, "FINALISATION", "TC + OP generes, signe par ${request.signataire}")
-
-        try {
-            progressService.emit(dossierId, DocumentProgress(
-                documentId = "finalize", nomFichier = "Finalisation",
-                step = "done", statut = "done", detail = "Finalisation terminee"
-            ))
-        } catch (_: Exception) {}
-
-        return mapOf(
-            "tcDocId" to tcDoc.id.toString(),
-            "opDocId" to opDoc.id.toString(),
-            "reference" to dossier.reference
-        )
-    }
-
-    fun exportTC(dossierId: UUID): ByteArray {
-        val dossier = getDossierFull(dossierId)
-        // Use checklist autocontrole points if available, otherwise use standard 10 points
-        val checklist = dossier.checklistAutocontrole
-        val points = if (checklist != null && checklist.points.isNotEmpty()) {
-            checklist.points.map { pt ->
-                ControlPoint(
-                    description = pt.description ?: "Point ${pt.numero}",
-                    observation = if (pt.estValide == true) "Conforme" else if (pt.estValide == false) "Non conforme" else "NA",
-                    commentaire = pt.observation
-                )
-            }
-        } else {
-            // Default 10 TC points
-            listOf(
-                "Concordance facture / modalites contractuelles / livrables",
-                "Verification arithmetique des montants",
-                "Respect du delai d'execution des prestations",
-                "Modifications / avenants (plafonds et variations)",
-                "Application des retenues et penalites",
-                "Signatures et visas des personnes habilitees",
-                "Conformite reglementaire (ICE, IF, RC, CNSS)",
-                "Conformite du RIB contractuel vs facture",
-                "Conformite BL / PV de reception",
-                "Habilitations des signataires des receptions"
-            ).map { ControlPoint(it, "NA", null) }
-        }
-        return pdfGenerator.generateTC(dossier, FinalizeRequest(
-            points = points,
-            signataire = dossier.validePar ?: "Non signe"
-        ))
-    }
-
-    fun exportOP(dossierId: UUID): ByteArray {
-        val dossier = getDossierFull(dossierId)
-        val defaultRequest = FinalizeRequest(
-            points = emptyList(),
-            signataire = dossier.validePar ?: "Non signe"
-        )
-        return pdfGenerator.generateOP(dossier, defaultRequest)
-    }
+    /** @deprecated utiliser [com.madaef.recondoc.service.dossier.DossierExportService.exportOP]. */
+    fun exportOP(dossierId: UUID): ByteArray = dossierExportService.exportOP(dossierId)
 
     @Transactional
     fun updateValidationResult(resultId: UUID, updates: Map<String, String>): ResultatValidation {
@@ -1503,7 +1399,7 @@ class DossierService(
         if (points != null) {
             cl.points.clear()
             for (p in points) {
-                val estValide = com.madaef.recondoc.service.validation.ValidationEngine.parseBooleanish(p["estValide"])
+                val estValide = com.madaef.recondoc.service.validation.parseBooleanish(p["estValide"])
                 cl.points.add(PointControle(
                     checklist = cl,
                     numero = (p["numero"] as? Number)?.toInt() ?: 0,

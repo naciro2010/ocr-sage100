@@ -1,6 +1,6 @@
 package com.madaef.recondoc.service.extraction
 
-import com.fasterxml.jackson.databind.ObjectMapper
+import tools.jackson.databind.ObjectMapper
 import com.madaef.recondoc.entity.ClaudeUsage
 import com.madaef.recondoc.repository.ClaudeUsageRepository
 import com.madaef.recondoc.service.AppSettingsService

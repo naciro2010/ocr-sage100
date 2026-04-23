@@ -1,23 +1,35 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-    id("org.springframework.boot") version "3.4.4"
+    id("org.springframework.boot") version "4.0.5"
     id("io.spring.dependency-management") version "1.1.7"
-    kotlin("jvm") version "2.1.10"
-    kotlin("plugin.spring") version "2.1.10"
-    kotlin("plugin.jpa") version "2.1.10"
+    kotlin("jvm") version "2.3.20"
+    kotlin("plugin.spring") version "2.3.20"
+    kotlin("plugin.jpa") version "2.3.20"
 }
 
 group = "com.madaef.recondoc"
 version = "1.0.0"
 
+// Flyway gere par Spring Boot : on force une version recente pour couvrir
+// PostgreSQL 18 (Railway / prod). La version par defaut de SB 4.0.5 refuse
+// PG >= 18 avec l'avertissement "support has not been tested". Bump ciblee
+// pour eviter tout blocage operationnel sur les migrations.
+extra["flyway.version"] = "11.14.0"
+
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
 repositories {
     mavenCentral()
 }
+
+// Configuration dediee pour resoudre le jar mockito-core et le passer en
+// -javaagent aux tests (JDK 21+ durcit l'auto-attach, JDK 25 le refuse).
+val mockitoAgent: Configuration = configurations.create("mockitoAgent")
 
 dependencies {
     // Spring Boot
@@ -28,7 +40,15 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-security")
 
     // Kotlin
-    implementation("com.fasterxml.jackson.module:jackson-module-kotlin")
+    // Spring Boot 4 adopte Jackson 3 (group `tools.jackson.*`).
+    // Le module Kotlin vit desormais sous `tools.jackson.module:jackson-module-kotlin`.
+    implementation("tools.jackson.module:jackson-module-kotlin")
+    // Hibernate 7 conserve un JacksonJsonFormatMapper cable sur Jackson 2
+    // (`com.fasterxml.jackson.*`) pour deserialiser les colonnes JSON mappees
+    // en @JdbcTypeCode(SqlTypes.JSON). Sans le module Kotlin v2, les data
+    // classes Kotlin (ValidationEvidence, ...) ne peuvent pas etre recreees
+    // car elles n'ont pas de constructeur sans-argument.
+    implementation("com.fasterxml.jackson.module:jackson-module-kotlin:2.19.2")
     implementation("org.jetbrains.kotlin:kotlin-reflect")
 
     // Database
@@ -52,9 +72,13 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
     // Resilience (circuit breaker / rate limiter / bulkhead) around Claude API
-    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
-    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
-    implementation("org.springframework.boot:spring-boot-starter-aop")
+    // resilience4j-spring-boot3 est compatible Spring Boot 4 (Jakarta EE 11 / Framework 7)
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.3.0")
+    // Spring Boot 4 : `spring-boot-starter-aop` a ete renomme
+    // `spring-boot-starter-aspectj` dans le BOM 4.0.x (l'ancien artefact n'est
+    // plus publie). Fournit toujours spring-aop + aspectjweaver pour Resilience4j.
+    implementation("org.springframework.boot:spring-boot-starter-aspectj")
 
     // In-process cache for hot config lookups (rule config) — avoids Redis on Railway
     implementation("org.springframework.boot:spring-boot-starter-cache")
@@ -84,18 +108,40 @@ dependencies {
 
     // Test
     testImplementation("org.springframework.boot:spring-boot-starter-test")
+    // Spring Boot 4 : @AutoConfigureMockMvc et l'autoconfig MockMvc sont
+    // sortis de spring-boot-starter-test, deplaces dans un module dedie.
+    testImplementation("org.springframework.boot:spring-boot-starter-webmvc-test")
     testImplementation("org.springframework.security:spring-security-test")
     testImplementation("org.jetbrains.kotlin:kotlin-test-junit5")
     testRuntimeOnly("org.junit.platform:junit-platform-launcher")
     testRuntimeOnly("com.h2database:h2")
+    // Mockito inline utilise Byte Buddy pour instrumenter les classes finales ;
+    // sur JDK 25 l'auto-attach (Attach API) est refuse par defaut, on fournit
+    // donc mockito-core comme `-javaagent` explicite (voir tasks Test plus bas).
+    mockitoAgent("org.mockito:mockito-core") { isTransitive = false }
 }
 
 kotlin {
     compilerOptions {
         freeCompilerArgs.addAll("-Xjsr305=strict")
+        // Kotlin 2.3.x supporte JvmTarget.JVM_25 : bytecode Java 25 full.
+        jvmTarget.set(JvmTarget.JVM_25)
     }
+}
+
+// On pin explicitement la release cote Java pour rester aligne avec Kotlin
+// (cf Gradle KGP : "Inconsistent JVM Target Compatibility" sinon).
+tasks.withType<JavaCompile>().configureEach {
+    options.release.set(25)
 }
 
 tasks.withType<Test> {
     useJUnitPlatform()
+    // JDK 24+ restreint l'auto-attach d'agents ; JDK 25 le refuse par defaut,
+    // ce qui casse Mockito inline (ByteBuddy self-attach via Attach API).
+    // On pousse mockito-core comme -javaagent explicite : c'est la methode
+    // officielle recommandee par Mockito a partir de 5.12+ pour JDK 21+.
+    jvmArgumentProviders += CommandLineArgumentProvider {
+        listOf("-javaagent:${mockitoAgent.asPath}")
+    }
 }

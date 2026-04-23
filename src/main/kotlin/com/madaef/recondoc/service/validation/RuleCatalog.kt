@@ -78,13 +78,13 @@ object RuleCatalog {
             code = d.code, libelle = d.libelle, description = d.description,
             groupe = d.groupe, categorie = d.categorie,
             appliesToBC = d.appliesToBC, appliesToContractuel = d.appliesToContractuel,
-            dependances = ValidationEngine.RULE_DEPENDENCIES[d.code]?.toList() ?: emptyList()
+            dependances = RuleConstants.RULE_DEPENDENCIES[d.code]?.toList() ?: emptyList()
         )
     }
 
     fun cascade(code: String): List<String> {
         val base = mutableSetOf(code)
-        ValidationEngine.RULE_DEPENDENCIES[code]?.let { base.addAll(it) }
+        RuleConstants.RULE_DEPENDENCIES[code]?.let { base.addAll(it) }
         if (code == "R12" || code.startsWith("R12.")) {
             base.add("R12")
             for (i in 1..10) base.add("R12.%02d".format(i))
