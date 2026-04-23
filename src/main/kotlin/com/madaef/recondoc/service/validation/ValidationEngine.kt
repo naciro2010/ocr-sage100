@@ -35,137 +35,23 @@ class ValidationEngine(
     private val log = LoggerFactory.getLogger(javaClass)
 
     companion object {
-        private val WHITESPACE_RE = "[\\s\\-.]".toRegex()
-        fun normalizeRib(rib: String?): String? = rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
-        private val REF_NORMALIZE_RE = "[\\s\\-_/.']+".toRegex()
-        private val MONTH_NAMES = listOf(
-            "janvier", "fevrier", "mars", "avril", "mai", "juin",
-            "juillet", "aout", "septembre", "octobre", "novembre", "decembre"
-        )
-
-        private val NUMERIC_CLEAN_RE = "[^\\d.,\\-]".toRegex()
-
-        fun docAmount(doc: Document?, vararg keys: String): BigDecimal? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value ?: continue
-                return when (v) {
-                    is Number -> BigDecimal(v.toString())
-                    is String -> v.replace(NUMERIC_CLEAN_RE, "").let { s ->
-                        if (s.isEmpty()) return@let null
-                        val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
-                        if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
-                        else s.replace(",", "").toBigDecimalOrNull()
-                    }
-                    else -> null
-                }
-            }
-            return null
-        }
-
-        fun docStr(doc: Document?, vararg keys: String): String? {
-            val data = doc?.donneesExtraites ?: return null
-            for (k in keys) {
-                val v = data[k] ?: data.entries.find { it.key.equals(k, ignoreCase = true) }?.value
-                if (v != null && v.toString().isNotBlank()) return v.toString()
-            }
-            return null
-        }
-
-        private val TRUTHY = setOf("true", "oui", "conforme", "o", "yes")
-        private val FALSY = setOf("false", "non", "non conforme", "n", "no")
-
-        fun parseBooleanish(v: Any?): Boolean? = when (v) {
-            is Boolean -> v
-            is String -> v.lowercase().trim().let { s -> when { s in TRUTHY -> true; s in FALSY -> false; else -> null } }
-            is Number -> v.toInt() != 0
-            else -> null
-        }
-
-        val TYPE_LABELS: Map<TypeDocument, String> = mapOf(
-            TypeDocument.FACTURE to "Facture",
-            TypeDocument.BON_COMMANDE to "Bon de commande",
-            TypeDocument.CONTRAT_AVENANT to "Contrat / Avenant",
-            TypeDocument.ORDRE_PAIEMENT to "Ordre de paiement",
-            TypeDocument.CHECKLIST_AUTOCONTROLE to "Checklist autocontrole",
-            TypeDocument.CHECKLIST_PIECES to "Checklist des pieces",
-            TypeDocument.TABLEAU_CONTROLE to "Tableau de controle",
-            TypeDocument.PV_RECEPTION to "PV de reception",
-            TypeDocument.ATTESTATION_FISCALE to "Attestation fiscale",
-            TypeDocument.FORMULAIRE_FOURNISSEUR to "Formulaire fournisseur",
-            TypeDocument.INCONNU to "A classer"
-        )
-
-        val DEFAULT_REQUIRED_BY_TYPE: Map<DossierType, List<TypeDocument>> = mapOf(
-            DossierType.BC to listOf(
-                TypeDocument.FACTURE,
-                TypeDocument.BON_COMMANDE,
-                TypeDocument.CHECKLIST_AUTOCONTROLE,
-                TypeDocument.TABLEAU_CONTROLE,
-                TypeDocument.ORDRE_PAIEMENT
-            ),
-            DossierType.CONTRACTUEL to listOf(
-                TypeDocument.FACTURE,
-                TypeDocument.CONTRAT_AVENANT,
-                TypeDocument.PV_RECEPTION,
-                TypeDocument.CHECKLIST_AUTOCONTROLE,
-                TypeDocument.ORDRE_PAIEMENT
-            )
-        )
-
-        val RULE_DEPENDENCIES: Map<String, Set<String>> = mapOf(
-            "R01" to setOf("R02", "R03", "R03b"),
-            "R02" to setOf("R01", "R03", "R03b"),
-            "R03" to setOf("R01", "R02", "R03b"),
-            "R03b" to setOf("R01", "R02", "R03"),
-            "R04" to setOf("R05", "R16"),
-            "R05" to setOf("R04", "R06", "R16"),
-            "R06" to setOf("R05"),
-            "R07" to setOf("R08"),
-            "R08" to setOf("R07"),
-            "R09" to setOf("R10"),
-            "R10" to setOf("R09"),
-            "R11" to setOf("R14"),
-            "R14" to setOf("R11"),
-            "R15" to setOf("R16", "R04"),
-            "R16" to setOf("R04", "R05", "R15", "R16b", "R16c"),
-            "R16b" to setOf("R16", "R16c"),
-            "R16c" to setOf("R16", "R16b", "R01f"),
-            "R01f" to setOf("R01", "R02", "R16c", "R01g"),
-            "R01g" to setOf("R01", "R02", "R01f", "R15"),
-            "R14b" to setOf("R09", "R10", "R14"),
-            "R17a" to setOf("R17b"),
-            "R17b" to setOf("R17a"),
-            "R18" to setOf("R23"),
-            "R19" to emptySet(),
-            "R20" to emptySet(),
-            "R21" to emptySet(),
-            "R22" to emptySet(),
-            "R23" to setOf("R18"),
-            "R24" to emptySet(),
-            "R12" to emptySet(),
-            "R13" to emptySet(),
-        )
+        // Les constantes metier (TYPE_LABELS, DEFAULT_REQUIRED_BY_TYPE, RULE_DEPENDENCIES)
+        // vivent dans [RuleConstants]. Les helpers deterministes (checkMontant,
+        // matchReference, normalizeRib, parseLocalDate, docAmount, docStr,
+        // parseBooleanish, etc.) sont des fonctions top-level du package
+        // `com.madaef.recondoc.service.validation` (voir ValidationHelpers.kt).
+        //
+        // L'alias RULE_DEPENDENCIES reste expose parce que les tests et le
+        // catalogue (RuleCatalog) y referencent directement via l'ancienne
+        // constante. Le jour ou tous les appelants migrent vers RuleConstants,
+        // cet alias peut disparaitre.
+        val RULE_DEPENDENCIES: Map<String, Set<String>> get() = RuleConstants.RULE_DEPENDENCIES
     }
 
     private data class CorrectionSnapshot(
         val statut: StatutCheck, val statutOriginal: String?,
         val commentaire: String?, val corrigePar: String?,
         val dateCorrection: LocalDateTime?
-    )
-
-    private data class ValidationContext(
-        val dossier: DossierPaiement,
-        val facture: Facture?,
-        val allFactures: List<Facture>,
-        val bc: BonCommande?,
-        val op: OrdrePaiement?,
-        val contrat: ContratAvenant?,
-        val pv: PvReception?,
-        val arf: AttestationFiscale?,
-        val checklist: ChecklistAutocontrole?,
-        val tableau: TableauControle?,
-        val tol: BigDecimal
     )
 
     private fun loadEnabledRules(dossierId: UUID): (String) -> Boolean {
@@ -196,13 +82,7 @@ class ValidationEngine(
         return scope
     }
 
-    private fun evidence(role: String, champ: String, libelle: String?, doc: Document?, valeur: Any?): ValidationEvidence =
-        ValidationEvidence(
-            role = role, champ = champ, libelle = libelle,
-            documentId = doc?.id?.toString(),
-            documentType = doc?.typeDocument?.name,
-            valeur = valeur?.toString()?.takeIf { it.isNotBlank() }
-        )
+    // evidence(...) est maintenant top-level dans ValidationHelpers.kt (meme package).
 
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
@@ -1265,92 +1145,9 @@ class ValidationEngine(
         }
     }
 
-    private fun checkMontant(
-        regle: String, libelle: String,
-        valeur1: BigDecimal?, valeur2: BigDecimal?,
-        tolerance: BigDecimal, dossier: DossierPaiement,
-        evidences: List<ValidationEvidence>? = null
-    ): ResultatValidation {
-        if (valeur1 == null || valeur2 == null) {
-            return ResultatValidation(
-                dossier = dossier, regle = regle, libelle = libelle,
-                statut = StatutCheck.AVERTISSEMENT,
-                detail = "Valeur manquante",
-                valeurAttendue = valeur2?.toPlainString(), valeurTrouvee = valeur1?.toPlainString(),
-                evidences = evidences
-            )
-        }
-        val diff = valeur1.subtract(valeur2).abs()
-        val ok = diff <= tolerance
-        return ResultatValidation(
-            dossier = dossier, regle = regle, libelle = libelle,
-            statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-            detail = "${valeur1.toPlainString()} vs ${valeur2.toPlainString()} (ecart: ${diff.toPlainString()})",
-            valeurAttendue = valeur2.toPlainString(), valeurTrouvee = valeur1.toPlainString(),
-            evidences = evidences
-        )
-    }
-
-    private fun checkMontantWithFraction(
-        regle: String, libelle: String,
-        factureVal: BigDecimal?, bcVal: BigDecimal?,
-        tolerance: BigDecimal, dossier: DossierPaiement,
-        evidences: List<ValidationEvidence>? = null
-    ): ResultatValidation {
-        val result = checkMontant(regle, libelle, factureVal, bcVal, tolerance, dossier, evidences)
-        if (result.statut != StatutCheck.NON_CONFORME || factureVal == null || bcVal == null ||
-            bcVal.signum() == 0 || factureVal >= bcVal) {
-            return result
-        }
-        for (n in listOf(2, 3, 4, 6, 12)) {
-            val expected = bcVal.divide(BigDecimal(n), 2, RoundingMode.HALF_UP)
-            if (factureVal.subtract(expected).abs() <= tolerance) {
-                return ResultatValidation(
-                    dossier = dossier, regle = regle, libelle = libelle,
-                    statut = StatutCheck.AVERTISSEMENT,
-                    detail = "Facture = 1/${n} du BC (couverture partielle). Facture: ${factureVal.toPlainString()}, BC: ${bcVal.toPlainString()}",
-                    valeurAttendue = bcVal.toPlainString(), valeurTrouvee = factureVal.toPlainString(),
-                    evidences = evidences
-                )
-            }
-        }
-        return result
-    }
-
-    private fun parseLocalDate(s: String): LocalDate? {
-        return try {
-            LocalDate.parse(s)
-        } catch (_: Exception) {
-            try {
-                val parts = s.split("/", "-", ".")
-                if (parts.size == 3) {
-                    val d = parts[0].trim().toInt()
-                    val m = parts[1].trim().toInt()
-                    val y = parts[2].trim().toInt().let { if (it < 100) it + 2000 else it }
-                    LocalDate.of(y, m, d)
-                } else null
-            } catch (_: Exception) { null }
-        }
-    }
-
-    private fun normalizeId(value: String?): String? {
-        if (value.isNullOrBlank()) return null
-        return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
-    }
-
-    private fun computeMonths(debut: LocalDate?, fin: LocalDate?, periodeText: String?): Long? {
-        if (debut != null && fin != null) {
-            return ChronoUnit.MONTHS.between(debut, fin.plusDays(1)).coerceAtLeast(1)
-        }
-        if (periodeText != null) {
-            val lower = periodeText.lowercase()
-            if (lower.contains("t1") || lower.contains("t2") || lower.contains("t3") || lower.contains("t4")) return 3
-            if (lower.contains("s1") || lower.contains("s2")) return 6
-            val found = MONTH_NAMES.count { lower.contains(it) }
-            if (found > 0) return found.toLong().coerceAtLeast(1)
-        }
-        return null
-    }
+    // checkMontant / checkMontantWithFraction / parseLocalDate / normalizeId /
+    // computeMonths sont extraites dans ValidationHelpers.kt (meme package, donc
+    // accessibles sans import). Cf commentaire dans le companion object.
 
     private fun executeChecklistPoints(
         ctx: ValidationContext,
@@ -1690,13 +1487,7 @@ class ValidationEngine(
         return ckResults
     }
 
-    private fun mergeStatut(systemStatut: StatutCheck, checklistValide: Boolean?): StatutCheck {
-        if (checklistValide == null) return systemStatut
-        val ckStatut = if (checklistValide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME
-        return if (systemStatut == StatutCheck.NON_CONFORME || ckStatut == StatutCheck.NON_CONFORME) StatutCheck.NON_CONFORME
-        else if (systemStatut == StatutCheck.AVERTISSEMENT || ckStatut == StatutCheck.AVERTISSEMENT) StatutCheck.AVERTISSEMENT
-        else StatutCheck.CONFORME
-    }
+    // mergeStatut extrait dans ValidationHelpers.kt (top-level dans meme package).
 
     // R19 : QR DGI doit encoder le meme "Code de verification" que celui imprime
     // sous le QR ET etre servi par attestation.tax.gov.ma en HTTPS. Toute autre
@@ -1774,115 +1565,18 @@ class ValidationEngine(
         )
     }
 
-    private fun normalizeCode(code: String): String =
-        code.trim().lowercase().replace(Regex("[\\s\\-_|/.]+"), "")
-
     /**
      * Liste des pieces obligatoires pour R20.
      * `customRequired` (CSV de TypeDocument) prime ; null = defauts par type.
      * Les types inconnus dans la config heritee sont ignores silencieusement.
      */
     fun resolveRequiredDocuments(type: DossierType, customRequired: String?): List<Pair<TypeDocument, String>> {
-        val selection = parseCustomTypes(customRequired) ?: DEFAULT_REQUIRED_BY_TYPE.getValue(type)
-        return selection.map { it to TYPE_LABELS.getValue(it) }
+        val selection = parseCustomTypes(customRequired) ?: RuleConstants.DEFAULT_REQUIRED_BY_TYPE.getValue(type)
+        return selection.map { it to RuleConstants.TYPE_LABELS.getValue(it) }
     }
 
-    private fun parseCustomTypes(csv: String?): List<TypeDocument>? {
-        if (csv == null) return null
-        return csv.split(",").mapNotNull { raw ->
-            val trimmed = raw.trim()
-            if (trimmed.isEmpty()) null else runCatching { TypeDocument.valueOf(trimmed) }.getOrNull()
-        }
-    }
-
-    private data class BcLigne(
-        val codeArticle: String?,
-        val designation: String?,
-        val quantite: BigDecimal?,
-        val prixUnitaireHt: BigDecimal?,
-        val montantHt: BigDecimal?
-    )
-
-    private fun parseBcLignes(doc: Document?): List<BcLigne> {
-        val raw = doc?.donneesExtraites?.get("lignes") as? List<*> ?: return emptyList()
-        return raw.mapNotNull { row ->
-            @Suppress("UNCHECKED_CAST")
-            val m = row as? Map<String, Any?> ?: return@mapNotNull null
-            BcLigne(
-                codeArticle = (m["codeArticle"] as? String)?.trim()?.takeIf { it.isNotBlank() },
-                designation = (m["designation"] as? String)?.trim(),
-                quantite = toBd(m["quantite"]),
-                prixUnitaireHt = toBd(m["prixUnitaireHT"] ?: m["prixUnitaireHt"]),
-                montantHt = toBd(m["montantLigneHT"] ?: m["montantLigneHt"] ?: m["montantTotalHt"] ?: m["montantHT"])
-            )
-        }
-    }
-
-    private fun normalizeLabel(s: String?): String {
-        if (s.isNullOrBlank()) return ""
-        val nfd = java.text.Normalizer.normalize(s.lowercase(), java.text.Normalizer.Form.NFD)
-        return nfd
-            .replace(Regex("\\p{Mn}+"), "")
-            .replace(Regex("[^a-z0-9 ]+"), " ")
-            .replace(Regex("\\s+"), " ")
-            .trim()
-    }
-
-    private fun labelSimilarity(a: String?, b: String?): Double {
-        val na = normalizeLabel(a); val nb = normalizeLabel(b)
-        if (na.isBlank() || nb.isBlank()) return 0.0
-        if (na == nb) return 1.0
-        val ta = na.split(" ").filter { it.length > 1 }.toSet()
-        val tb = nb.split(" ").filter { it.length > 1 }.toSet()
-        if (ta.isEmpty() || tb.isEmpty()) return 0.0
-        val inter = ta.intersect(tb).size.toDouble()
-        val union = ta.union(tb).size.toDouble()
-        return inter / union
-    }
-
-    private fun findBestRefMatch(
-        fl: LigneFacture, refs: List<BcLigne>, used: Set<Int>
-    ): Pair<Int, BcLigne>? {
-        val flCode = fl.codeArticle?.trim()?.takeIf { it.isNotBlank() }
-        if (flCode != null) {
-            val exact = refs.withIndex().firstOrNull { (i, r) ->
-                i !in used && r.codeArticle != null && r.codeArticle.equals(flCode, ignoreCase = true)
-            }
-            if (exact != null) return exact.index to exact.value
-        }
-        var best: Pair<Int, BcLigne>? = null
-        var bestScore = 0.60
-        for ((i, r) in refs.withIndex()) {
-            if (i in used) continue
-            val score = labelSimilarity(fl.designation, r.designation)
-            if (score > bestScore) {
-                bestScore = score
-                best = i to r
-            }
-        }
-        return best
-    }
-
-    private fun toBd(v: Any?): BigDecimal? = when (v) {
-        null -> null
-        is Number -> BigDecimal(v.toString())
-        is String -> v.replace(Regex("[^0-9.,\\-]"), "").let { s ->
-            if (s.isEmpty()) return@let null
-            val lc = s.lastIndexOf(','); val ld = s.lastIndexOf('.')
-            if (lc > ld) s.replace(".", "").replace(",", ".").toBigDecimalOrNull()
-            else s.replace(",", "").toBigDecimalOrNull()
-        }
-        else -> null
-    }
-
-    private fun matchReference(ref1: String?, ref2: String?): Boolean {
-        if (ref1 == null || ref2 == null) return false
-        val normalize = { s: String -> s.replace(REF_NORMALIZE_RE, "").trimStart('0').lowercase() }
-        val n1 = normalize(ref1)
-        val n2 = normalize(ref2)
-        if (n1 == n2) return true
-        val shorter = if (n1.length < n2.length) n1 else n2
-        val longer = if (n1.length < n2.length) n2 else n1
-        return shorter.length >= 4 && longer.contains(shorter)
-    }
+    // Les helpers suivants vivent maintenant en top-level dans ValidationHelpers.kt
+    // et BcLigneMatcher.kt (meme package). Ils sont accessibles sans import depuis
+    // cette classe : normalizeCode, parseCustomTypes, BcLigne, parseBcLignes,
+    // normalizeLabel, labelSimilarity, findBestRefMatch, toBd, matchReference.
 }

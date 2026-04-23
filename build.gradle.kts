@@ -1,9 +1,11 @@
+import org.jetbrains.kotlin.gradle.dsl.JvmTarget
+
 plugins {
-    id("org.springframework.boot") version "3.4.4"
+    id("org.springframework.boot") version "4.0.5"
     id("io.spring.dependency-management") version "1.1.7"
-    kotlin("jvm") version "2.1.10"
-    kotlin("plugin.spring") version "2.1.10"
-    kotlin("plugin.jpa") version "2.1.10"
+    kotlin("jvm") version "2.2.20"
+    kotlin("plugin.spring") version "2.2.20"
+    kotlin("plugin.jpa") version "2.2.20"
 }
 
 group = "com.madaef.recondoc"
@@ -11,7 +13,7 @@ version = "1.0.0"
 
 java {
     toolchain {
-        languageVersion = JavaLanguageVersion.of(21)
+        languageVersion = JavaLanguageVersion.of(25)
     }
 }
 
@@ -52,8 +54,9 @@ dependencies {
     implementation("org.springframework.boot:spring-boot-starter-webflux")
 
     // Resilience (circuit breaker / rate limiter / bulkhead) around Claude API
-    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.2.0")
-    implementation("io.github.resilience4j:resilience4j-reactor:2.2.0")
+    // resilience4j-spring-boot3 est compatible Spring Boot 4 (Jakarta EE 11 / Framework 7)
+    implementation("io.github.resilience4j:resilience4j-spring-boot3:2.3.0")
+    implementation("io.github.resilience4j:resilience4j-reactor:2.3.0")
     implementation("org.springframework.boot:spring-boot-starter-aop")
 
     // In-process cache for hot config lookups (rule config) — avoids Redis on Railway
@@ -93,6 +96,7 @@ dependencies {
 kotlin {
     compilerOptions {
         freeCompilerArgs.addAll("-Xjsr305=strict")
+        jvmTarget.set(JvmTarget.JVM_25)
     }
 }
 

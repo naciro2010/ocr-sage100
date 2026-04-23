@@ -9,6 +9,8 @@ import com.madaef.recondoc.service.DocumentSearchService
 import com.madaef.recondoc.service.DossierService
 import com.madaef.recondoc.service.ExcelExportService
 import com.madaef.recondoc.service.FinalizeRequest
+import com.madaef.recondoc.service.dossier.DossierExportService
+import com.madaef.recondoc.service.dossier.DossierRuleConfigService
 import com.madaef.recondoc.service.validation.RuleCatalog
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter
 import org.slf4j.LoggerFactory
@@ -32,7 +34,9 @@ class DossierController(
     private val dossierService: DossierService,
     private val progressService: DocumentProgressService,
     private val documentSearchService: DocumentSearchService,
-    private val excelExportService: ExcelExportService
+    private val excelExportService: ExcelExportService,
+    private val dossierRuleConfigService: DossierRuleConfigService,
+    private val dossierExportService: DossierExportService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -274,12 +278,12 @@ class DossierController(
 
     @PostMapping("/{id}/finalize")
     fun finalize(@PathVariable id: UUID, @RequestBody request: FinalizeRequest): Map<String, Any> {
-        return dossierService.finalizeDossier(id, request)
+        return dossierExportService.finalizeDossier(id, request)
     }
 
     @GetMapping("/{id}/export/tc", produces = [MediaType.APPLICATION_PDF_VALUE])
     fun exportTC(@PathVariable id: UUID): ResponseEntity<ByteArray> {
-        val pdf = dossierService.exportTC(id)
+        val pdf = dossierExportService.exportTC(id)
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_PDF)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"TC_${id}.pdf\"")
@@ -289,7 +293,7 @@ class DossierController(
 
     @GetMapping("/{id}/export/op", produces = [MediaType.APPLICATION_PDF_VALUE])
     fun exportOP(@PathVariable id: UUID): ResponseEntity<ByteArray> {
-        val pdf = dossierService.exportOP(id)
+        val pdf = dossierExportService.exportOP(id)
         return ResponseEntity.ok()
             .contentType(MediaType.APPLICATION_PDF)
             .header(HttpHeaders.CONTENT_DISPOSITION, "inline; filename=\"OP_${id}.pdf\"")
@@ -351,23 +355,23 @@ class DossierController(
 
     @GetMapping("/{id}/rule-config")
     fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {
-        return dossierService.getRuleConfig(id)
+        return dossierRuleConfigService.getRuleConfig(id)
     }
 
     @PatchMapping("/{id}/rule-config")
     fun updateRuleConfig(@PathVariable id: UUID, @RequestBody body: Map<String, Boolean>): Map<String, Any> {
-        dossierService.updateDossierRuleConfig(id, body)
-        return dossierService.getRuleConfig(id)
+        dossierRuleConfigService.updateDossierRuleConfig(id, body)
+        return dossierRuleConfigService.getRuleConfig(id)
     }
 
     @GetMapping("/global-rule-config")
     fun getGlobalRuleConfig(): List<Map<String, Any>> {
-        return dossierService.getGlobalRuleConfig()
+        return dossierRuleConfigService.getGlobalRuleConfig()
     }
 
     @PatchMapping("/global-rule-config")
     fun updateGlobalRuleConfig(@RequestBody body: Map<String, Boolean>): List<Map<String, Any>> {
-        dossierService.updateGlobalRuleConfig(body)
-        return dossierService.getGlobalRuleConfig()
+        dossierRuleConfigService.updateGlobalRuleConfig(body)
+        return dossierRuleConfigService.getGlobalRuleConfig()
     }
 }

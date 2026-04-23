@@ -1,5 +1,5 @@
 # === Stage 1: Build Backend ===
-FROM eclipse-temurin:21-jdk-alpine AS backend-build
+FROM eclipse-temurin:25-jdk-alpine AS backend-build
 WORKDIR /app
 COPY gradle gradle
 COPY gradlew build.gradle.kts settings.gradle.kts ./
@@ -8,7 +8,7 @@ COPY src src
 RUN ./gradlew bootJar --no-daemon
 
 # === Stage 2: Runtime ===
-FROM eclipse-temurin:21-jre-alpine
+FROM eclipse-temurin:25-jre-alpine
 WORKDIR /app
 
 RUN apk add --no-cache \
