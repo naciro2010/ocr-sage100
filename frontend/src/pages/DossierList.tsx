@@ -1,6 +1,6 @@
 import { useEffect, useState, useRef, useCallback, useMemo } from 'react'
 import { Link, useNavigate, useSearchParams } from 'react-router-dom'
-import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, getExportExcelUrl, openWithAuth, downloadWithAuth, getDossierSummary, getDocumentsWithData, bulkChangeStatut } from '../api/dossierApi'
+import { listDossiers, createDossier, searchDossiers, deleteDossier, uploadDocuments, getExportTCUrl, getExportOPUrl, getExportExcelUrl, openWithAuth, downloadWithAuth, prefetchDossierDetail, bulkChangeStatut } from '../api/dossierApi'
 import type { DossierListItem, PageResponse, DossierType } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
@@ -156,8 +156,7 @@ export default function DossierList() {
     if (prefetchedRef.current.has(dossierId)) return
     prefetchedRef.current.add(dossierId)
     Pages.DossierDetail.preload()
-    getDossierSummary(dossierId)
-    getDocumentsWithData(dossierId)
+    prefetchDossierDetail(dossierId)
   }, [])
 
   const handleQuickUpload = async (files: File[]) => {

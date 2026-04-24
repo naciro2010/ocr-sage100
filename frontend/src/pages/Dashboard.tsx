@@ -4,6 +4,8 @@ import { getDashboardStats, listDossiers, createDossier, uploadDocuments } from 
 import type { DossierListItem, DashboardStats } from '../api/dossierTypes'
 import { STATUT_CONFIG } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
+import { prefetchDossierDetail } from '../api/dossierApi'
+import * as Pages from '../routes/lazyPages'
 import {
   BarChart3, FolderOpen, CheckCircle, AlertTriangle, Clock, ArrowRight,
   Shield, TrendingUp, Upload, FileText, Plus, Loader2
@@ -36,8 +38,19 @@ export default function Dashboard() {
 
   useEffect(() => {
     const ctrl = new AbortController()
-    getDashboardStats(ctrl.signal).then(setStats).catch(() => setStats({ total: 0, brouillons: 0, enVerification: 0, valides: 0, rejetes: 0, montantTotal: 0 }))
-    listDossiers(0, 5).then(d => { if (!ctrl.signal.aborted) setRecent(d.content) }).catch(() => {})
+    // Les deux blocs sont independants : ils ne se bloquent pas l'un l'autre.
+    // Le squelette ne s'affiche que si stats ET recents sont absents : si le
+    // backend renvoie une stats lente, l'utilisateur voit deja sa liste.
+    getDashboardStats(ctrl.signal)
+      .then(setStats)
+      .catch(() => { if (!ctrl.signal.aborted) setStats({ total: 0, brouillons: 0, enVerification: 0, valides: 0, rejetes: 0, montantTotal: 0 }) })
+    listDossiers(0, 5, ctrl.signal)
+      .then(d => { if (!ctrl.signal.aborted) setRecent(d.content) })
+      .catch(() => {})
+    // Prefetch des routes probables a partir du dashboard pendant l'idle :
+    // l'utilisateur clique presque toujours sur "Dossiers" ensuite.
+    Pages.DossierList.preload()
+    Pages.DossierDetail.preload()
     return () => ctrl.abort()
   }, [])
 
@@ -230,8 +243,15 @@ export default function Dashboard() {
               <tbody>
                 {recent.map(d => {
                   const c = STATUT_CONFIG[d.statut]
+                  // Au survol : bundle JS de la page + endpoints atomiques
+                  // de la ressource dossier en parallele. Au clic, tout est
+                  // deja en cache (front + Service Worker).
+                  const prefetch = () => {
+                    Pages.DossierDetail.preload()
+                    prefetchDossierDetail(d.id)
+                  }
                   return (
-                    <tr key={d.id}>
+                    <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
                       <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
                       <td>{d.fournisseur || '\u2014'}</td>
                       <td><span className="tag">{d.type}</span></td>

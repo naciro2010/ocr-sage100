@@ -49,8 +49,14 @@ class DossierController(
     }
 
     @GetMapping
-    fun list(@PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable): Page<DossierListResponse> {
-        return dossierService.listDossiers(pageable)
+    fun list(@PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable): ResponseEntity<Page<DossierListResponse>> {
+        // Cache court (5s) cote client : la liste evolue tres peu en quelques
+        // secondes, mais reste sensible aux uploads + statut. Combine avec
+        // l'ETag global, on economise la serialisation JSON (304) sur les
+        // navigations back/forward et les rafraichissements rapides.
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=5, must-revalidate")
+            .body(dossierService.listDossiers(pageable))
     }
 
     @GetMapping("/stats")
@@ -64,8 +70,10 @@ class DossierController(
     fun get(
         @PathVariable id: UUID,
         @RequestParam(required = false, defaultValue = "false") light: Boolean
-    ): DossierResponse {
-        return dossierService.getDossierResponse(id, light)
+    ): ResponseEntity<DossierResponse> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3, must-revalidate")
+            .body(dossierService.getDossierResponse(id, light))
     }
 
     @GetMapping("/{id}/documents/{docId}/extract-data")
@@ -129,8 +137,10 @@ class DossierController(
     }
 
     @GetMapping("/{id}/documents")
-    fun listDocuments(@PathVariable id: UUID): Map<String, Any?> {
-        return dossierService.listDocumentsWithData(id)
+    fun listDocuments(@PathVariable id: UUID): ResponseEntity<Map<String, Any?>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=3, must-revalidate")
+            .body(dossierService.listDocumentsWithData(id))
     }
 
     @PostMapping("/{id}/documents/zip", consumes = [MediaType.MULTIPART_FORM_DATA_VALUE])
@@ -264,8 +274,10 @@ class DossierController(
         @RequestParam(required = false) type: DossierType?,
         @RequestParam(required = false) fournisseur: String?,
         @PageableDefault(size = 20, sort = ["dateCreation"], direction = Sort.Direction.DESC) pageable: Pageable
-    ): Page<DossierListResponse> {
-        return dossierService.searchDossiers(statut, type, fournisseur, pageable)
+    ): ResponseEntity<Page<DossierListResponse>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=5, must-revalidate")
+            .body(dossierService.searchDossiers(statut, type, fournisseur, pageable))
     }
 
     @GetMapping("/search-documents")
@@ -327,9 +339,14 @@ class DossierController(
     }
 
     @GetMapping("/validation/cascade/{regle}")
-    fun getCascadeScope(@PathVariable regle: String): Map<String, Any> {
+    fun getCascadeScope(@PathVariable regle: String): ResponseEntity<Map<String, Any>> {
+        // Catalogue statique, recompile avec le backend -> cache long cote
+        // client (10 min) avec must-revalidate. L'ETag se chargera de
+        // renvoyer 304 si le contenu n'a pas bouge.
         val cascade = RuleCatalog.cascade(regle)
-        return mapOf("regle" to regle, "cascade" to cascade, "count" to cascade.size)
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=600, must-revalidate")
+            .body(mapOf("regle" to regle, "cascade" to cascade, "count" to cascade.size))
     }
 
     @GetMapping("/rule-catalog")
@@ -341,8 +358,10 @@ class DossierController(
             .body(RuleCatalog.all())
 
     @GetMapping("/{id}/required-documents")
-    fun getRequiredDocuments(@PathVariable id: UUID): RequiredDocumentsResponse {
-        return dossierService.getRequiredDocuments(id)
+    fun getRequiredDocuments(@PathVariable id: UUID): ResponseEntity<RequiredDocumentsResponse> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=30, must-revalidate")
+            .body(dossierService.getRequiredDocuments(id))
     }
 
     @PatchMapping("/{id}/required-documents")
@@ -354,8 +373,10 @@ class DossierController(
     }
 
     @GetMapping("/{id}/rule-config")
-    fun getRuleConfig(@PathVariable id: UUID): Map<String, Any> {
-        return dossierRuleConfigService.getRuleConfig(id)
+    fun getRuleConfig(@PathVariable id: UUID): ResponseEntity<Map<String, Any>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=30, must-revalidate")
+            .body(dossierRuleConfigService.getRuleConfig(id))
     }
 
     @PatchMapping("/{id}/rule-config")
@@ -365,8 +386,10 @@ class DossierController(
     }
 
     @GetMapping("/global-rule-config")
-    fun getGlobalRuleConfig(): List<Map<String, Any>> {
-        return dossierRuleConfigService.getGlobalRuleConfig()
+    fun getGlobalRuleConfig(): ResponseEntity<List<Map<String, Any>>> {
+        return ResponseEntity.ok()
+            .header(HttpHeaders.CACHE_CONTROL, "private, max-age=60, must-revalidate")
+            .body(dossierRuleConfigService.getGlobalRuleConfig())
     }
 
     @PatchMapping("/global-rule-config")

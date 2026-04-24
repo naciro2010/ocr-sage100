@@ -21,11 +21,23 @@ async function handleResponse<T>(res: Response): Promise<T> {
   return res.json()
 }
 
+// Deduplication d'inflight pour les GET de settings : Settings + Layout
+// peuvent les demander en parallele au mount, on ne veut qu'un seul appel.
+const settingsInflight = new Map<string, Promise<unknown>>()
+function dedupedGet<T>(url: string): Promise<T> {
+  const existing = settingsInflight.get(url)
+  if (existing) return existing as Promise<T>
+  const p = fetch(url, { headers: authHeaders() })
+    .then(res => handleResponse<T>(res))
+    .finally(() => settingsInflight.delete(url))
+  settingsInflight.set(url, p)
+  return p
+}
+
 // --- AI Settings ---
 
 export async function getAiSettings(): Promise<AiSettingsResponse> {
-  const res = await fetch(`${API_URL}/api/settings/ai`, { headers: authHeaders() })
-  return handleResponse(res)
+  return dedupedGet<AiSettingsResponse>(`${API_URL}/api/settings/ai`)
 }
 
 export async function saveAiSettings(settings: {
@@ -45,8 +57,7 @@ export async function saveAiSettings(settings: {
 // --- OCR Settings ---
 
 export async function getOcrSettings(): Promise<OcrSettingsResponse> {
-  const res = await fetch(`${API_URL}/api/settings/ocr`, { headers: authHeaders() })
-  return handleResponse(res)
+  return dedupedGet<OcrSettingsResponse>(`${API_URL}/api/settings/ocr`)
 }
 
 export async function saveOcrSettings(settings: {
@@ -66,6 +77,5 @@ export async function saveOcrSettings(settings: {
 // --- System Health ---
 
 export async function getSystemHealth(): Promise<SystemHealthResponse> {
-  const res = await fetch(`${API_URL}/api/admin/system/health`, { headers: authHeaders() })
-  return handleResponse(res)
+  return dedupedGet<SystemHealthResponse>(`${API_URL}/api/admin/system/health`)
 }

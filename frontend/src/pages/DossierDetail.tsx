@@ -201,7 +201,11 @@ export default function DossierDetail() {
     listCustomRules().then(setCustomRules).catch(() => setCustomRules([]))
   }, [])
 
-  // Load all blocks in parallel on mount
+  // Chaque endpoint a sa responsabilite (REST atomique). Le navigateur
+  // multiplexe les 5 GET en parallele ; combines au cache HTTP/ETag/SW,
+  // chaque bloc affiche son skeleton individuel et apparait des qu'il est
+  // pret. Pas de cascade artificielle : si le summary tombe, les docs
+  // peuvent quand meme s'afficher.
   useEffect(() => {
     loadSummary()
     loadDocs()

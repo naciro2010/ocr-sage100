@@ -5,6 +5,8 @@ import {
   ChevronRight, Trash2, AlertTriangle,
 } from 'lucide-react'
 import { getEngagement, detachDossier, deleteEngagement } from '../api/engagementApi'
+import { prefetchDossierDetail } from '../api/dossierApi'
+import * as Pages from '../routes/lazyPages'
 import type { EngagementResponse } from '../api/engagementTypes'
 import {
   TYPE_CONFIG, STATUT_ENG_CONFIG, fmtMad, fmtDate, consumptionColor,
@@ -155,8 +157,13 @@ export default function EngagementDetail() {
               </tr>
             </thead>
             <tbody>
-              {engagement.dossiers.map(d => (
-                <tr key={d.id}>
+              {engagement.dossiers.map(d => {
+                const prefetch = () => {
+                  Pages.DossierDetail.preload()
+                  prefetchDossierDetail(d.id)
+                }
+                return (
+                <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
                   <td className="cell-mono" style={{ fontWeight: 500 }}>
                     <Link to={`/dossiers/${d.id}`} style={{ color: 'inherit' }}>{d.reference}</Link>
                   </td>
@@ -176,7 +183,7 @@ export default function EngagementDetail() {
                     </button>
                   </td>
                 </tr>
-              ))}
+              )})}
             </tbody>
           </table>
         )}
