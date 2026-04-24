@@ -127,6 +127,15 @@ function BlockError({ message, onRetry }: { message: string; onRetry: () => void
   )
 }
 
+type SectionTone = 'ok' | 'ko' | 'warn' | 'info' | null
+interface SectionItem {
+  id: string
+  label: string
+  icon: typeof Gauge
+  badge: string | null
+  tone: SectionTone
+}
+
 export default function DossierDetail() {
   const { id } = useParams<{ id: string }>()
   const { toast } = useToast()
@@ -336,20 +345,25 @@ export default function DossierDetail() {
 
   // Sections accessibles via le sous-nav sticky. Limite la perte d'orientation
   // quand la page depasse l'ecran : chaque section a son ancre et son compteur.
-  const sections = useMemo(() => [
-    { id: 'vue', label: 'Vue', icon: Gauge, visible: true, badge: null as string | null, tone: null as 'ok' | 'ko' | 'warn' | 'info' | null },
-    {
-      id: 'controles', label: 'Controles', icon: ShieldCheck, visible: nbDocs > 0,
-      badge: nbNonConformes > 0 ? String(nbNonConformes) : nbAvertissements > 0 ? String(nbAvertissements) : validationResults.length > 0 ? 'OK' : null,
-      tone: nbNonConformes > 0 ? 'ko' : nbAvertissements > 0 ? 'warn' : validationResults.length > 0 ? 'ok' : null,
-    },
-    {
-      id: 'documents', label: 'Documents', icon: FileIcon, visible: true,
-      badge: nbDocsProblemes > 0 ? String(nbDocsProblemes) : nbDocs > 0 ? String(nbDocs) : null,
-      tone: nbDocsProblemes > 0 ? 'ko' : hasProcessing ? 'info' : null,
-    },
-    { id: 'historique', label: 'Historique', icon: HistoryIcon, visible: audit.length > 0, badge: String(audit.length), tone: null },
-  ].filter(s => s.visible), [nbDocs, nbNonConformes, nbAvertissements, nbDocsProblemes, hasProcessing, validationResults.length, audit.length])
+  const sections = useMemo(() => {
+    const controlesBadge: { badge: string; tone: SectionTone } | null =
+      nbNonConformes > 0 ? { badge: String(nbNonConformes), tone: 'ko' } :
+      nbAvertissements > 0 ? { badge: String(nbAvertissements), tone: 'warn' } :
+      validationResults.length > 0 ? { badge: 'OK', tone: 'ok' } :
+      null
+    const documentsBadge: { badge: string; tone: SectionTone } | null =
+      nbDocsProblemes > 0 ? { badge: String(nbDocsProblemes), tone: 'ko' } :
+      hasProcessing && nbDocs > 0 ? { badge: String(nbDocs), tone: 'info' } :
+      nbDocs > 0 ? { badge: String(nbDocs), tone: null } :
+      null
+    const all: (SectionItem & { visible: boolean })[] = [
+      { id: 'vue', label: 'Vue', icon: Gauge, visible: true, badge: null, tone: null },
+      { id: 'controles', label: 'Controles', icon: ShieldCheck, visible: nbDocs > 0, badge: controlesBadge?.badge ?? null, tone: controlesBadge?.tone ?? null },
+      { id: 'documents', label: 'Documents', icon: FileIcon, visible: true, badge: documentsBadge?.badge ?? null, tone: documentsBadge?.tone ?? null },
+      { id: 'historique', label: 'Historique', icon: HistoryIcon, visible: audit.length > 0, badge: String(audit.length), tone: null },
+    ]
+    return all.filter(s => s.visible)
+  }, [nbDocs, nbNonConformes, nbAvertissements, nbDocsProblemes, hasProcessing, validationResults.length, audit.length])
 
   const scrollToSection = useCallback((id: string) => {
     const el = document.getElementById(`dossier-section-${id}`)

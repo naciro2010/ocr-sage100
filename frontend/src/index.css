@@ -2456,16 +2456,31 @@ body {
 .ctrl-rule-row {
   position: relative;
   display: grid;
-  grid-template-columns: auto auto 1fr auto;
+  grid-template-columns: 26px auto 1fr auto;
   align-items: center; gap: 10px;
   width: 100%;
   padding: 10px 14px 10px 15px;
   border: none; background: transparent;
   border-top: 1px solid var(--ink-05);
   cursor: pointer; text-align: left;
-  transition: background 0.12s;
+  transition: background 0.12s, border-color 0.12s;
   font-family: var(--font-display);
 }
+/* L'icone est un <svg> avec width/height=14 intrinseques. On ajoute un padding
+   en content-box pour creer une tuile coloree autour sans scaler l'icone
+   (eviter les strokes trop fins lies au viewBox). */
+.ctrl-rule-row > .ctrl-status-icon {
+  padding: 4px;
+  border-radius: 6px;
+  background: var(--ink-02);
+  border: 1px solid transparent;
+  box-sizing: content-box;
+}
+.ctrl-rule-row.status-ok   > .ctrl-status-icon { background: var(--ctrl-ok-tint);   border-color: color-mix(in srgb, var(--ctrl-ok)   22%, transparent); }
+.ctrl-rule-row.status-ko   > .ctrl-status-icon { background: var(--ctrl-ko-tint);   border-color: color-mix(in srgb, var(--ctrl-ko)   25%, transparent); }
+.ctrl-rule-row.status-warn > .ctrl-status-icon { background: var(--ctrl-warn-tint); border-color: color-mix(in srgb, var(--ctrl-warn) 25%, transparent); }
+.ctrl-rule-row.status-na   > .ctrl-status-icon,
+.ctrl-rule-row.status-pending > .ctrl-status-icon { background: var(--ink-02); border-color: var(--ink-05); }
 .ctrl-rule-row:first-child { border-top: none; }
 .ctrl-rule-row:hover:not(.selected) { background: var(--ink-02); }
 .ctrl-rule-row:focus-visible { outline: none; }
@@ -2559,10 +2574,6 @@ body {
   display: flex; align-items: center; gap: 10px;
   margin-bottom: 12px;
   flex-wrap: wrap;
-}
-.ctrl-detail-header-actions {
-  display: flex; gap: 6px; align-items: center;
-  margin-left: auto; flex-shrink: 0;
 }
 .ctrl-detail-status-dot {
   width: 8px; height: 8px; border-radius: 50%;
@@ -2880,8 +2891,16 @@ body {
   border-bottom: 1px solid var(--ink-05);
 }
 .dossier-subnav-inner {
-  display: flex; gap: 4px; flex-wrap: wrap;
+  display: flex; gap: 4px;
   padding: 4px 2px;
+  overflow-x: auto;
+  /* Hide scrollbar on mobile while keeping horizontal scroll working.
+     Evite d'avoir une scrollbar qui "mange" la hauteur de la nav sticky. */
+  scrollbar-width: none;
+}
+.dossier-subnav-inner::-webkit-scrollbar { display: none; }
+@media (min-width: 768px) {
+  .dossier-subnav-inner { flex-wrap: wrap; overflow-x: visible; }
 }
 .dossier-subnav-item {
   display: inline-flex; align-items: center; gap: 6px;
@@ -3049,7 +3068,7 @@ body {
 .ctrl-detail-actionbar {
   position: sticky;
   bottom: 0;
-  display: flex; align-items: center; gap: 12px;
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
   padding: 10px 18px;
   background: color-mix(in srgb, #fff 94%, transparent);
   backdrop-filter: saturate(1.3) blur(6px);
