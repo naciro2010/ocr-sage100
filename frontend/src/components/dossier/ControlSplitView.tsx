@@ -13,8 +13,30 @@ import {
   FileText, RefreshCw, Edit3, Save, X,
   MessageSquare, ChevronLeft, ChevronRight, Download,
   Zap as ZapIcon, MousePointer, Search, CheckCircle2,
-  XCircle, AlertCircle, MinusCircle, Clock, Play, Sparkles
+  XCircle, AlertCircle, MinusCircle, Clock, Play, Sparkles,
+  ChevronDown, Keyboard
 } from 'lucide-react'
+
+/**
+ * Persistance simple dans localStorage (JSON). Evite que l'operateur perde ses
+ * filtres/recherche en rechargeant ou en naviguant. Retombe sur la valeur par
+ * defaut si le parsing echoue — aucun plantage silencieux.
+ */
+function useLocalStorageState<T>(key: string, initial: T, validate?: (v: unknown) => v is T): [T, (v: T) => void] {
+  const [value, setValue] = useState<T>(() => {
+    try {
+      const raw = localStorage.getItem(key)
+      if (raw == null) return initial
+      const parsed: unknown = JSON.parse(raw)
+      if (validate && !validate(parsed)) return initial
+      return parsed as T
+    } catch { return initial }
+  })
+  useEffect(() => {
+    try { localStorage.setItem(key, JSON.stringify(value)) } catch { /* ignore */ }
+  }, [key, value])
+  return [value, setValue]
+}
 
 type FilterMode = 'all' | 'problems' | 'conforme' | 'pending'
 type RuleConfigShape = { global: Record<string, boolean>; overrides: Record<string, boolean> }
@@ -107,6 +129,26 @@ function verdictProvenance(r: ValidationResult): Provenance {
   if (hit) return hit
   if (r.corrigePar) return { label: `Corrige par ${r.corrigePar}`, hint: 'Statut force manuellement apres analyse humaine.', tone: 'neutral' }
   return { label: 'Source inconnue', hint: 'La provenance du verdict n\'est pas tracee.', tone: 'neutral' }
+}
+
+/**
+ * Resume tres court du verdict, affiche dans la liste de regles pour les KO/WARN.
+ * Preference : "attendu ≠ trouve" si les deux existent, sinon la 1re ligne du detail.
+ * Tronque a ~80 chars pour rester sur une ligne.
+ */
+function miniVerdict(r: ValidationResult | undefined): string | null {
+  if (!r) return null
+  if (r.statut !== 'NON_CONFORME' && r.statut !== 'AVERTISSEMENT') return null
+  const a = (r.valeurAttendue || '').trim()
+  const t = (r.valeurTrouvee || '').trim()
+  if (a && t && a !== t) {
+    const txt = `${a} ≠ ${t}`
+    return txt.length > 80 ? txt.slice(0, 78) + '…' : txt
+  }
+  const d = (r.detail || '').trim()
+  if (!d) return null
+  const first = d.split(/[.\n]/)[0] || d
+  return first.length > 80 ? first.slice(0, 78) + '…' : first
 }
 
 function isStale(r: ValidationResult | undefined, documents: DocumentInfo[]): boolean {
@@ -331,19 +373,23 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
             {g.items.map(item => {
               const sd = STATUS_DISPLAY[item.status]
               const isSelected = selectedKey === item.key
+              const mini = miniVerdict(item.result)
               return (
                 <button
                   key={item.key}
                   type="button"
-                  className={`ctrl-rule-row status-${item.status} engine-${item.engine} ${isSelected ? 'selected' : ''}`}
+                  className={`ctrl-rule-row status-${item.status} engine-${item.engine} ${isSelected ? 'selected' : ''} ${mini ? 'has-mini' : ''}`}
                   onClick={() => onSelect(item.key)}
                   role="option"
                   aria-selected={isSelected}
-                  aria-label={`${item.code} - ${item.label} - ${sd.label} - ${ENGINE_LABEL[item.engine].long}`}
+                  aria-label={`${item.code} - ${item.label} - ${sd.label} - ${ENGINE_LABEL[item.engine].long}${mini ? ` - ${mini}` : ''}`}
                 >
                   <StatusIcon status={item.status} size={14} />
                   <span className="ctrl-rule-code">{item.code}</span>
-                  <span className="ctrl-rule-label">{item.label}</span>
+                  <span className="ctrl-rule-body">
+                    <span className="ctrl-rule-label">{item.label}</span>
+                    {mini && <span className="ctrl-rule-mini" title={mini}>{mini}</span>}
+                  </span>
                   <span className={`ctrl-rule-engine engine-${item.engine}`} title={ENGINE_LABEL[item.engine].hint} aria-hidden="true">
                     {ENGINE_LABEL[item.engine].short}
                   </span>
@@ -352,6 +398,45 @@ function LeftPanel({ items, selectedKey, onSelect, filterMode, onFilterChange, c
             })}
           </div>
         ))}
+      </div>
+    </div>
+  )
+}
+
+/**
+ * Verdict banner : affiche en une ligne ce qui a ete juge, avec une forme
+ * visuelle forte (gros icone + texte). Repond a l'exigence UX "voir exactement
+ * ce qui a ete controle" sans obliger l'operateur a lire le bloc detail.
+ */
+function VerdictBanner({ item }: { item: RuleItem }) {
+  const r = item.result
+  const sd = STATUS_DISPLAY[item.status]
+  let message: string
+  if (!r) {
+    message = 'Ce controle n\'a pas encore ete execute.'
+  } else if (item.status === 'ok') {
+    message = r.detail?.trim() || 'Controle conforme.'
+  } else if (item.status === 'ko') {
+    const a = (r.valeurAttendue || '').trim()
+    const t = (r.valeurTrouvee || '').trim()
+    if (a && t && a !== t) message = `Attendu ${a} — trouve ${t}.`
+    else message = r.detail?.trim() || 'Non-conformite detectee.'
+  } else if (item.status === 'warn') {
+    message = r.detail?.trim() || 'Avertissement : verification manuelle recommandee.'
+  } else if (item.status === 'na') {
+    message = r.detail?.trim() || 'Non applicable a ce dossier.'
+  } else {
+    message = 'En attente — lancez la verification pour obtenir un verdict.'
+  }
+  return (
+    <div className={`ctrl-verdict-banner status-${item.status}`} role="status"
+      aria-label={`Verdict : ${sd.label}. ${message}`}>
+      <div className="ctrl-verdict-icon" aria-hidden="true">
+        <StatusIcon status={item.status} size={20} />
+      </div>
+      <div className="ctrl-verdict-text">
+        <span className="ctrl-verdict-label">{sd.label}</span>
+        <span className="ctrl-verdict-msg">{message}</span>
       </div>
     </div>
   )
@@ -439,6 +524,11 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   const ruleMeta = item ? ALL_RULES.find(rl => rl.code === item.code) : undefined
   const stale = isStale(r, dossier.documents)
   const cascadeSize = item ? (cascadeScope?.[item.code.split('.')[0]]?.length || 1) : 0
+
+  const [methodOpen, setMethodOpen] = useLocalStorageState<boolean>(
+    'ctrl-split.method-open', false,
+    (v): v is boolean => typeof v === 'boolean'
+  )
 
   const startEdit = useCallback(() => {
     if (!r) return
@@ -582,51 +672,72 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
 
       <div className="ctrl-split-center-body">
 
-        {/* Methode du controle — formule + methode + provenance */}
-        {(ruleMeta?.formula || ruleMeta?.method || provenance) && (
-          <div className="ctrl-detail-section">
-            <div className="ctrl-detail-section-title">Methode du controle</div>
-            <div className="ctrl-method">
-              {ruleMeta?.formula && (
-                <div className="ctrl-method-row">
-                  <div className="ctrl-method-label">Formule</div>
-                  <code className="ctrl-method-formula">{ruleMeta.formula}</code>
-                </div>
-              )}
-              {ruleMeta?.method && (
-                <div className="ctrl-method-row">
-                  <div className="ctrl-method-label">Comment</div>
-                  <div className="ctrl-method-text">{ruleMeta.method}</div>
-                </div>
-              )}
-              {ruleMeta?.fields && ruleMeta.fields.length > 0 && (
-                <div className="ctrl-method-row">
-                  <div className="ctrl-method-label">Champs lus</div>
-                  <div className="ctrl-method-fields">
-                    {ruleMeta.fields.map(f => (
-                      <code key={f} className="ctrl-method-field">{f}</code>
-                    ))}
-                  </div>
-                </div>
-              )}
-              {provenance && (
-                <div className="ctrl-method-row">
-                  <div className="ctrl-method-label">Verdict</div>
-                  <div className={`ctrl-method-provenance tone-${provenance.tone}`}>
-                    <span className="ctrl-method-provenance-label">{provenance.label}</span>
-                    <span className="ctrl-method-provenance-hint">{provenance.hint}</span>
-                  </div>
-                </div>
-              )}
-            </div>
-          </div>
-        )}
+        {/* Verdict banner : la reponse en une phrase, avant tout le detail.
+            Objectif : qu'en arrivant sur un controle, l'operateur comprenne
+            immediatement ce qui a ete juge, sans scroller ni lire la methode. */}
+        <VerdictBanner item={item} />
 
-        {/* Detail from validation */}
+        {/* Detail from validation — phrase explicative produite par la regle */}
         {r?.detail && (
           <div className="ctrl-detail-section">
             <div className="ctrl-detail-section-title">Resultat</div>
             <p className="ctrl-detail-note">{r.detail}</p>
+          </div>
+        )}
+
+        {/* Methode du controle — repliee par defaut. On privilegie le verdict
+            et les preuves au-dessus ; la formule et les champs relevent du
+            debug / audit et ne doivent pas voler l'attention. */}
+        {(ruleMeta?.formula || ruleMeta?.method || provenance) && (
+          <div className="ctrl-detail-section">
+            <button type="button"
+              className="ctrl-method-toggle"
+              onClick={() => setMethodOpen(!methodOpen)}
+              aria-expanded={methodOpen}
+              aria-controls={`ctrl-method-${item.key}`}>
+              {methodOpen ? <ChevronDown size={13} /> : <ChevronRight size={13} />}
+              Methode du controle
+              {provenance && (
+                <span className={`ctrl-method-toggle-tag tone-${provenance.tone}`}>
+                  {provenance.label.replace(/^(Calcul |Jugement |Saisie )/, '')}
+                </span>
+              )}
+            </button>
+            {methodOpen && (
+              <div id={`ctrl-method-${item.key}`} className="ctrl-method">
+                {ruleMeta?.formula && (
+                  <div className="ctrl-method-row">
+                    <div className="ctrl-method-label">Formule</div>
+                    <code className="ctrl-method-formula">{ruleMeta.formula}</code>
+                  </div>
+                )}
+                {ruleMeta?.method && (
+                  <div className="ctrl-method-row">
+                    <div className="ctrl-method-label">Comment</div>
+                    <div className="ctrl-method-text">{ruleMeta.method}</div>
+                  </div>
+                )}
+                {ruleMeta?.fields && ruleMeta.fields.length > 0 && (
+                  <div className="ctrl-method-row">
+                    <div className="ctrl-method-label">Champs lus</div>
+                    <div className="ctrl-method-fields">
+                      {ruleMeta.fields.map(f => (
+                        <code key={f} className="ctrl-method-field">{f}</code>
+                      ))}
+                    </div>
+                  </div>
+                )}
+                {provenance && (
+                  <div className="ctrl-method-row">
+                    <div className="ctrl-method-label">Verdict</div>
+                    <div className={`ctrl-method-provenance tone-${provenance.tone}`}>
+                      <span className="ctrl-method-provenance-label">{provenance.label}</span>
+                      <span className="ctrl-method-provenance-hint">{provenance.hint}</span>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
           </div>
         )}
 
@@ -792,7 +903,42 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
             )}
           </dl>
         )}
+
+        <div className="ctrl-detail-kbd-hints" aria-hidden="true">
+          <Keyboard size={11} />
+          <span><kbd>J</kbd> suivant</span>
+          <span><kbd>K</kbd> precedent</span>
+          {problemNav.total > 1 && <span><kbd>&gt;</kbd> <kbd>&lt;</kbd> entre problemes</span>}
+        </div>
       </div>
+
+      {/* Sticky action bar — actions primaires toujours visibles.
+          Evite a l'operateur de remonter en haut du panneau quand il scrolle
+          les preuves et doit corriger / relancer. */}
+      {r && !editing && (
+        <div className="ctrl-detail-actionbar" role="toolbar" aria-label="Actions du controle">
+          <div className="ctrl-detail-actionbar-status">
+            <span className={`ctrl-detail-status-dot status-${item.status}`} aria-hidden="true" />
+            <span className="ctrl-detail-actionbar-code">{item.code}</span>
+            <span className={`ctrl-detail-actionbar-label status-${item.status}`}>{sd.label}</span>
+          </div>
+          <div className="ctrl-detail-actionbar-actions">
+            <select className="ctrl-status-select" value={r.statut}
+              onChange={e => handleCorrect(e.target.value)}
+              aria-label="Changer le statut">
+              {STATUT_OPTIONS.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+            <button className="ctrl-btn-secondary" onClick={startEdit}>
+              <Edit3 size={12} /> Corriger
+            </button>
+            <button className="ctrl-btn-primary" onClick={handleRerun} disabled={rerunning === item.code}>
+              {rerunning === item.code ? <Loader2 size={12} className="spin" /> : <RefreshCw size={12} />}
+              Relancer
+              {cascadeSize > 1 && <span className="ctrl-cascade-badge">+{cascadeSize - 1}</span>}
+            </button>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
@@ -880,11 +1026,22 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc, 
 }
 
 /* ===== MAIN SPLIT VIEW ===== */
+const FILTER_MODES = new Set<FilterMode>(['all', 'problems', 'conforme', 'pending'])
+const ENGINE_FILTERS = new Set<EngineFilter>(['any', 'system', 'ai', 'human'])
+
 export default memo(function ControlSplitView({ dossier, dossierId, validating, onValidate, onRefreshResults, onRerunRule, onReplaceResults, onOptimisticUpdate, cascadeScope, customRules, ruleConfig, onToggleRule }: Props) {
   const { toast } = useToast()
   const [selectedKey, setSelectedKey] = useState<string | null>(null)
-  const [filterMode, setFilterMode] = useState<FilterMode>('all')
-  const [engineFilter, setEngineFilter] = useState<EngineFilter>('any')
+  // Filtres/recherche persistes : l'operateur qui revient sur un dossier retrouve
+  // son cadrage de travail (filtre "Problemes", moteur "IA", etc.).
+  const [filterMode, setFilterMode] = useLocalStorageState<FilterMode>(
+    'ctrl-split.filter', 'all',
+    (v): v is FilterMode => typeof v === 'string' && FILTER_MODES.has(v as FilterMode)
+  )
+  const [engineFilter, setEngineFilter] = useLocalStorageState<EngineFilter>(
+    'ctrl-split.engine', 'any',
+    (v): v is EngineFilter => typeof v === 'string' && ENGINE_FILTERS.has(v as EngineFilter)
+  )
   const [previewDocId, setPreviewDocId] = useState<string | null>(null)
   const [highlightField, setHighlightField] = useState<string | null>(null)
   const [rerunning, setRerunning] = useState<string | null>(null)
@@ -1040,7 +1197,9 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
     if (first) setSelectedKey(first.key)
   }, [items, selectedKey])
 
-  // J/K keyboard navigation
+  // Navigation clavier : J/K = controle suivant/precedent (toutes regles).
+  // "<" / ">" = navigation entre problemes (KO/WARN uniquement), utile quand
+  // l'operateur veut cycler sur les anomalies a traiter.
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
       const tag = (e.target as HTMLElement).tagName
@@ -1057,6 +1216,20 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         setSelectedKey(prev => {
           const idx = items.findIndex(i => i.key === prev)
           return idx > 0 ? items[idx - 1].key : prev
+        })
+      }
+      if ((e.key === '>' || e.key === '<') && !e.metaKey && !e.ctrlKey) {
+        const problems = items.filter(i => i.status === 'ko' || i.status === 'warn')
+        if (problems.length === 0) return
+        e.preventDefault()
+        setSelectedKey(prev => {
+          const idx = problems.findIndex(i => i.key === prev)
+          if (e.key === '>') {
+            const next = idx >= 0 ? (idx + 1) % problems.length : 0
+            return problems[next].key
+          }
+          const next = idx >= 0 ? (idx - 1 + problems.length) % problems.length : problems.length - 1
+          return problems[next].key
         })
       }
     }
