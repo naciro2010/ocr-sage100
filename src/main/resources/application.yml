@@ -146,27 +146,15 @@ management:
 
 server:
   port: ${PORT:8080}
-  # HTTP/2 multiplexe toutes les requetes paralleles sur une seule connexion
-  # TCP. Sans, le navigateur est limite a 6 connexions concurrentes par
-  # origine en HTTP/1.1 -> les pages qui lancent 5+ GET en parallele
-  # serialisent les suivantes. Avec h2, latence 5+ requetes ~= latence 1.
-  # En cleartext, h2c se negocie via Upgrade: actif par defaut quand
-  # http2.enabled=true et que le client le supporte (Chrome, Firefox).
-  http2:
-    enabled: true
   compression:
     enabled: true
     min-response-size: 1024
-    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript,text/event-stream
+    mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
   tomcat:
     threads:
       max: ${TOMCAT_MAX_THREADS:200}
       min-spare: 10
     connection-timeout: 20s
-    # Nombre max de streams h2 en parallele par connexion. La valeur par
-    # defaut Tomcat (100) suffit largement pour un client SPA qui en
-    # consomme typiquement 5-10 simultanement.
-    max-http-form-post-size: 50MB
 
 logging:
   level:
