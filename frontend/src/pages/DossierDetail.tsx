@@ -10,7 +10,7 @@ import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
 import { useToast } from '../components/Toast'
 import Modal from '../components/Modal'
 import { useDocumentEvents } from '../hooks/useDocumentEvents'
-import { AlertTriangle, RefreshCw } from 'lucide-react'
+import { AlertTriangle, RefreshCw, Gauge, ShieldCheck, FileText as FileIcon, History as HistoryIcon } from 'lucide-react'
 
 const DossierHeader = lazy(() => import('../components/dossier/DossierHeader'))
 const DossierEditForm = lazy(() => import('../components/dossier/DossierEditForm'))
@@ -125,6 +125,15 @@ function BlockError({ message, onRetry }: { message: string; onRetry: () => void
       </button>
     </div>
   )
+}
+
+type SectionTone = 'ok' | 'ko' | 'warn' | 'info' | null
+interface SectionItem {
+  id: string
+  label: string
+  icon: typeof Gauge
+  badge: string | null
+  tone: SectionTone
 }
 
 export default function DossierDetail() {
@@ -327,6 +336,42 @@ export default function DossierDetail() {
     validationResults.filter(r => r.statut === 'CONFORME').length, [validationResults])
   const nbNonConformes = useMemo(() =>
     validationResults.filter(r => r.statut === 'NON_CONFORME').length, [validationResults])
+  const nbAvertissements = useMemo(() =>
+    validationResults.filter(r => r.statut === 'AVERTISSEMENT').length, [validationResults])
+
+  const nbDocs = docsData?.documents?.length ?? 0
+  const nbDocsProblemes = useMemo(() =>
+    docsData?.documents?.filter(d => d.statutExtraction === 'ERREUR').length ?? 0, [docsData])
+
+  // Sections accessibles via le sous-nav sticky. Limite la perte d'orientation
+  // quand la page depasse l'ecran : chaque section a son ancre et son compteur.
+  const sections = useMemo(() => {
+    const controlesBadge: { badge: string; tone: SectionTone } | null =
+      nbNonConformes > 0 ? { badge: String(nbNonConformes), tone: 'ko' } :
+      nbAvertissements > 0 ? { badge: String(nbAvertissements), tone: 'warn' } :
+      validationResults.length > 0 ? { badge: 'OK', tone: 'ok' } :
+      null
+    const documentsBadge: { badge: string; tone: SectionTone } | null =
+      nbDocsProblemes > 0 ? { badge: String(nbDocsProblemes), tone: 'ko' } :
+      hasProcessing && nbDocs > 0 ? { badge: String(nbDocs), tone: 'info' } :
+      nbDocs > 0 ? { badge: String(nbDocs), tone: null } :
+      null
+    const all: (SectionItem & { visible: boolean })[] = [
+      { id: 'vue', label: 'Vue', icon: Gauge, visible: true, badge: null, tone: null },
+      { id: 'controles', label: 'Controles', icon: ShieldCheck, visible: nbDocs > 0, badge: controlesBadge?.badge ?? null, tone: controlesBadge?.tone ?? null },
+      { id: 'documents', label: 'Documents', icon: FileIcon, visible: true, badge: documentsBadge?.badge ?? null, tone: documentsBadge?.tone ?? null },
+      { id: 'historique', label: 'Historique', icon: HistoryIcon, visible: audit.length > 0, badge: String(audit.length), tone: null },
+    ]
+    return all.filter(s => s.visible)
+  }, [nbDocs, nbNonConformes, nbAvertissements, nbDocsProblemes, hasProcessing, validationResults.length, audit.length])
+
+  const scrollToSection = useCallback((id: string) => {
+    const el = document.getElementById(`dossier-section-${id}`)
+    if (!el) return
+    // Decale le scroll pour laisser voir le header du bloc sous la nav sticky
+    const y = el.getBoundingClientRect().top + window.scrollY - 80
+    window.scrollTo({ top: y, behavior: 'smooth' })
+  }, [])
 
   // Build compat object for child components
   const dossierCompat = useMemo(() => {
@@ -404,9 +449,31 @@ export default function DossierDetail() {
             </Modal>
 
             {/* Block 2: Metrics — same as header */}
-            <div className="block-loaded" style={{ animationDelay: '0.05s' }}>
+            <div id="dossier-section-vue" className="block-loaded" style={{ animationDelay: '0.05s' }}>
               <MetricsBar dossier={dossierCompat!} nbConformes={nbConformes} fmt={fmt} hasProcessing={hasProcessing} />
             </div>
+
+            {sections.length > 1 && (
+              <nav className="dossier-subnav" aria-label="Sections du dossier">
+                <div className="dossier-subnav-inner">
+                  {sections.map(s => {
+                    const Icon = s.icon
+                    return (
+                      <button key={s.id} type="button" className="dossier-subnav-item"
+                        onClick={() => scrollToSection(s.id)}>
+                        <Icon size={13} />
+                        <span>{s.label}</span>
+                        {s.badge && (
+                          <span className={`dossier-subnav-badge${s.tone ? ` tone-${s.tone}` : ''}`}>
+                            {s.badge}
+                          </span>
+                        )}
+                      </button>
+                    )
+                  })}
+                </div>
+              </nav>
+            )}
           </>
         )}
 
@@ -422,7 +489,7 @@ export default function DossierDetail() {
         {validationError ? (
           <BlockError message={validationError} onRetry={loadValidation} />
         ) : docsData && docsData.documents.length > 0 && dossierCompat ? (
-          <div className="block-loaded" style={{ animationDelay: '0.1s' }}>
+          <div id="dossier-section-controles" className="block-loaded" style={{ animationDelay: '0.1s' }}>
             <ControlSplitView
               dossier={dossierCompat}
               dossierId={id!}
@@ -449,7 +516,7 @@ export default function DossierDetail() {
           <DocsSkeleton />
         ) : dossierCompat ? (
           <>
-            <div className="block-loaded" style={{ animationDelay: '0.15s' }}>
+            <div id="dossier-section-documents" className="block-loaded" style={{ animationDelay: '0.15s' }}>
               <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
                 onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
             </div>
@@ -461,7 +528,7 @@ export default function DossierDetail() {
 
         {/* Block 6: Audit */}
         {audit.length > 0 && (
-          <div className="block-loaded" style={{ animationDelay: '0.2s' }}>
+          <div id="dossier-section-historique" className="block-loaded" style={{ animationDelay: '0.2s' }}>
             <AuditLog audit={audit} />
           </div>
         )}
