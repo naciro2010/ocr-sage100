@@ -148,6 +148,29 @@ class AppSettingsService(
         return raw != "false"
     }
 
+    /**
+     * Self-consistency sur identifiants critiques (ICE/RIB/IF) : second appel
+     * Claude a temperature differente pour verifier que les identifiants
+     * extraits sont reproductibles. ACTIVEE par defaut (CLAUDE.md OBJECTIF #1
+     * fiabilite 100% > cout). Desactivable via `ai.identifier_consistency.enabled = false`
+     * pour les environnements ou le cout par dossier prime.
+     */
+    fun isIdentifierConsistencyEnabled(): Boolean {
+        val raw = get("ai.identifier_consistency.enabled") ?: return true
+        return raw != "false"
+    }
+
+    /**
+     * Temperature du second run de verification d'identifiants. Differente du
+     * run principal (defaut 0.0) pour briser le determinisme local et exposer
+     * les hallucinations stables. 0.5 est un compromis : assez de variance
+     * pour detecter les inventions, pas trop pour ne pas casser la lecture
+     * d'un document propre.
+     */
+    fun getIdentifierConsistencyTemperature(): Double {
+        return get("ai.identifier_consistency.temperature")?.toDoubleOrNull() ?: 0.5
+    }
+
     // --- Claude pricing ($ per 1M tokens). Defaults match Anthropic public pricing
     // at the time of writing. Override per-model via keys ai.price.<model>.in / .out
     // so finance can update rates when the contract changes, without a redeploy.

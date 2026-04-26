@@ -496,6 +496,84 @@ object ExtractionSchemas {
         )
     )
 
+    /**
+     * Schema `evaluate_custom_rules_batch` pour l'evaluation groupee de regles
+     * personnalisees CUSTOM-XX en mode tool_use. Force Claude a renvoyer un
+     * tableau de verdicts bien types — supprime la principale source d'erreur
+     * "Reponse IA non JSON" sur le batch (parse fragile en mode texte libre).
+     *
+     * Chaque entree du tableau correspond a une regle. Les codes references
+     * sont contraints par le prompt (CUSTOM-XX) ; le schema force la presence
+     * du code, du statut, et du flag needsMoreInfo. evidences/questions/detail
+     * restent optionnels pour preserver la flexibilite metier.
+     */
+    /**
+     * Schema `verify_critical_identifiers` pour la self-consistency. Second
+     * appel Claude qui ne lit que les identifiants reglementaires (ICE/RIB/IF)
+     * et permet de comparer avec l'extraction principale. Une divergence
+     * signale une hallucination que le grounding "10 derniers chiffres"
+     * peut laisser passer (chiffre invente au milieu du token).
+     *
+     * Tous les champs sont nullable : si Claude ne trouve pas l'identifiant
+     * dans l'OCR il met null + warning, ce qui est attendu et non-bloquant.
+     * La discordance se mesure par diff valeur, pas par presence/absence.
+     */
+    val IDENTIFIER_VERIFICATION = ToolSchema(
+        name = "verify_critical_identifiers",
+        description = "Re-extrait UNIQUEMENT les identifiants reglementaires (ICE/RIB/IF) du document pour controle croise. Mettre null si l'identifiant n'apparait pas clairement dans le texte OCR. JAMAIS inventer.",
+        inputSchema = obj(
+            properties = mapOf(
+                "ice" to ice("ICE 15 chiffres apres normalisation OCR (O->0, l->1). null si absent / illisible. JAMAIS inventer."),
+                "rib" to rib("RIB 24 chiffres apres normalisation OCR. null si absent / illisible. JAMAIS inventer."),
+                "identifiantFiscal" to str(
+                    "IF 5-15 chiffres. null si absent. JAMAIS inventer.",
+                    pattern = "^\\d{5,15}$"
+                )
+            ) + qualityFields(),
+            required = listOf("_confidence")
+        )
+    )
+
+    val CUSTOM_RULES_BATCH = ToolSchema(
+        name = "evaluate_custom_rules_batch",
+        description = "Retourne un verdict pour chaque regle CUSTOM-XX evaluee contre le dossier. Une entree par regle, code exact.",
+        inputSchema = obj(
+            properties = mapOf(
+                "verdicts" to arrayOf(obj(
+                    properties = mapOf(
+                        "code" to str("Code exact de la regle, ex: CUSTOM-01.", nullable = false),
+                        "statut" to enumField(
+                            listOf("CONFORME", "NON_CONFORME", "AVERTISSEMENT", "NON_APPLICABLE"),
+                            description = "Verdict du controleur. AVERTISSEMENT si doute raisonnable, NON_APPLICABLE si la regle ne s'applique pas aux documents presents.",
+                            nullable = false,
+                            baseType = "string"
+                        ),
+                        "detail" to str("Explication courte (<= 300 caracteres) factuelle, citant les valeurs observees."),
+                        "evidences" to arrayOf(obj(
+                            properties = mapOf(
+                                "role" to enumField(
+                                    listOf("attendu", "trouve", "source", "calcule"),
+                                    nullable = false, baseType = "string"
+                                ),
+                                "champ" to str(nullable = false),
+                                "libelle" to str(),
+                                "documentId" to str(),
+                                "documentType" to str(),
+                                "valeur" to str()
+                            ),
+                            required = listOf("role", "champ")
+                        )),
+                        "documentIds" to arrayOf(str(nullable = false), description = "IDs des documents impliques dans le verdict."),
+                        "needsMoreInfo" to bool("true si la regle requiert des donnees absentes du dossier (-> NON_APPLICABLE).", nullable = false),
+                        "questions" to arrayOf(str(nullable = false), description = "Champs/donnees manquants si needsMoreInfo=true.")
+                    ),
+                    required = listOf("code", "statut", "needsMoreInfo")
+                ), description = "Un verdict par regle, code exact CUSTOM-XX.")
+            ),
+            required = listOf("verdicts")
+        )
+    )
+
     private val ALL: Map<TypeDocument, ToolSchema> = mapOf(
         TypeDocument.FACTURE to FACTURE,
         TypeDocument.BON_COMMANDE to BON_COMMANDE,

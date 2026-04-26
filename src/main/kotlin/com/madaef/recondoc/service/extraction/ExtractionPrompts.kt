@@ -1,5 +1,7 @@
 package com.madaef.recondoc.service.extraction
 
+import com.madaef.recondoc.entity.dossier.TypeDocument
+
 object ExtractionPrompts {
 
     private val COMMON_RULES = """
@@ -251,7 +253,7 @@ object ExtractionPrompts {
     """.trimIndent()
 
     private val FEW_SHOT_ATTESTATION = """
-        EXEMPLE (attestation DGI standard) :
+        EXEMPLE 1 (attestation DGI standard, en regle) :
 
         <document_content>
         ROYAUME DU MAROC
@@ -276,6 +278,127 @@ object ExtractionPrompts {
         "identifiantFiscal":"40123456","ice":"001509176000008","rc":"45789",
         "estEnRegle":true,"codeVerification":"18a50bf6baf372bd",
         "_confidence":0.96,"_warnings":[]}
+
+        EXEMPLE 2 (attestation NON en regle, redressement signale) :
+
+        <document_content>
+        ROYAUME DU MAROC
+        DIRECTION GENERALE DES IMPOTS
+
+        ATTESTATION FISCALE
+        N 2140/2026/812
+        Edite le 22/02/2026
+
+        Raison sociale : DELTA TRADING SARL
+        Identifiant Fiscal : 50678912    ICE : 002789123000045
+
+        Le contribuable n'est pas en situation reguliere. Procedure de redressement
+        en cours suite au controle fiscal du 10/01/2026. Dette estimee : 245 000 DH.
+
+        Code de verification : ab9c12fe45d6
+        </document_content>
+
+        Sortie :
+        {"numero":"2140/2026/812","dateEdition":"2026-02-22","raisonSociale":"DELTA TRADING SARL",
+        "identifiantFiscal":"50678912","ice":"002789123000045","rc":null,
+        "estEnRegle":false,"codeVerification":"ab9c12fe45d6",
+        "_confidence":0.92,"_warnings":["Mention 'pas en situation reguliere' + redressement -> estEnRegle=false"]}
+
+        EXEMPLE 3 (attestation ambigue, statut indetermine) :
+
+        <document_content>
+        DIRECTION GENERALE DES IMPOTS - ATTESTATION
+        N 2140/2026/901    Edite le 05/03/2026
+        Raison sociale : GAMMA SERVICES
+        IF : 60123456     ICE : 001234567000099
+        [zone illisible avec mention partielle "...situation..."]
+        </document_content>
+
+        Sortie :
+        {"numero":"2140/2026/901","dateEdition":"2026-03-05","raisonSociale":"GAMMA SERVICES",
+        "identifiantFiscal":"60123456","ice":"001234567000099","rc":null,
+        "estEnRegle":null,"codeVerification":null,
+        "_confidence":0.55,"_warnings":["Statut fiscal indetermine (zone illisible) -> estEnRegle=null pour revue humaine"]}
+    """.trimIndent()
+
+    private val FEW_SHOT_PV_RECEPTION = """
+        EXEMPLE 1 (PV reception standard, prestations services) :
+
+        <document_content>
+        PROCES-VERBAL DE RECEPTION
+        Date : 31/03/2026
+        Reference contrat : CT-2025-008
+        Periode couverte : du 01/01/2026 au 31/03/2026
+
+        Prestations realisees et receptionnees :
+        - Maintenance preventive trimestrielle des installations
+        - Intervention curative du 12/02/2026 (panne pompe)
+        - Rapport mensuel de contrôle qualite
+
+        Pour MADAEF GOLFS : M. Bennani, Directeur Technique
+        Pour BETA SERVICES : M. El Amrani, Responsable Maintenance
+        </document_content>
+
+        Sortie :
+        {"titre":"Proces-verbal de reception","dateReception":"2026-03-31",
+        "referenceContrat":"CT-2025-008","periodeDebut":"2026-01-01","periodeFin":"2026-03-31",
+        "prestations":["Maintenance preventive trimestrielle des installations",
+        "Intervention curative du 12/02/2026 (panne pompe)","Rapport mensuel de contrôle qualite"],
+        "signataireMadaef":"M. Bennani, Directeur Technique",
+        "signataireFournisseur":"M. El Amrani, Responsable Maintenance",
+        "_confidence":0.94,"_warnings":[]}
+
+        EXEMPLE 2 (PV partiel, signature fournisseur manquante) :
+
+        <document_content>
+        PV DE RECEPTION TRAVAUX
+        Date : 15/04/2026
+        Reference : MARCHE 2025-014
+        Travaux : refection peinture facade nord (lot 3)
+
+        Pour MADAEF : Mme. Tazi, Chef de Projet (signature manuscrite)
+        Pour le titulaire : [zone non remplie]
+        </document_content>
+
+        Sortie :
+        {"titre":"PV de reception travaux","dateReception":"2026-04-15",
+        "referenceContrat":"MARCHE 2025-014","periodeDebut":null,"periodeFin":null,
+        "prestations":["Refection peinture facade nord (lot 3)"],
+        "signataireMadaef":"Mme. Tazi, Chef de Projet","signataireFournisseur":null,
+        "_confidence":0.78,"_warnings":["Signataire fournisseur absent (zone non remplie) -> revue humaine recommandee"]}
+    """.trimIndent()
+
+    private val FEW_SHOT_CONTRAT = """
+        EXEMPLE (contrat de prestations avec grille tarifaire MADAEF) :
+
+        <document_content>
+        CONTRAT DE PRESTATIONS DE SERVICES
+        Reference : CT-2025-008
+        Date de signature : 12/12/2025
+        Date d'effet : 01/01/2026
+
+        ENTRE :
+        - MADAEF GOLFS (representee par son Directeur General)
+        - et BETA SERVICES SARL (titulaire)
+
+        OBJET : Maintenance preventive et curative des installations CVC.
+
+        ANNEXE FINANCIERE - GRILLE TARIFAIRE :
+        - Maintenance preventive trimestrielle  : 12 000,00 DH HT (par trimestre)
+        - Intervention curative (forfait jour)  :  3 500,00 DH HT (par intervention)
+        - Rapport mensuel qualite                :    800,00 DH HT (par mois)
+        </document_content>
+
+        Sortie :
+        {"referenceContrat":"CT-2025-008","numeroAvenant":null,"dateSignature":"2025-12-12",
+        "parties":["MADAEF GOLFS","BETA SERVICES SARL"],
+        "objet":"Maintenance preventive et curative des installations CVC",
+        "dateEffet":"2026-01-01",
+        "grillesTarifaires":[
+          {"designation":"Maintenance preventive trimestrielle","prixUnitaireHT":12000.00,"periodicite":"TRIMESTRIEL","entite":"MADAEF GOLFS"},
+          {"designation":"Intervention curative (forfait jour)","prixUnitaireHT":3500.00,"periodicite":"JOURNALIER","entite":"MADAEF GOLFS"},
+          {"designation":"Rapport mensuel qualite","prixUnitaireHT":800.00,"periodicite":"MENSUEL","entite":"MADAEF GOLFS"}],
+        "_confidence":0.93,"_warnings":[]}
     """.trimIndent()
 
     val FACTURE = """
@@ -429,6 +552,8 @@ object ExtractionPrompts {
         Tu es un extracteur de donnees de contrats et avenants marocains pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
 
+        $FEW_SHOT_CONTRAT
+
         Schema JSON attendu :
         {
           "referenceContrat": "string",
@@ -556,6 +681,8 @@ object ExtractionPrompts {
     val PV_RECEPTION = """
         Tu es un extracteur de donnees de PV de reception pour MADAEF (Groupe CDG).
         Retourne UNIQUEMENT un objet JSON valide.
+
+        $FEW_SHOT_PV_RECEPTION
 
         Schema JSON attendu :
         {
@@ -759,4 +886,48 @@ object ExtractionPrompts {
 
         $COMMON_RULES
     """.trimIndent()
+
+    /**
+     * Prefixe stable extrait du COMMON_RULES, partage entre TOUS les types
+     * de documents. A envoyer comme premier bloc system avec cache TTL 1h.
+     * Sur un upload de 5 dossiers de types varies, ce prefixe (~6-7k tokens)
+     * est paye UNE fois au lieu de N fois — gain ~60-80% du cout prompt
+     * cross-type.
+     */
+    val STABLE_COMMON_PREFIX: String = COMMON_RULES
+
+    /**
+     * Retourne le prompt complet (avec COMMON_RULES) pour un type donne.
+     * Utilise par les flux qui n'ont pas besoin de splitter le system
+     * (engagement, fallback texte libre, retry simple).
+     */
+    fun forType(type: TypeDocument): String? = when (type) {
+        TypeDocument.FACTURE -> FACTURE
+        TypeDocument.BON_COMMANDE -> BON_COMMANDE
+        TypeDocument.ORDRE_PAIEMENT -> ORDRE_PAIEMENT
+        TypeDocument.CONTRAT_AVENANT -> CONTRAT_AVENANT
+        TypeDocument.CHECKLIST_AUTOCONTROLE -> CHECKLIST_AUTOCONTROLE
+        TypeDocument.TABLEAU_CONTROLE -> TABLEAU_CONTROLE
+        TypeDocument.PV_RECEPTION -> PV_RECEPTION
+        TypeDocument.ATTESTATION_FISCALE -> ATTESTATION_FISCALE
+        TypeDocument.CHECKLIST_PIECES -> CHECKLIST_PIECES
+        TypeDocument.MARCHE -> MARCHE
+        TypeDocument.BON_COMMANDE_CADRE -> BON_COMMANDE_CADRE
+        TypeDocument.CONTRAT_CADRE -> CONTRAT_CADRE
+        else -> null
+    }
+
+    /**
+     * Retourne uniquement la portion specifique au type (sans COMMON_RULES).
+     * A combiner avec [STABLE_COMMON_PREFIX] dans un envoi a 2 blocs system
+     * pour maximiser le cache hit rate cross-type.
+     *
+     * Le split exploite la convention des prompts : COMMON_RULES est toujours
+     * concatene en FIN du prompt par type. On le retire pour ne pas le
+     * dupliquer dans les deux blocs envoyes a Claude.
+     */
+    fun specificFor(type: TypeDocument): String? {
+        val full = forType(type) ?: return null
+        return full.substringBefore(COMMON_RULES).trimEnd()
+    }
 }
