@@ -15,8 +15,8 @@ import com.madaef.recondoc.service.PdfGeneratorService
 import com.madaef.recondoc.service.dossier.DossierExportService
 import com.madaef.recondoc.service.storage.DocumentStorage
 import org.junit.jupiter.api.Test
-import org.mockito.ArgumentMatchers.any
-import org.mockito.ArgumentMatchers.eq
+import org.junit.jupiter.api.assertThrows
+import org.mockito.ArgumentMatchers
 import org.mockito.Mockito.mock
 import org.mockito.Mockito.never
 import org.mockito.Mockito.verify
@@ -24,6 +24,48 @@ import org.mockito.Mockito.`when`
 import java.util.Optional
 import java.util.UUID
 import kotlin.test.assertEquals
+
+// Helpers Kotlin-friendly pour Mockito : `any(Class<T>)` renvoie null cote JVM
+// et casse les parametres non-null Kotlin. On enregistre le matcher (effet de
+// bord) puis on retourne un placeholder non-null que Mockito ignore.
+private fun anyByteArray(): ByteArray {
+    ArgumentMatchers.any(ByteArray::class.java)
+    return ByteArray(0)
+}
+
+private fun anyDocument(): Document {
+    ArgumentMatchers.any(Document::class.java)
+    return Document(
+        dossier = DossierPaiement(reference = "x", type = DossierType.BC),
+        typeDocument = TypeDocument.TABLEAU_CONTROLE,
+        nomFichier = "x", cheminFichier = "x"
+    )
+}
+
+private fun anyFinalizeRequest(): FinalizeRequest {
+    ArgumentMatchers.any(FinalizeRequest::class.java)
+    return FinalizeRequest(points = emptyList(), signataire = "x")
+}
+
+private fun eqUuid(value: UUID): UUID {
+    ArgumentMatchers.eq(value)
+    return value
+}
+
+private fun eqStr(value: String): String {
+    ArgumentMatchers.eq(value)
+    return value
+}
+
+private fun eqDossier(value: DossierPaiement): DossierPaiement {
+    ArgumentMatchers.eq(value)
+    return value
+}
+
+private fun eqType(value: TypeDocument): TypeDocument {
+    ArgumentMatchers.eq(value)
+    return value
+}
 
 class DossierExportServiceTest {
 
@@ -65,24 +107,68 @@ class DossierExportServiceTest {
         )
 
         `when`(dossierRepo.findByIdWithAll(dossierId)).thenReturn(Optional.of(dossier))
-        `when`(pdfGenerator.generateTC(eq(dossier), any(FinalizeRequest::class.java))).thenReturn("tc".toByteArray())
-        `when`(pdfGenerator.generateOP(eq(dossier), any(FinalizeRequest::class.java))).thenReturn("op".toByteArray())
-        `when`(documentRepo.findByDossierIdAndTypeDocument(dossierId, TypeDocument.TABLEAU_CONTROLE)).thenReturn(existingTc)
-        `when`(documentRepo.findByDossierIdAndTypeDocument(dossierId, TypeDocument.ORDRE_PAIEMENT)).thenReturn(existingOp)
-        `when`(storage.store(dossierId, "TC_${dossier.reference}.pdf", "tc".toByteArray())).thenReturn("storage/new-tc.pdf")
-        `when`(storage.store(dossierId, "OP_${dossier.reference}.pdf", "op".toByteArray())).thenReturn("storage/new-op.pdf")
-        `when`(documentRepo.save(existingTc)).thenReturn(existingTc)
-        `when`(documentRepo.save(existingOp)).thenReturn(existingOp)
+        `when`(pdfGenerator.generateTC(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("tc".toByteArray())
+        `when`(pdfGenerator.generateOP(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("op".toByteArray())
+        `when`(documentRepo.findByDossierIdAndTypeDocument(dossierId, TypeDocument.TABLEAU_CONTROLE))
+            .thenReturn(existingTc)
+        `when`(documentRepo.findByDossierIdAndTypeDocument(dossierId, TypeDocument.ORDRE_PAIEMENT))
+            .thenReturn(existingOp)
+        `when`(storage.store(eqUuid(dossierId), eqStr("TC_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-tc.pdf")
+        `when`(storage.store(eqUuid(dossierId), eqStr("OP_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-op.pdf")
+        `when`(documentRepo.save(anyDocument())).thenAnswer { it.arguments[0] as Document }
 
         val service = DossierExportService(dossierRepo, documentRepo, auditRepo, pdfGenerator, storage, progress)
         val out = service.finalizeDossier(dossierId, FinalizeRequest(points = emptyList(), signataire = "Controleur"))
 
         assertEquals("storage/new-tc.pdf", existingTc.cheminFichier)
         assertEquals("storage/new-op.pdf", existingOp.cheminFichier)
+        assertEquals("TC_${dossier.reference}.pdf", existingTc.nomFichier)
+        assertEquals("OP_${dossier.reference}.pdf", existingOp.nomFichier)
+        assertEquals(StatutExtraction.EXTRAIT, existingTc.statutExtraction)
+        assertEquals(StatutExtraction.EXTRAIT, existingOp.statutExtraction)
         assertEquals(existingTc.id?.toString(), out["tcDocId"])
         assertEquals(existingOp.id?.toString(), out["opDocId"])
+        assertEquals(StatutDossier.VALIDE, dossier.statut)
+        assertEquals("Controleur", dossier.validePar)
         verify(storage).delete("storage/old-tc.pdf")
         verify(storage).delete("storage/old-op.pdf")
+    }
+
+    @Test
+    fun `finalize cree les documents quand aucun TC OP n existe`() {
+        val dossierId = UUID.randomUUID()
+        val dossier = buildDossier(dossierId)
+
+        val dossierRepo = mock(DossierRepository::class.java)
+        val documentRepo = mock(DocumentRepository::class.java)
+        val auditRepo = mock(AuditLogRepository::class.java)
+        val pdfGenerator = mock(PdfGeneratorService::class.java)
+        val storage = mock(DocumentStorage::class.java)
+        val progress = mock(DocumentProgressService::class.java)
+
+        `when`(dossierRepo.findByIdWithAll(dossierId)).thenReturn(Optional.of(dossier))
+        `when`(pdfGenerator.generateTC(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("tc".toByteArray())
+        `when`(pdfGenerator.generateOP(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("op".toByteArray())
+        `when`(documentRepo.findByDossierIdAndTypeDocument(eqUuid(dossierId), eqType(TypeDocument.TABLEAU_CONTROLE)))
+            .thenReturn(null)
+        `when`(documentRepo.findByDossierIdAndTypeDocument(eqUuid(dossierId), eqType(TypeDocument.ORDRE_PAIEMENT)))
+            .thenReturn(null)
+        `when`(storage.store(eqUuid(dossierId), eqStr("TC_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-tc.pdf")
+        `when`(storage.store(eqUuid(dossierId), eqStr("OP_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-op.pdf")
+        `when`(documentRepo.save(anyDocument())).thenAnswer { it.arguments[0] as Document }
+
+        val service = DossierExportService(dossierRepo, documentRepo, auditRepo, pdfGenerator, storage, progress)
+        service.finalizeDossier(dossierId, FinalizeRequest(points = emptyList(), signataire = "Controleur"))
+
+        verify(storage, never()).delete(ArgumentMatchers.anyString())
     }
 
     @Test
@@ -98,19 +184,66 @@ class DossierExportServiceTest {
         val progress = mock(DocumentProgressService::class.java)
 
         `when`(dossierRepo.findByIdWithAll(dossierId)).thenReturn(Optional.of(dossier))
-        `when`(pdfGenerator.generateTC(eq(dossier), any(FinalizeRequest::class.java))).thenReturn("tc".toByteArray())
-        `when`(pdfGenerator.generateOP(eq(dossier), any(FinalizeRequest::class.java))).thenReturn("op".toByteArray())
-        `when`(documentRepo.findByDossierIdAndTypeDocument(dossierId, TypeDocument.TABLEAU_CONTROLE)).thenReturn(null)
-        `when`(storage.store(dossierId, "TC_${dossier.reference}.pdf", "tc".toByteArray())).thenReturn("storage/new-tc.pdf")
-        `when`(documentRepo.save(any(Document::class.java))).thenThrow(RuntimeException("db down"))
+        `when`(pdfGenerator.generateTC(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("tc".toByteArray())
+        `when`(pdfGenerator.generateOP(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("op".toByteArray())
+        `when`(documentRepo.findByDossierIdAndTypeDocument(eqUuid(dossierId), eqType(TypeDocument.TABLEAU_CONTROLE)))
+            .thenReturn(null)
+        `when`(storage.store(eqUuid(dossierId), eqStr("TC_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-tc.pdf")
+        `when`(documentRepo.save(anyDocument())).thenThrow(RuntimeException("db down"))
 
         val service = DossierExportService(dossierRepo, documentRepo, auditRepo, pdfGenerator, storage, progress)
 
-        runCatching {
+        assertThrows<RuntimeException> {
             service.finalizeDossier(dossierId, FinalizeRequest(points = emptyList(), signataire = "Controleur"))
         }
 
         verify(storage).delete("storage/new-tc.pdf")
         verify(storage, never()).delete("storage/old-tc.pdf")
+    }
+
+    @Test
+    fun `finalize ne supprime pas le pointeur quand le nouveau pointeur est identique a l ancien`() {
+        val dossierId = UUID.randomUUID()
+        val dossier = buildDossier(dossierId)
+        val samePointer = "storage/same-tc.pdf"
+
+        val dossierRepo = mock(DossierRepository::class.java)
+        val documentRepo = mock(DocumentRepository::class.java)
+        val auditRepo = mock(AuditLogRepository::class.java)
+        val pdfGenerator = mock(PdfGeneratorService::class.java)
+        val storage = mock(DocumentStorage::class.java)
+        val progress = mock(DocumentProgressService::class.java)
+
+        val existingTc = Document(
+            id = UUID.randomUUID(),
+            dossier = dossier,
+            typeDocument = TypeDocument.TABLEAU_CONTROLE,
+            nomFichier = "TC_${dossier.reference}.pdf",
+            cheminFichier = samePointer,
+            statutExtraction = StatutExtraction.EXTRAIT
+        )
+
+        `when`(dossierRepo.findByIdWithAll(dossierId)).thenReturn(Optional.of(dossier))
+        `when`(pdfGenerator.generateTC(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("tc".toByteArray())
+        `when`(pdfGenerator.generateOP(eqDossier(dossier), anyFinalizeRequest()))
+            .thenReturn("op".toByteArray())
+        `when`(documentRepo.findByDossierIdAndTypeDocument(eqUuid(dossierId), eqType(TypeDocument.TABLEAU_CONTROLE)))
+            .thenReturn(existingTc)
+        `when`(documentRepo.findByDossierIdAndTypeDocument(eqUuid(dossierId), eqType(TypeDocument.ORDRE_PAIEMENT)))
+            .thenReturn(null)
+        `when`(storage.store(eqUuid(dossierId), eqStr("TC_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn(samePointer)
+        `when`(storage.store(eqUuid(dossierId), eqStr("OP_${dossier.reference}.pdf"), anyByteArray()))
+            .thenReturn("storage/new-op.pdf")
+        `when`(documentRepo.save(anyDocument())).thenAnswer { it.arguments[0] as Document }
+
+        val service = DossierExportService(dossierRepo, documentRepo, auditRepo, pdfGenerator, storage, progress)
+        service.finalizeDossier(dossierId, FinalizeRequest(points = emptyList(), signataire = "Controleur"))
+
+        verify(storage, never()).delete(samePointer)
     }
 }
