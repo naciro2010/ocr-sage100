@@ -1,7 +1,11 @@
 package com.madaef.recondoc.config
 
 import org.slf4j.LoggerFactory
-import org.springframework.boot.autoconfigure.flyway.FlywayMigrationStrategy
+// Spring Boot 4.0 : la classe a migre de
+// `org.springframework.boot.autoconfigure.flyway` vers le module dedie
+// `spring-boot-flyway` (package `org.springframework.boot.flyway.autoconfigure`).
+// Toujours fournie transitivement via `spring-boot-starter-jdbc` + flyway-core.
+import org.springframework.boot.flyway.autoconfigure.FlywayMigrationStrategy
 import org.springframework.context.annotation.Bean
 import org.springframework.context.annotation.Configuration
 import org.springframework.context.annotation.Profile
