@@ -1,4 +1,4 @@
-import { memo, useRef, useState, useCallback, useEffect } from 'react'
+import { memo, useRef, useState, useCallback, useEffect, useMemo } from 'react'
 import type { DossierDetail, DocumentInfo, TypeDocument } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import { uploadDocuments, uploadZip, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
@@ -29,6 +29,23 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   const [showPdf, setShowPdf] = useState(false)
   const [pdfBlobUrl, setPdfBlobUrl] = useState<string | null>(null)
   const [loadingPdf, setLoadingPdf] = useState(false)
+  const [pendingDeleteIds, setPendingDeleteIds] = useState<Set<string>>(new Set())
+  const [pendingTypeByDoc, setPendingTypeByDoc] = useState<Record<string, TypeDocument>>({})
+
+  const displayedDocuments = useMemo(() => {
+    return dossier.documents
+      .filter(doc => !pendingDeleteIds.has(doc.id))
+      .map(doc => {
+        const pendingType = pendingTypeByDoc[doc.id]
+        if (!pendingType) return doc
+        return {
+          ...doc,
+          typeDocument: pendingType,
+          statutExtraction: 'EN_ATTENTE' as DocumentInfo['statutExtraction'],
+          donneesExtraites: null,
+        }
+      })
+  }, [dossier.documents, pendingDeleteIds, pendingTypeByDoc])
 
   // Cleanup blob URL on unmount
   useEffect(() => {
@@ -83,34 +100,47 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
   }, [id, onReload, toast])
 
   const handleChangeType = useCallback(async (docId: string, newType: string) => {
-    // Fire-and-forget — UI updates via onReload after API response
-    changeDocumentType(id, docId, newType)
-      .then(() => {
-        toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[newType as keyof typeof TYPE_DOCUMENT_LABELS] || newType}`)
-        onReload()
-        onReloadAudit()
+    if (pendingTypeByDoc[docId]) return
+    const castType = newType as TypeDocument
+    setPendingTypeByDoc(prev => ({ ...prev, [docId]: castType }))
+    try {
+      await changeDocumentType(id, docId, newType)
+      toast('success', `Type modifie en ${TYPE_DOCUMENT_LABELS[castType] || newType}`)
+      onReload()
+      onReloadAudit()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    } finally {
+      setPendingTypeByDoc(prev => {
+        const next = { ...prev }
+        delete next[docId]
+        return next
       })
-      .catch((e: unknown) => {
-        toast('error', e instanceof Error ? e.message : 'Erreur')
-        onReload()
-      })
-  }, [id, onReload, onReloadAudit, toast])
+    }
+  }, [id, onReload, onReloadAudit, pendingTypeByDoc, toast])
 
   const handleDeleteDoc = useCallback(async (docId: string, docName: string) => {
     if (!confirm(`Supprimer ${docName} ?`)) return
-    // Optimistic: remove from UI immediately
+    // Optimistic: hide the card immediately, then sync with backend.
     if (selectedDoc?.id === docId) setSelectedDoc(null)
-    onReload()
-    deleteDocument(id, docId)
-      .then(() => {
-        toast('success', `${docName} supprime`)
-        onReload()
-        onReloadAudit()
+    setPendingDeleteIds(prev => {
+      const next = new Set(prev)
+      next.add(docId)
+      return next
+    })
+    try {
+      await deleteDocument(id, docId)
+      toast('success', `${docName} supprime`)
+      onReload()
+      onReloadAudit()
+    } catch (e: unknown) {
+      setPendingDeleteIds(prev => {
+        const next = new Set(prev)
+        next.delete(docId)
+        return next
       })
-      .catch((e: unknown) => {
-        toast('error', e instanceof Error ? e.message : 'Erreur')
-        onReload()
-      })
+      toast('error', e instanceof Error ? e.message : 'Erreur')
+    }
   }, [id, selectedDoc, onReload, onReloadAudit, toast])
 
   const extractionBadge = (doc: DocumentInfo) => {
@@ -170,9 +200,9 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
       >
         <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 8 }}>
           <h2 style={{ marginBottom: 0 }}><FileText size={14} /> Documents du dossier</h2>
-          {dossier.documents.length > 0 && (
+          {displayedDocuments.length > 0 && (
             <button className="btn btn-secondary btn-sm" aria-label="Relancer les documents en erreur" disabled={uploading} onClick={async () => {
-              const failed = dossier.documents.filter(doc => doc.statutExtraction === 'ERREUR')
+              const failed = displayedDocuments.filter(doc => doc.statutExtraction === 'ERREUR')
               if (failed.length === 0) { toast('info', 'Aucun document en erreur'); return }
               setUploading(true)
               const results = await Promise.allSettled(failed.map(doc => reprocessDocument(id, doc.id)))
@@ -192,9 +222,9 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
           </div>
         )}
         {/* Processing pipelines */}
-        {dossier.documents.some(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS') && (
+        {displayedDocuments.some(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS') && (
           <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 12 }}>
-            {dossier.documents
+            {displayedDocuments
               .filter(d => d.statutExtraction === 'EN_ATTENTE' || d.statutExtraction === 'EN_COURS')
               .map(doc => <DocumentPipeline key={doc.id} doc={doc} liveProgress={liveProgress[doc.id]} />)}
           </div>
@@ -204,10 +234,10 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             // Precompute type counts to avoid O(n^2) in render
             const typeCounts = new Map<string, number>()
             const typeIndexes = new Map<string, number>()
-            for (const d of dossier.documents) {
+            for (const d of displayedDocuments) {
               typeCounts.set(d.typeDocument, (typeCounts.get(d.typeDocument) || 0) + 1)
             }
-            return dossier.documents.map((doc) => {
+            return displayedDocuments.map((doc) => {
             const count = typeCounts.get(doc.typeDocument) || 1
             const isMulti = count > 1
             const idx = (typeIndexes.get(doc.typeDocument) || 0) + 1
@@ -353,4 +383,3 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
     </>
   )
 })
-
