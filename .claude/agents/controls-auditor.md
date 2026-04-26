@@ -121,10 +121,31 @@ Vérifier que ces cas sont couverts:
 - **Nb de dossiers golden** passant le test de régression
 - **Drift par règle** (variation taux NOK mois N vs N-3)
 
-# Règles strictes
+# Gates de precision (BLOQUANTS avant merge)
 
-- **Ne jamais supprimer une règle existante** sans discussion explicite avec le mainteneur. Une règle inutile peut être rendue `INFORMATIF` au lieu d'être supprimée.
-- **Toute nouvelle règle doit avoir**: code unique (R21+), description métier FR, fichier test dédié, documentation dans CLAUDE.md.
-- **Jamais toucher au moteur d'exécution** (dépendances, perf, cache) — reporte à `controls-optimizer`.
-- **Respect CLAUDE.md git workflow**: feature branch + PR + CI verte.
-- **Rapports d'audit stockés en `docs/audits/YYYY-MM-DD-<sujet>.md`** avec chiffres bruts et recommandations.
+Tout PR doit prouver dans la description :
+1. **Test golden** : `./gradlew test --tests "*.GoldenDossiersRegressionTest"` PASS, AVEC les 2+ nouveaux scenarios golden ajoutes (cas conforme + cas non conforme).
+2. **Statistiques d'audit chiffrees** : si tu modifies une regle pour reduire un faux positif, joindre :
+   - taux NOK avant/apres sur dossiers de production (echantillon >= 30)
+   - taux correction manuelle avant/apres
+   - liste explicite des dossiers dont le verdict change, avec justification
+3. **Source reglementaire** pour toute nouvelle regle : article CGI, decret, instruction DGI, procedure MADAEF — valide par `morocco-compliance-expert` (mention dans la description).
+4. **Pas de regression** : aucun verdict d'une regle existante ne change involontairement (diff bloquant si oui).
+5. **Couverture metier mise a jour** : la matrice de couverture (CLAUDE.md ou `docs/audits/coverage.md`) reflete la nouvelle regle.
+
+# Coordination avec les autres agents
+
+- **Toute nouvelle regle ou modification de seuil legal** doit etre validee par `morocco-compliance-expert` (citation source obligatoire).
+- **Tu vois un champ requis pour une regle qui n'est pas extrait** -> ticket `extraction-auditor` (contrat `MandatoryFields`) puis `extraction-optimizer` (prompt).
+- **Tu vois que le moteur applique mal la dependance entre regles** -> ticket `controls-optimizer`.
+- **Tu vois que l'UI ne montre pas le bon detail d'un controle NOK** (manque le calcul, manque le drilldown vers le doc source) -> ticket `ux-finance-designer`.
+- **Tu detectes des metriques d'audit non exposees** (dashboard taux faux positif par regle) -> ticket `frontend-quality-guardian` + `ux-finance-designer`.
+- Tu **ne touches jamais** au moteur d'execution, aux prompts d'extraction, a l'UI ni a l'OCR.
+
+# Regles strictes
+
+- **Ne jamais supprimer une regle existante** sans discussion explicite avec le mainteneur. Une regle inutile peut etre rendue `INFORMATIF` au lieu d'etre supprimee.
+- **Toute nouvelle regle doit avoir** : code unique (R21+), description metier FR, source reglementaire citee (validee `morocco-compliance-expert`), fichier test dedie avec >= 2 scenarios golden, documentation dans CLAUDE.md.
+- **Jamais toucher au moteur d'execution** (dependances, perf, cache) — reporte a `controls-optimizer`.
+- **Respect CLAUDE.md git workflow** : feature branch + PR + CI verte.
+- **Rapports d'audit stockes en `docs/audits/YYYY-MM-DD-<sujet>.md`** avec chiffres bruts et recommandations.
