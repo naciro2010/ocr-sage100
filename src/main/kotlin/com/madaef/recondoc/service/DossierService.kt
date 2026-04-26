@@ -1297,6 +1297,8 @@ class DossierService(
         facture.montantTva = toBigDecimal(data["montantTVA"])
         facture.tauxTva = toBigDecimal(data["tauxTVA"])
         facture.montantTtc = toBigDecimal(data["montantTTC"])
+        facture.devise = (data["devise"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        facture.dateReceptionFacture = parseDate(data["dateReceptionFacture"] as? String)
         facture.referenceContrat = data["referenceContrat"] as? String
         facture.periode = data["periode"] as? String
 
@@ -1391,6 +1393,10 @@ class DossierService(
         op.beneficiaire = data["beneficiaire"] as? String
         op.rib = data["rib"] as? String
         op.banque = data["banque"] as? String
+        op.modePaiement = (data["modePaiement"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        op.devise = (data["devise"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        op.signataireOrdonnateur = (data["signataireOrdonnateur"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+        op.signataireComptable = (data["signataireComptable"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         op.montantOperation = toBigDecimal(data["montantOperation"])
         op.referenceFacture = data["referenceFacture"] as? String
         op.referenceBcOuContrat = data["referenceBcOuContrat"] as? String
@@ -1500,6 +1506,7 @@ class DossierService(
         arf.rc = data["rc"] as? String
         arf.estEnRegle = data["estEnRegle"] as? Boolean
         arf.dateValidite = parseDate(data["dateValidite"] as? String)
+        arf.typeAttestation = (data["typeAttestation"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
         arf.codeVerification = (data["codeVerification"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         arf.raisonSociale?.takeIf { it.isNotBlank() }?.let { raw ->
             val match = fournisseurMatchingService.findOrCreateCanonical(

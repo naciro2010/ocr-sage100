@@ -171,6 +171,7 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 - R26: Plafond paiement especes 5 000 MAD (CGI art. 193-ter)
 - R27: Devise MAD obligatoire (CGNC + Loi 9-88)
 - R30: Taux TVA dans la liste legale {0, 7, 10, 14, 20} (CGI 2026 art. 87-100)
+- R31: Separation des pouvoirs OP — ordonnateur != comptable (decret 2-22-431 art. 21)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL

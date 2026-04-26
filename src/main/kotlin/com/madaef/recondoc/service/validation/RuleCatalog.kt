@@ -73,7 +73,8 @@ object RuleCatalog {
         Def("R26", "Plafond paiement especes", "CGI art. 193-ter : tout reglement en especes > 5 000 MAD est non deductible et expose le fournisseur a une amende de 6 %.", "montants"),
         Def("R27", "Devise MAD obligatoire", "CGNC + Loi 9-88 art. 1 : la facture marocaine doit etre libellee en MAD. EUR/USD non conforme sans contre-valeur officielle.", "identifiants"),
         Def("R30", "Taux TVA legal", "CGI 2026 art. 87-100 : seuls les taux 0 / 7 / 10 / 14 / 20 % sont legaux. Tout autre taux signale une erreur d'extraction ou une fraude.", "montants"),
-        Def("R06b", "Taux retenue legal", "CGI : TVA marches publics = 75 % (art. 117), IR honoraires = 10 % (art. 73-II-G). Verifie que le taux declare correspond au taux legal applicable au type de retenue.", "montants")
+        Def("R06b", "Taux retenue legal", "CGI : TVA marches publics = 75 % (art. 117), IR honoraires = 10 % (art. 73-II-G). Verifie que le taux declare correspond au taux legal applicable au type de retenue.", "montants"),
+        Def("R31", "Separation des pouvoirs OP", "Decret 2-22-431 art. 21 : un ordre de paiement doit etre signe par DEUX personnes distinctes — l'ordonnateur (autorise la depense) et le comptable (execute le paiement). La meme personne sur les deux roles = vice de procedure majeur.", "documents")
     ) + (1..10).map { i ->
         val num = "%02d".format(i)
         Def("R12.$num", "Point checklist $num", "Controle CK$num de la checklist autocontrole CCF-EN-04", "documents", categorie = "checklist")

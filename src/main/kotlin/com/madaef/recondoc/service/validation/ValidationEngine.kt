@@ -855,9 +855,23 @@ class ValidationEngine(
             val isMarche = dossier.engagement?.typeEngagement() == com.madaef.recondoc.entity.engagement.TypeEngagement.MARCHE
             if (isMarche && op != null) {
                 val dateOp = op.dateEmission ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
-                val dateReception = pv?.dateReception ?: pv?.periodeFin
+                // Source legale du decompte = "constatation du service fait"
+                // (decret 2-22-431 art. 159). Priorite :
+                //   1. facture.dateReceptionFacture (cachet d'arrivee MADAEF —
+                //      depuis V35) : la plus precise legalement.
+                //   2. PV de reception (date_reception ou periodeFin).
+                //   3. dateFacture (fallback ancien dossier).
+                val dateReception = facture?.dateReceptionFacture
+                    ?: pv?.dateReception
+                    ?: pv?.periodeFin
                     ?: facture?.dateFacture
                     ?: docStr(fDoc, "dateFacture")?.let { parseLocalDate(it) }
+                val refSource = when {
+                    facture?.dateReceptionFacture != null -> "cachet d'arrivee MADAEF"
+                    pv?.dateReception != null -> "PV de reception"
+                    pv?.periodeFin != null -> "fin de periode PV"
+                    else -> "date facture (fallback)"
+                }
                 if (dateOp != null && dateReception != null) {
                     val jours = ChronoUnit.DAYS.between(dateReception, dateOp)
                     val ok = jours in 0..60
@@ -871,15 +885,16 @@ class ValidationEngine(
                             else -> StatutCheck.NON_CONFORME
                         },
                         detail = if (ok)
-                            "OP emis ${jours} j apres la reception (limite 60 j). ${source}."
+                            "OP emis ${jours} j apres la reception (${refSource}, limite 60 j). ${source}."
                         else if (jours < 0)
-                            "OP du ${dateOp} anterieur a la reception du ${dateReception} (cf. R22). ${source}."
+                            "OP du ${dateOp} anterieur a la reception du ${dateReception} (${refSource}, cf. R22). ${source}."
                         else
-                            "Delai de paiement ${jours} jours, depasse le plafond legal de 60 jours. ${source}.",
+                            "Delai de paiement ${jours} jours (${refSource}), depasse le plafond legal de 60 jours. ${source}.",
                         valeurAttendue = "<= 60 jours",
                         valeurTrouvee = "${jours} jours",
                         evidences = listOfNotNull(
-                            evidence("source", "dateReception", "Date constatation service fait", pv?.document ?: fDoc, dateReception),
+                            evidence("source", "dateReception", "Date constatation service fait (${refSource})",
+                                if (facture?.dateReceptionFacture != null) fDoc else (pv?.document ?: fDoc), dateReception),
                             evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOp)
                         )
                     )
@@ -893,12 +908,17 @@ class ValidationEngine(
         // a une amende de 6 % (art. 193-ter §II). On detecte le paiement en
         // especes via op.natureOperation et op.donneesExtraites.modePaiement.
         if (isEnabled("R26") && op != null) {
-            val nature = (op.natureOperation ?: docStr(opDoc, "natureOperation") ?: "")
-                .lowercase()
-            val mode = (docStr(opDoc, "modePaiement") ?: "")
-                .lowercase()
-            val isCash = listOf("especes", "espèce", "espece", "cash", "comptant", "liquide")
-                .any { it in nature || it in mode }
+            // Detection en 2 temps :
+            //   1. champ type op.modePaiement (cf. PR #2d) : signal le plus
+            //      fiable, vise par l'extraction structuree.
+            //   2. fallback texte sur natureOperation + donneesExtraites pour
+            //      les anciens dossiers (avant migration V35).
+            val typedMode = op.modePaiement?.uppercase()
+            val nature = (op.natureOperation ?: docStr(opDoc, "natureOperation") ?: "").lowercase()
+            val modeText = (docStr(opDoc, "modePaiement") ?: "").lowercase()
+            val isCash = typedMode == "ESPECES"
+                || listOf("especes", "espèce", "espece", "cash", "comptant", "liquide")
+                    .any { it in nature || it in modeText }
             val montant = op.montantOperation ?: docAmount(opDoc, "montantOperation", "montant")
             if (isCash && montant != null) {
                 val plafond = BigDecimal("5000")
@@ -912,9 +932,9 @@ class ValidationEngine(
                     else
                         "Paiement especes ${montant} MAD <= plafond 5 000 MAD",
                     valeurAttendue = "<= 5 000 MAD si especes",
-                    valeurTrouvee = "${montant} MAD ${if (isCash) "(especes)" else ""}",
+                    valeurTrouvee = "${montant} MAD (especes)",
                     evidences = listOfNotNull(
-                        evidence("source", "natureOperation", "Mode de reglement OP", opDoc, op.natureOperation ?: nature),
+                        evidence("source", "modePaiement", "Mode de reglement OP", opDoc, typedMode ?: op.natureOperation ?: nature),
                         evidence("source", "montantOperation", "Montant de l'OP", opDoc, montant)
                     )
                 )
@@ -930,21 +950,30 @@ class ValidationEngine(
         //   2. detection texte EUR/USD/€/$ dans nature ou raison sociale
         //   3. defaut MAD si rien detecte (pas de signal d'alerte)
         if (isEnabled("R27") && facture != null) {
-            val devise = (docStr(fDoc, "devise", "currency") ?: "").trim().uppercase()
+            // Lecture priorite :
+            //   1. facture.devise (champ type, depuis V35) — signal le plus
+            //      fiable, alimente par l'extraction Claude.
+            //   2. donneesExtraites.devise (avant migration) — fallback.
+            //   3. detection texte EUR/USD/€/$ dans les libelles libres.
+            //   4. defaut MAD si rien detecte (pas d'alerte sur silence).
+            val typedDevise = facture.devise?.trim()?.uppercase()
+            val deviseFromJson = (docStr(fDoc, "devise", "currency") ?: "").trim().uppercase()
             val texte = listOfNotNull(
                 docStr(fDoc, "natureOperation"),
                 docStr(fDoc, "totalEnLettres"),
                 docStr(fDoc, "mentionsLegales")
             ).joinToString(" ").uppercase()
             val deviseEffective = when {
-                devise.isNotBlank() -> devise
+                !typedDevise.isNullOrBlank() -> typedDevise
+                deviseFromJson.isNotBlank() -> deviseFromJson
                 "EUR" in texte || "EURO" in texte || "€" in texte -> "EUR"
                 "USD" in texte || "DOLLAR" in texte || "$" in texte -> "USD"
                 else -> "MAD" // par defaut suppose MAD (pas d'alerte sur silence)
             }
             val deviseValide = deviseEffective in setOf("MAD", "DH", "DHS", "DIRHAM", "DIRHAMS")
+            val hasSignal = !typedDevise.isNullOrBlank() || deviseFromJson.isNotBlank()
             // Pas de check si on n'a aucun signal explicite : eviter le bruit.
-            if (devise.isNotBlank() || (!deviseValide)) {
+            if (hasSignal || !deviseValide) {
                 results += ResultatValidation(
                     dossier = dossier, regle = "R27",
                     libelle = "Devise MAD obligatoire (CGNC + Loi 9-88)",
@@ -956,8 +985,52 @@ class ValidationEngine(
                     valeurAttendue = "MAD",
                     valeurTrouvee = deviseEffective,
                     evidences = listOf(
-                        evidence("source", "devise", "Devise extraite ou detectee", fDoc, deviseEffective)
+                        evidence("source", "devise", "Devise extraite (champ type)", fDoc, deviseEffective)
                     )
+                )
+            }
+        }
+
+        // R31 : separation des pouvoirs ordonnateur / comptable
+        // (decret 2-22-431 art. 21 + procedure CDG / MADAEF). Un OP doit etre
+        // signe par DEUX personnes physiques distinctes — l'ordonnateur (qui
+        // autorise la depense) et le comptable (qui execute). La meme personne
+        // sur les deux roles = vice de procedure majeur (risque collusion,
+        // controle interne defaillant).
+        // S'applique des qu'au moins un signataire est extrait : sans aucun
+        // signataire on n'emet rien (laisser R12 / completude documentaire
+        // signaler le manquement).
+        if (isEnabled("R31") && op != null) {
+            val ord = op.signataireOrdonnateur?.trim()?.takeIf { it.isNotBlank() }
+            val cpt = op.signataireComptable?.trim()?.takeIf { it.isNotBlank() }
+            if (ord != null || cpt != null) {
+                val r31Evidences = mutableListOf<ValidationEvidence>()
+                if (ord != null) r31Evidences += evidence("source", "signataireOrdonnateur", "Ordonnateur", opDoc, ord)
+                if (cpt != null) r31Evidences += evidence("source", "signataireComptable", "Comptable", opDoc, cpt)
+                val statut: StatutCheck
+                val detail: String
+                when {
+                    ord != null && cpt != null && labelSimilarity(ord, cpt) >= 0.85 -> {
+                        statut = StatutCheck.NON_CONFORME
+                        detail = "Ordonnateur et comptable identiques (« $ord » ≈ « $cpt ») : separation des pouvoirs non respectee (decret 2-22-431 art. 21)."
+                    }
+                    ord == null || cpt == null -> {
+                        statut = StatutCheck.NON_CONFORME
+                        detail = "Un seul signataire identifie sur l'OP (ord=${ord ?: "absent"}, cpt=${cpt ?: "absent"}). Le decret 2-22-431 art. 21 exige deux signataires distincts (ordonnateur + comptable)."
+                    }
+                    else -> {
+                        statut = StatutCheck.CONFORME
+                        detail = "Deux signataires distincts identifies : ordonnateur « $ord » et comptable « $cpt »."
+                    }
+                }
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R31",
+                    libelle = "Separation des pouvoirs ordonnateur / comptable (decret 2-22-431 art. 21)",
+                    statut = statut,
+                    detail = detail,
+                    valeurAttendue = "Deux signataires distincts",
+                    valeurTrouvee = "ord=${ord ?: "?"} / cpt=${cpt ?: "?"}",
+                    evidences = r31Evidences
                 )
             }
         }

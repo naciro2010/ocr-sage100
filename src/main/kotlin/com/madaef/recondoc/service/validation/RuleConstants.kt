@@ -86,6 +86,7 @@ object RuleConstants {
         "R26" to emptySet(),
         "R27" to emptySet(),
         "R30" to setOf("R03", "R03b"),
+        "R31" to emptySet(),
         "R12" to emptySet(),
         "R13" to emptySet(),
     )
