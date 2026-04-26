@@ -8,9 +8,23 @@ import * as Pages from './routes/lazyPages'
 
 interface User { id: number; email: string; nom: string; role: string }
 
+// Guard runtime sur le JSON localStorage : un payload corrompu (rollout v2,
+// schema modifie) ne doit pas faire crasher l'app — il doit forcer un re-login.
+function isValidUser(v: unknown): v is User {
+  if (!v || typeof v !== 'object') return false
+  const u = v as Record<string, unknown>
+  return typeof u.id === 'number' && typeof u.email === 'string'
+    && typeof u.nom === 'string' && typeof u.role === 'string'
+}
+
 export default function App() {
   const [user, setUser] = useState<User | null>(() => {
-    try { return JSON.parse(localStorage.getItem('recondoc_user') || 'null') } catch { return null }
+    try {
+      const parsed = JSON.parse(localStorage.getItem('recondoc_user') || 'null') as unknown
+      return isValidUser(parsed) ? parsed : null
+    } catch {
+      return null
+    }
   })
 
   const handleLogin = (u: User) => setUser(u)
