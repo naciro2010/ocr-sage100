@@ -54,6 +54,8 @@ export default function DossierList() {
   const [showDocSearch, setShowDocSearch] = useState(false)
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [bulkBusy, setBulkBusy] = useState(false)
+  const [bulkRejectModal, setBulkRejectModal] = useState(false)
+  const [bulkRejectMotif, setBulkRejectMotif] = useState('')
   const dropInputRef = useRef<HTMLInputElement>(null)
   const debounceRef = useRef<ReturnType<typeof setTimeout>>(null)
   const navigate = useNavigate()
@@ -134,22 +136,43 @@ export default function DossierList() {
     })
   }, [])
 
-  const handleBulkStatut = useCallback(async (statut: 'VALIDE' | 'REJETE') => {
+  const performBulkStatut = useCallback(async (statut: 'VALIDE' | 'REJETE', motif?: string) => {
     if (selected.size === 0) return
     setBulkBusy(true)
     try {
       const ids = Array.from(selected)
-      const motifRejet = statut === 'REJETE' ? 'Rejet en lot' : undefined
-      const results = await bulkChangeStatut(ids, statut, motifRejet)
+      const results = await bulkChangeStatut(ids, statut, motif)
       const ok = results.filter(r => r.ok).length
       const ko = results.length - ok
       toast(ko === 0 ? 'success' : 'warning', `${ok} OK · ${ko} en erreur`)
       setSelected(new Set())
+      setBulkRejectModal(false)
+      setBulkRejectMotif('')
       load()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Erreur bulk')
     } finally { setBulkBusy(false) }
   }, [selected, toast, load])
+
+  const handleBulkValider = useCallback(() => performBulkStatut('VALIDE'), [performBulkStatut])
+
+  const handleBulkRejeter = useCallback(() => {
+    if (selected.size === 0) return
+    // Audit reglementaire : un rejet en lot DOIT etre justifie. Avant ce
+    // garde-fou, le motif etait hardcode "Rejet en lot" — pas tracable
+    // pour la Cour des comptes ni la procedure CDG.
+    setBulkRejectMotif('')
+    setBulkRejectModal(true)
+  }, [selected.size])
+
+  const confirmBulkReject = useCallback(() => {
+    const motif = bulkRejectMotif.trim()
+    if (motif.length < 10) {
+      toast('warning', 'Motif obligatoire (10 caracteres minimum) pour tracer le rejet')
+      return
+    }
+    performBulkStatut('REJETE', motif)
+  }, [bulkRejectMotif, performBulkStatut, toast])
 
   const prefetchedRef = useRef(new Set<string>())
   const handlePrefetch = useCallback((dossierId: string) => {
@@ -318,11 +341,11 @@ export default function DossierList() {
           <span style={{ fontSize: 13 }}>{selected.size} dossier(s) selectionne(s)</span>
           <div style={{ flex: 1 }} />
           <button className="btn btn-secondary btn-sm" disabled={bulkBusy}
-            onClick={() => handleBulkStatut('VALIDE')}>
+            onClick={handleBulkValider}>
             <CheckCircle2 size={14} /> Valider
           </button>
           <button className="btn btn-secondary btn-sm" disabled={bulkBusy}
-            onClick={() => handleBulkStatut('REJETE')}>
+            onClick={handleBulkRejeter}>
             <XCircle size={14} /> Rejeter
           </button>
           <button className="btn btn-secondary btn-sm" onClick={() => setSelected(new Set())}>
@@ -461,6 +484,36 @@ export default function DossierList() {
       )}
 
       <DocumentSearchModal open={showDocSearch} onClose={() => setShowDocSearch(false)} />
+
+      <Modal
+        open={bulkRejectModal}
+        title={`Rejeter ${selected.size} dossier${selected.size > 1 ? 's' : ''}`}
+        message="Le motif sera enregistre dans l'historique de chaque dossier (audit reglementaire MADAEF / Cour des comptes). 10 caracteres minimum."
+        confirmLabel="Rejeter"
+        confirmColor="var(--danger)"
+        onConfirm={confirmBulkReject}
+        onCancel={() => { setBulkRejectModal(false); setBulkRejectMotif('') }}
+      >
+        <div className="form-row" style={{ marginTop: 8 }}>
+          <label htmlFor="bulk-motif" style={{ display: 'block', fontSize: 12, fontWeight: 600, marginBottom: 4 }}>
+            Motif du rejet <span style={{ color: 'var(--danger)' }}>*</span>
+          </label>
+          <textarea
+            id="bulk-motif"
+            className="form-input"
+            rows={3}
+            value={bulkRejectMotif}
+            onChange={e => setBulkRejectMotif(e.target.value)}
+            placeholder="Ex : Pieces manquantes, attestation expiree, montants incoherents..."
+            disabled={bulkBusy}
+            style={{ width: '100%', resize: 'vertical' }}
+            autoFocus
+          />
+          <div style={{ fontSize: 11, color: 'var(--ink-40)', marginTop: 4 }}>
+            {bulkRejectMotif.trim().length} / 10 caracteres minimum
+          </div>
+        </div>
+      </Modal>
     </div>
   )
 }
