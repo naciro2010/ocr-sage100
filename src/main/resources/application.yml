@@ -2,7 +2,11 @@ spring:
   application:
     name: recondoc-madaef
   datasource:
-    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}}?options=-c%20statement_timeout%3D10000
+    # On NE concatene PAS de query string a l'URL : si Railway / un proxy
+    # injecte deja `?sslmode=require` dans DATABASE_URL, un second `?` casse
+    # la connexion. Les options server-side (statement_timeout) sont passees
+    # proprement via `data-source-properties.options` ci-dessous.
+    url: ${SPRING_DATASOURCE_URL:${DATABASE_URL:jdbc:postgresql://localhost:5432/recondoc}}
     username: ${SPRING_DATASOURCE_USERNAME:${DATABASE_USERNAME:recondoc}}
     password: ${SPRING_DATASOURCE_PASSWORD:${DATABASE_PASSWORD:recondoc}}
     hikari:
@@ -13,6 +17,12 @@ spring:
       max-lifetime: ${DB_MAX_LIFETIME:900000}
       leak-detection-threshold: 30000
       pool-name: ReconDocPool
+      data-source-properties:
+        # `options` est une propriete native du driver PG : elle pousse les
+        # GUC server-side a la connexion sans polluer l'URL. statement_timeout
+        # protege l'app des requetes runaway, lock_timeout evite les attentes
+        # bloquees sur un verrou. Surchargeable via DB_STATEMENT_TIMEOUT_MS.
+        options: "-c statement_timeout=${DB_STATEMENT_TIMEOUT_MS:10000} -c lock_timeout=${DB_LOCK_TIMEOUT_MS:30000}"
   jpa:
     hibernate:
       ddl-auto: validate
@@ -33,6 +43,16 @@ spring:
     clean-disabled: true
     baseline-on-migrate: true
     validate-on-migrate: false
+    # Les migrations ont leur propre connexion : on neutralise statement_timeout
+    # cote Flyway pour qu'un ALTER TABLE / CREATE INDEX sur une grosse table
+    # ne soit jamais tue par les 10s par defaut de l'app. lock_timeout reste
+    # raisonnable (60s) pour eviter de patienter eternellement sur un verrou.
+    # En cas d'echec mid-migration, l'entree `Failed` dans flyway_schema_history
+    # bloquerait les boots suivants — c'est `FlywayConfig.flywayMigrationStrategy`
+    # qui appelle `repair()` avant `migrate()` pour auto-recuperer.
+    init-sqls:
+      - "SET statement_timeout = 0"
+      - "SET lock_timeout = 60000"
   servlet:
     multipart:
       max-file-size: 50MB

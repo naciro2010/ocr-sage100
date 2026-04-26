@@ -53,7 +53,13 @@ dependencies {
 
     // Database
     runtimeOnly("org.postgresql:postgresql")
-    implementation("org.flywaydb:flyway-core")
+    // Spring Boot 4 a sorti l'autoconfig Flyway de spring-boot-autoconfigure
+    // vers le module dedie spring-boot-flyway, agrege par spring-boot-starter-flyway.
+    // SANS ce starter, FlywayAutoConfiguration n'est jamais decouvert et
+    // `spring.flyway.enabled: true` est ignore — les migrations ne tournent pas
+    // au boot (cause racine de l'incident Railway 2026-04-26 : la colonne
+    // attestation_fiscale.type_attestation manquait car V35/V36 jamais appliquees).
+    implementation("org.springframework.boot:spring-boot-starter-flyway")
     implementation("org.flywaydb:flyway-database-postgresql")
 
     // Apache Tika (OCR / text extraction)
