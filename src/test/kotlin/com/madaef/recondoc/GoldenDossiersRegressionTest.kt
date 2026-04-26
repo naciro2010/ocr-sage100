@@ -395,6 +395,88 @@ class GoldenDossiersRegressionTest {
     }
 
     @Test
+    fun `golden 16 R18b NON_CONFORME si OP emis apres expiration de l'attestation`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 2, 10)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"; ice = "001"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 4, 1)
+            montantOperation = BigDecimal("1000.00")
+        }
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.of(2025, 9, 1)
+            raisonSociale = "X"; ice = "001"; estEnRegle = true
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r18b = results.firstOrNull { it.regle == "R18b" }
+        assertTrue(r18b != null, "R18b doit s'executer quand attestation et OP sont presents")
+        assertEquals(StatutCheck.NON_CONFORME, r18b.statut,
+            "R18b doit etre NON_CONFORME : OP du 01/04/2026 posterieur a l'expiration du 01/03/2026")
+    }
+
+    @Test
+    fun `golden 17 R18b CONFORME si OP emis avant expiration de l'attestation`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-2"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"; ice = "001"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-2"; dateEmission = LocalDate.of(2026, 3, 20)
+            montantOperation = BigDecimal("1000.00")
+        }
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.of(2026, 1, 15)
+            raisonSociale = "X"; ice = "001"; estEnRegle = true
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r18b = results.firstOrNull { it.regle == "R18b" }
+        assertTrue(r18b != null)
+        assertEquals(StatutCheck.CONFORME, r18b.statut,
+            "R18b doit etre CONFORME : OP du 20/03/2026 anterieur a l'expiration du 15/07/2026")
+    }
+
+    @Test
+    fun `golden 18 R23 NON_CONFORME si attestation indique que la societe n'est pas en regle`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-3"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"; ice = "001"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "X"; ice = "001"; estEnRegle = false
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r23 = results.firstOrNull { it.regle == "R23" }
+        assertTrue(r23 != null, "R23 doit s'executer quand l'attestation est presente")
+        assertEquals(StatutCheck.NON_CONFORME, r23.statut,
+            "R23 doit etre NON_CONFORME quand la case 'pas en regle' est cochee (estEnRegle=false)")
+    }
+
+    @Test
     fun `golden 15 R11 NON_CONFORME si RIB facture et OP differents`() {
         val dossier = newDossier()
         val fDoc = doc(dossier, TypeDocument.FACTURE)

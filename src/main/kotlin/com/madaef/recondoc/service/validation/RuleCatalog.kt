@@ -65,6 +65,7 @@ object RuleCatalog {
         Def("R17a", "Chronologie BC/Contrat → Facture", "Verifie que date BC/Contrat <= date facture", "dates"),
         Def("R17b", "Chronologie Facture → OP", "Verifie que date facture <= date OP", "dates"),
         Def("R18", "Validite attestation fiscale", "Verifie que l'attestation fiscale a moins de 6 mois", "dates"),
+        Def("R18b", "OP couvert par l'attestation fiscale", "Verifie que la date d'emission de l'OP est anterieure a l'expiration de l'attestation (dateEdition + 6 mois)", "dates"),
         Def("R19", "QR code attestation fiscale", "Scanne le QR, verifie l'origine DGI (attestation.tax.gov.ma) et bloque les QR dangereux (javascript:, http non chiffre, domaine inattendu)", "dates"),
         Def("R23", "Regularite fiscale", "Verifie que l'attestation confirme que la societe est en situation reguliere (champ estEnRegle)", "documents"),
         Def("R24", "Completude lignes facture", "Au-dessus d'un seuil de montant (defaut 50 000 MAD TTC), la facture doit comporter au moins une ligne detaillee. Sinon avertissement — soit l'extraction a manque le tableau, soit la facture est elle-meme peu detaillee pour un montant significatif", "completude")

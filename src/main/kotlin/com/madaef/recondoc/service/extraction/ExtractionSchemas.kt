@@ -307,7 +307,7 @@ object ExtractionSchemas {
                 "identifiantFiscal" to str("IF du contribuable (6 a 10 chiffres)."),
                 "ice" to str("ICE du contribuable : EXACTEMENT 15 chiffres. Si OCR incomplet apres normalisation, null + warning.", pattern = "^\\d{15}$"),
                 "rc" to str("Numero de Registre de Commerce du contribuable."),
-                "estEnRegle" to bool("true si le texte mentionne explicitement 'en situation reguliere', 'quitus fiscal', 'regulier'. false si 'non en regle', 'redressement', 'dette'. null + warning si ambigu."),
+                "estEnRegle" to bool("Reflete la case cochee sur le formulaire DGI. true si la case 'N'a pas de dette fiscale exigible ni de procedure engagee' est cochee (ou si le texte libre mentionne 'en situation reguliere' / 'quitus fiscal'). false si la case 'N'est pas en regle quant aux obligations suivantes' est cochee (ou si le texte mentionne 'non en regle' / 'redressement' / 'dette'). null + warning si les deux cases sont vides, les deux cochees, ou si le statut est ambigu."),
                 "codeVerification" to str("Code de verification imprime sous le QR code (apres 'attestation.tax.gov.ma'). 12-32 caracteres hexadecimaux (ex: '18a50bf6baf372bd'). Retourner sans espace ni ponctuation.")
             ) + qualityFields(),
             required = listOf("numero", "dateEdition", "raisonSociale", "_confidence")

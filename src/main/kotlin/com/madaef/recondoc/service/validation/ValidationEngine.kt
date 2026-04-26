@@ -831,6 +831,31 @@ class ValidationEngine(
             )
         }
 
+        if (isEnabled("R18b") && arfDateEdition != null) {
+            val dateOpAtt = op?.dateEmission ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
+            if (dateOpAtt != null) {
+                val expiration = arf?.dateValidite ?: arfDateEdition.plusMonths(6)
+                val ok = !dateOpAtt.isAfter(expiration)
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R18b",
+                    libelle = "OP couvert par l'attestation fiscale",
+                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (ok)
+                        "OP emis le ${dateOpAtt}, attestation valide jusqu'au ${expiration}"
+                    else
+                        "OP emis le ${dateOpAtt} alors que l'attestation a expire le ${expiration}. " +
+                            "Le paiement n'est pas couvert par une attestation fiscale en cours de validite.",
+                    valeurAttendue = "<= ${expiration}",
+                    valeurTrouvee = dateOpAtt.toString(),
+                    evidences = listOf(
+                        evidence("source", "dateEdition", "Date d'edition de l'attestation", arfDoc, arfDateEdition),
+                        evidence("calcule", "dateValidite", "Attestation valide jusqu'au", null, expiration),
+                        evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOpAtt)
+                    )
+                )
+            }
+        }
+
         if (isEnabled("R19") && arf != null) {
             results += checkAttestationQr(arf, arfDoc, dossier)
         }
@@ -1079,6 +1104,7 @@ class ValidationEngine(
             "R14b" to listOf(TypeDocument.FACTURE, TypeDocument.ATTESTATION_FISCALE),
             "R17" to listOf(TypeDocument.FACTURE, TypeDocument.BON_COMMANDE, TypeDocument.ORDRE_PAIEMENT),
             "R18" to listOf(TypeDocument.ATTESTATION_FISCALE),
+            "R18b" to listOf(TypeDocument.ATTESTATION_FISCALE, TypeDocument.ORDRE_PAIEMENT),
             "R19" to listOf(TypeDocument.ATTESTATION_FISCALE),
             "R20" to emptyList(),
         )

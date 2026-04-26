@@ -251,7 +251,7 @@ object ExtractionPrompts {
     """.trimIndent()
 
     private val FEW_SHOT_ATTESTATION = """
-        EXEMPLE (attestation DGI standard) :
+        EXEMPLE 1 (attestation DGI standard, case "en regle" cochee) :
 
         <document_content>
         ROYAUME DU MAROC
@@ -265,8 +265,11 @@ object ExtractionPrompts {
         Identifiant Fiscal : 40123456    ICE : 001509176000008
         Registre de Commerce : 45789 (Casablanca)
 
-        Le Directeur General des Impots atteste que le contribuable designe ci-dessus
-        est en situation fiscale reguliere.
+        [X] N'a pas, a la date de delivrance de cette attestation, de dette fiscale
+            exigible ni de procedure engagee pour un manquement aux obligations
+            de declaration
+        [ ] N'est pas en regle quant aux obligations suivantes :
+            [ ] Obligations de paiement   [ ] Obligations de declaration
 
         Code de verification sur attestation.tax.gov.ma : 18a50bf6baf372bd
         </document_content>
@@ -276,6 +279,29 @@ object ExtractionPrompts {
         "identifiantFiscal":"40123456","ice":"001509176000008","rc":"45789",
         "estEnRegle":true,"codeVerification":"18a50bf6baf372bd",
         "_confidence":0.96,"_warnings":[]}
+
+        EXEMPLE 2 (attestation DGI, case "pas en regle" cochee) :
+
+        <document_content>
+        ATTESTATION DE REGULARITE FISCALE
+        N 3055/2026/142
+        Edite le 03/03/2026
+
+        Raison sociale : BETA TRAVAUX SARL
+        Identifiant Fiscal : 50221199    ICE : 002745918000033
+
+        [ ] N'a pas, a la date de delivrance de cette attestation, de dette fiscale
+            exigible ni de procedure engagee pour un manquement aux obligations
+            de declaration
+        [X] N'est pas en regle quant aux obligations suivantes :
+            [X] Obligations de paiement
+        </document_content>
+
+        Sortie :
+        {"numero":"3055/2026/142","dateEdition":"2026-03-03","raisonSociale":"BETA TRAVAUX SARL",
+        "identifiantFiscal":"50221199","ice":"002745918000033","rc":null,
+        "estEnRegle":false,"codeVerification":null,
+        "_confidence":0.94,"_warnings":["case 'pas en regle / Obligations de paiement' cochee"]}
     """.trimIndent()
 
     val FACTURE = """
@@ -623,7 +649,11 @@ object ExtractionPrompts {
         }
 
         Regles specifiques :
-        - estEnRegle=true si l'attestation contient explicitement "en situation reguliere", "en situation fiscale reguliere", "quitus fiscal" ou equivalent. estEnRegle=false si l'attestation mentionne "non en regle", "non regulier", "dette", "redressement" ou un rejet. null si le texte est ambigu — ajoute alors un warning "estEnRegle non determine" pour declencher la revue humaine.
+        - estEnRegle reflete LA CASE COCHEE sur l'attestation DGI. Le formulaire standard contient deux cases mutuellement exclusives :
+            (a) "N'a pas, a la date de delivrance de cette attestation, de dette fiscale exigible ni de procedure engagee pour un manquement aux obligations de declaration" => estEnRegle=true.
+            (b) "N'est pas en regle quant aux obligations suivantes" (suivi d'une liste : Obligations de paiement / Obligations de declaration) => estEnRegle=false.
+          La case cochee est identifiee par un X, une croix, un V, une coche manuscrite, un caractere coche (✓, ☑, ✗) ou une case noircie ; la case vide n'est pas cochee. Si les deux cases sont vides ou les deux cochees, retourne estEnRegle=null + warning "case 'en regle' non determinee".
+          Sinon (texte sans formulaire a cases) : estEnRegle=true si "en situation reguliere", "en situation fiscale reguliere", "quitus fiscal" ou equivalent ; estEnRegle=false si "non en regle", "non regulier", "dette", "redressement" ou rejet ; null + warning sinon.
         - L'ICE doit avoir exactement 15 chiffres. Si l'OCR donne un nombre different, retourner tel quel et ajouter un warning.
         - codeVerification : code alphanumerique imprime a cote ou sous le QR code, apres "Code de verification sur le site attestation.tax.gov.ma" (ou www.tax.gov.ma, ancienne URL). Souvent 12-32 caracteres hexadecimaux. Retourner tel quel, sans espace, sans ponctuation.
 
