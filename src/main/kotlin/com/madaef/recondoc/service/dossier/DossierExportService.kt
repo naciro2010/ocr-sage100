@@ -2,6 +2,7 @@ package com.madaef.recondoc.service.dossier
 
 import com.madaef.recondoc.entity.dossier.AuditLog
 import com.madaef.recondoc.entity.dossier.Document
+import com.madaef.recondoc.entity.dossier.DossierPaiement
 import com.madaef.recondoc.entity.dossier.StatutDossier
 import com.madaef.recondoc.entity.dossier.StatutExtraction
 import com.madaef.recondoc.entity.dossier.TypeDocument
@@ -58,13 +59,6 @@ class DossierExportService(
         }
 
         val tcPdf = pdfGenerator.generateTC(dossier, request)
-        val tcPointer = documentStorage.store(dossierId, "TC_${dossier.reference}.pdf", tcPdf)
-        val tcDoc = Document(
-            dossier = dossier, typeDocument = TypeDocument.TABLEAU_CONTROLE,
-            nomFichier = "TC_${dossier.reference}.pdf", cheminFichier = tcPointer,
-            statutExtraction = StatutExtraction.EXTRAIT
-        )
-        documentRepo.save(tcDoc)
 
         runCatching {
             progressService.emit(dossierId, DocumentProgress(
@@ -74,13 +68,20 @@ class DossierExportService(
         }
 
         val opPdf = pdfGenerator.generateOP(dossier, request)
-        val opPointer = documentStorage.store(dossierId, "OP_${dossier.reference}.pdf", opPdf)
-        val opDoc = Document(
-            dossier = dossier, typeDocument = TypeDocument.ORDRE_PAIEMENT,
-            nomFichier = "OP_${dossier.reference}.pdf", cheminFichier = opPointer,
-            statutExtraction = StatutExtraction.EXTRAIT
+
+        val tcDoc = upsertGeneratedDocument(
+            dossier = dossier,
+            type = TypeDocument.TABLEAU_CONTROLE,
+            fileName = "TC_${dossier.reference}.pdf",
+            bytes = tcPdf
         )
-        documentRepo.save(opDoc)
+
+        val opDoc = upsertGeneratedDocument(
+            dossier = dossier,
+            type = TypeDocument.ORDRE_PAIEMENT,
+            fileName = "OP_${dossier.reference}.pdf",
+            bytes = opPdf
+        )
 
         dossier.statut = StatutDossier.VALIDE
         dossier.dateValidation = LocalDateTime.now()
@@ -103,6 +104,42 @@ class DossierExportService(
             "opDocId" to opDoc.id.toString(),
             "reference" to dossier.reference
         )
+    }
+
+
+    private fun upsertGeneratedDocument(
+        dossier: DossierPaiement,
+        type: TypeDocument,
+        fileName: String,
+        bytes: ByteArray
+    ): Document {
+        val dossierId = requireNotNull(dossier.id) { "Dossier id is required for generated exports" }
+        val existing = documentRepo.findByDossierIdAndTypeDocument(dossierId, type)
+        // Capture l'ancien pointeur AVANT toute mutation : `apply` ci-dessous
+        // reecrit `existing.cheminFichier` et perdrait l'info pour le cleanup.
+        val oldPointer = existing?.cheminFichier
+        val newPointer = documentStorage.store(dossierId, fileName, bytes)
+
+        return try {
+            val updated = (existing ?: Document(
+                dossier = dossier,
+                typeDocument = type,
+                nomFichier = fileName,
+                cheminFichier = newPointer
+            )).apply {
+                nomFichier = fileName
+                cheminFichier = newPointer
+                statutExtraction = StatutExtraction.EXTRAIT
+            }
+            documentRepo.save(updated).also {
+                if (!oldPointer.isNullOrBlank() && oldPointer != newPointer) {
+                    documentStorage.delete(oldPointer)
+                }
+            }
+        } catch (ex: Exception) {
+            documentStorage.delete(newPointer)
+            throw ex
+        }
     }
 
     @Transactional(readOnly = true)
