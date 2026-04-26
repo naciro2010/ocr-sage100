@@ -1010,7 +1010,7 @@ class ValidationEngine(
                 val statut: StatutCheck
                 val detail: String
                 when {
-                    ord != null && cpt != null && labelSimilarity(ord, cpt) >= 0.85 -> {
+                    ord != null && cpt != null && personNamesLikelySame(ord, cpt) -> {
                         statut = StatutCheck.NON_CONFORME
                         detail = "Ordonnateur et comptable identiques (« $ord » ≈ « $cpt ») : separation des pouvoirs non respectee (decret 2-22-431 art. 21)."
                     }

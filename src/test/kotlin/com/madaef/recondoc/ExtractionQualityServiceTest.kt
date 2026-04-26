@@ -194,7 +194,10 @@ class ExtractionQualityServiceTest {
             "identifiantFiscal" to "12345678",
             "rc" to "123456",
             "estEnRegle" to true,
-            "codeVerification" to "18a50bf6baf372bd"
+            "codeVerification" to "18a50bf6baf372bd",
+            // Champ promu en IMPORTANT par PR #2d (R18 nuance la duree de
+            // validite selon le type — Circulaire DGI 717).
+            "typeAttestation" to "REGULARITE_FISCALE"
         ))
         val r = service.evaluate(doc)
         assertEquals(emptyList(), r.missingMandatory, "Attestation complete ne doit avoir aucun mandatory missing")

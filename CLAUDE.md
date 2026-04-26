@@ -148,30 +148,59 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 4. **Re-lancement granulaire** : relancer un seul controle individuellement
 5. **Cascade** : si une donnee change et touche plusieurs controles, les relancer TOUS
 
-### Regles de validation (22 regles)
-- R01-R03: Concordance montants facture vs BC (TTC, HT, TVA, taux)
-- R04-R05: Montant OP vs facture (avec/sans retenues)
-- R06: Verification arithmetique retenues (base x taux = montant)
-- R06b: Taux retenue conforme au CGI (TVA marches=75% art.117, IR honoraires=10% art.73-II-G)
-- R07-R08: References facture/BC citees dans OP
-- R09: Coherence ICE entre documents
-- R09b: Format ICE 15 chiffres exacts (decret 2-11-13 OMPIC)
-- R10-R11: Coherence IF, RIB entre documents
-- R12: Checklist completude (10 points mappes aux documents source)
-- R13: Tableau controle financier completude
-- R14: Coherence nom fournisseur entre documents
-- R15: Grille tarifaire x duree = HT facture (CONTRACTUEL uniquement)
-- R16: Verification arithmetique HT + TVA = TTC
-- R17a-R17b: Coherence temporelle (BC/Contrat → Facture → OP) — NON_CONFORME si paiement antidate
-- R18: Validite attestation fiscale (3 mois marche public, 6 mois B2B - Circulaire DGI 717), borne inclusive
-- R20: Completude dossier (documents requis presents)
-- R21: Anti-doublon facture (12 mois glissants ; distingue avoirs/compensations)
-- R22: Paiement posterieur a la reception (date OP >= date PV_RECEPTION ; CONTRACTUEL uniquement)
-- R25: Delai paiement marche public <= 60 jours (decret 2-22-431 art. 159)
+### Regles de validation (regroupees par etape du parcours operateur)
+
+> Les regles sont organisees par **processus mental du controleur**, pas
+> par code numerique. Voir `RuleCatalog.GROUPE_ORDER` (source de verite
+> consommee par le frontend Settings / RulesHealth).
+
+**1. Completude documentaire**
+- R20: Completude dossier (toutes les pieces obligatoires presentes)
+- R24: Completude lignes facture (au-dela d'un seuil TTC, lignes detaillees attendues)
+
+**2. Identite fournisseur (identifiants B2B)**
+- R09 / R09b: Coherence ICE entre documents + format 15 chiffres exacts (decret 2-11-13 OMPIC)
+- R10: Coherence IF entre documents
+- R11: Coherence RIB facture vs OP
+- R14 / R14b: Coherence nom fournisseur + attestation fiscale = fournisseur facture
+
+**3. Concordance montants facture vs BC/contrat**
+- R01-R03 + R03b: Concordance TTC / HT / TVA / taux entre facture et BC
+- R01g: Matching ligne par ligne facture ↔ BC ou grille tarifaire
+- R15: Grille tarifaire × duree = HT facture (CONTRACTUEL uniquement)
+- R16 / R16b / R16c: Verification arithmetique (HT+TVA=TTC, lignes, somme lignes = HT)
+
+**4. Paiement & arithmetique (taux legaux MA)**
+- R04 / R05: Montant OP = TTC (avec ou sans retenues)
+- R06 / R06b: Calcul des retenues + taux legal CGI (TVA marches=75% art.117, IR honoraires=10% art.73-II-G)
 - R26: Plafond paiement especes 5 000 MAD (CGI art. 193-ter)
 - R27: Devise MAD obligatoire (CGNC + Loi 9-88)
 - R30: Taux TVA dans la liste legale {0, 7, 10, 14, 20} (CGI 2026 art. 87-100)
-- R31: Separation des pouvoirs OP — ordonnateur != comptable (decret 2-22-431 art. 21)
+
+**5. References croisees**
+- R07 / R08: Numero facture + reference BC/contrat cites dans l'OP
+
+**6. Chronologie & delais legaux**
+- R17a / R17b: BC/Contrat ≤ Facture ≤ OP — NON_CONFORME si paiement antidate
+- R22: Paiement posterieur a la reception (date OP ≥ date PV_RECEPTION)
+- R18: Validite attestation fiscale (3 mois marche public, 6 mois B2B — Circulaire DGI 717), borne inclusive
+- R25: Delai paiement marche public ≤ 60 jours (decret 2-22-431 art. 159)
+
+**7. Conformite documentaire (autocontroles, signatures, QR)**
+- R12 (+ R12.01-R12.10): Checklist autocontrole CCF-EN-04 (10 points mappes aux documents source)
+- R13: Tableau de controle financier complet
+- R19: QR code attestation fiscale (origine DGI attestation.tax.gov.ma)
+- R23: Regularite fiscale (champ estEnRegle de l'attestation)
+- R31: Separation des pouvoirs OP — ordonnateur ≠ comptable (decret 2-22-431 art. 21)
+
+**8. Anti-fraude**
+- R21: Anti-doublon facture (12 mois glissants ; distingue avoirs/compensations des vrais doublons)
+
+**9-12. Couche Engagement (transverse + specifique par type)**
+- R-E01..05 communes (plafond, fournisseur canonique, statut actif, reference, rattachement)
+- R-M01..07 marche public (delai execution, retenue garantie, penalites, AO, revision prix, decomptes, caution)
+- R-B01..04 bon de commande (validite, anti-fractionnement decret 2-22-431 art.88, livraison unique, pas de garantie)
+- R-C01..05 contrat (periodicite, duree, nombre paiements, revision tarifaire, montant echeancier)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL
