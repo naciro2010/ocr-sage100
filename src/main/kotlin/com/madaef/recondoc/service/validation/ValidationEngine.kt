@@ -364,7 +364,11 @@ class ValidationEngine(
         if (isEnabled("R09")) {
             val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
             val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
-            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
+            // ICE = 15 chiffres significatifs (decret 2-11-13 OMPIC). On NE retire
+            // PAS les zeros de tete : `001509176000008` est l'ICE legal d'une
+            // entreprise, distinct de `1509176000008` (13 chiffres = ICE invalide
+            // ou autre entreprise). `normalizeId` aurait fait matcher les deux.
+            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeIce(it) }.distinct()
             // ICE est obligatoire sur toute facture B2B au Maroc. Une facture
             // existante sans ICE = NON_CONFORME systematique. L'attestation
             // fiscale est facultative dans le scope R09 : si elle existe, son
@@ -397,6 +401,40 @@ class ValidationEngine(
                     evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf)
                 )
             )
+        }
+
+        // R09b : validite du format ICE (decret 2-11-13 + arrete OMPIC).
+        // Un ICE doit faire exactement 15 chiffres. Un ICE plus court (ex:
+        // perte de zeros initiaux par OCR) ou plus long est anormal et doit
+        // bloquer le dossier — la regle de coherence R09 ne suffit pas car
+        // deux ICE tronques identiques se "matcheraient" silencieusement.
+        if (isEnabled("R09b")) {
+            val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val invalides = mutableListOf<String>()
+            val r09bEvidences = mutableListOf<ValidationEvidence>()
+            if (iceFacture != null && !isIceFormatValid(iceFacture)) {
+                invalides += "ICE facture invalide : '$iceFacture' (attendu 15 chiffres)"
+                r09bEvidences += evidence("source", "ice", "ICE sur la facture", fDoc, iceFacture)
+            }
+            if (iceArf != null && !isIceFormatValid(iceArf)) {
+                invalides += "ICE attestation fiscale invalide : '$iceArf' (attendu 15 chiffres)"
+                r09bEvidences += evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf)
+            }
+            // Ne lever de resultat que si au moins un ICE etait extrait : sinon
+            // R09 a deja signale l'absence et on ne veut pas du bruit redondant.
+            if (iceFacture != null || iceArf != null) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R09b",
+                    libelle = "Format ICE valide (15 chiffres exacts)",
+                    statut = if (invalides.isEmpty()) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (invalides.isEmpty())
+                        "ICE au format attendu (15 chiffres)"
+                    else
+                        invalides.joinToString(" | "),
+                    evidences = r09bEvidences.ifEmpty { null }
+                )
+            }
         }
 
         if (isEnabled("R10")) {
@@ -554,7 +592,7 @@ class ValidationEngine(
                     mismatches += "Raison sociale : facture « $fRaison » ≠ attestation « $arfRaison » (similarite ${"%.0f".format(sim * 100)}%)"
                 }
             }
-            if (fIce != null && arfIce != null && normalizeId(fIce) != normalizeId(arfIce)) {
+            if (fIce != null && arfIce != null && normalizeIce(fIce) != normalizeIce(arfIce)) {
                 mismatches += "ICE : facture=$fIce, attestation=$arfIce"
             }
             if (fIf != null && arfIf != null && normalizeId(fIf) != normalizeId(arfIf)) {

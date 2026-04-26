@@ -39,10 +39,30 @@ private val FALSY = setOf("false", "non", "non conforme", "n", "no")
 fun normalizeRib(rib: String?): String? =
     rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
 
-/** Normalise un identifiant B2B (ICE/IF/RC/CNSS) : supprime espaces + zeros en tete. */
+/** Normalise un identifiant B2B (IF/RC/CNSS) : supprime espaces + zeros en tete. */
 fun normalizeId(value: String?): String? {
     if (value.isNullOrBlank()) return null
     return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
+}
+
+/**
+ * Normalise un ICE en preservant les zeros initiaux significatifs.
+ * Selon le decret 2-11-13 et l'arrete OMPIC, l'ICE est strictement de
+ * 15 chiffres : `001509176000008` n'est PAS equivalent a `1509176000008`.
+ * `normalizeId` (qui retire les zeros de tete) ne doit JAMAIS etre
+ * utilisee pour comparer deux ICE — c'etait un bug qui faisait passer
+ * pour identiques deux ICE structurellement differents.
+ */
+fun normalizeIce(value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    return value.replace(WHITESPACE_RE, "").ifEmpty { null }
+}
+
+/** ICE valide = exactement 15 chiffres apres normalisation espaces/ponctuation. */
+private val ICE_FORMAT_RE = Regex("^[0-9]{15}$")
+fun isIceFormatValid(ice: String?): Boolean {
+    val normalized = normalizeIce(ice) ?: return false
+    return ICE_FORMAT_RE.matches(normalized)
 }
 
 /** Normalise un "code" (QR code, reference courte) pour comparaison souple. */

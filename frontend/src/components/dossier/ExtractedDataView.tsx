@@ -1,5 +1,4 @@
 import { memo } from 'react'
-import { useToast } from '../Toast'
 import { rulesForField } from '../../config/validationRules'
 
 interface Props {
@@ -77,7 +76,6 @@ function formatValue(key: string, value: unknown): string {
 }
 
 export default memo(function ExtractedDataView({ data, docType }: Props) {
-  const { toast } = useToast()
   if (!data) return <p style={{ color: 'var(--ink-30)', fontSize: 13 }}>Aucune donnee extraite</p>
 
   const isInvoice = docType === 'FACTURE'
@@ -124,13 +122,14 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
                         ))}
                       </div>
                     ) : (
+                      // Lecture seule : la correction d'une donnee extraite passe
+                      // par le panneau "Corriger" du controle qui l'utilise (cf.
+                      // ControlSplitView.editPanel) \u2014 la mutation y est persistee
+                      // ET declenche le rerun cascade. Le `contentEditable` ici
+                      // ne sauvait rien et donnait l'illusion d'une correction.
                       <span
                         className={`edv-cell-value ${(section as { mono?: boolean }).mono ? 'mono' : ''}`}
-                        contentEditable suppressContentEditableWarning
-                        onBlur={e => {
-                          const newVal = e.currentTarget.textContent || ''
-                          if (newVal !== String(v)) toast('info', `${FIELD_LABELS[k] || k}: ${String(v)} \u2192 ${newVal}`)
-                        }}
+                        title="Pour corriger cette donnee, ouvre le controle qui l'utilise et clique sur Corriger"
                       >
                         {formatValue(k, v)}
                       </span>
@@ -197,8 +196,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
                     {FIELD_LABELS[k] || k}
                     <RulesUsing field={k} />
                   </span>
-                  <span className="data-field-value" contentEditable suppressContentEditableWarning
-                    onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
+                  <span className="data-field-value" title="Pour corriger cette donnee, ouvre le controle qui l'utilise et clique sur Corriger">
                     {formatValue(k, v)}
                   </span>
                   <span className="data-field-source ai" title="Valeur extraite par Claude (IA)">IA</span>
@@ -222,8 +220,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
               {FIELD_LABELS[k] || k}
               <RulesUsing field={k} />
             </span>
-            <span className="data-field-value" contentEditable suppressContentEditableWarning
-              onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
+            <span className="data-field-value" title="Pour corriger cette donnee, ouvre le controle qui l'utilise et clique sur Corriger">
               {formatValue(k, v)}
             </span>
             <span

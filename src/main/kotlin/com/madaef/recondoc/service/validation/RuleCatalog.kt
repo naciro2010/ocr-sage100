@@ -55,6 +55,7 @@ object RuleCatalog {
         Def("R07", "Reference facture dans l'OP", "Verifie que le numero de facture est cite dans l'ordre de paiement", "references"),
         Def("R08", "Reference BC/contrat dans l'OP", "Verifie que le numero de BC ou contrat est cite dans l'OP", "references"),
         Def("R09", "Coherence ICE", "Verifie que l'ICE est identique entre facture et attestation fiscale", "identifiants"),
+        Def("R09b", "Format ICE (15 chiffres)", "Verifie que l'ICE respecte le format legal OMPIC (decret 2-11-13) : exactement 15 chiffres", "identifiants"),
         Def("R10", "Coherence IF", "Verifie que l'identifiant fiscal est identique entre documents", "identifiants"),
         Def("R11", "Coherence RIB", "Verifie que le RIB de la facture correspond a celui de l'OP", "identifiants"),
         Def("R14", "Coherence fournisseur", "Verifie que le nom du fournisseur est coherent entre tous les documents", "identifiants"),

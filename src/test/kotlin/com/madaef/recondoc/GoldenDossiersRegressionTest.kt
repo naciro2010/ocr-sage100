@@ -565,6 +565,88 @@ class GoldenDossiersRegressionTest {
     }
 
     @Test
+    fun `golden 22 R09b NON_CONFORME si ICE facture mal forme (moins de 15 chiffres)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "X"
+            ice = "15091760000" // 11 chiffres : padding OCR perdu
+            identifiantFiscal = "IF-1"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r09b = results.firstOrNull { it.regle == "R09b" }
+        assertTrue(r09b != null, "R09b doit s'executer quand au moins un ICE est extrait")
+        assertEquals(StatutCheck.NON_CONFORME, r09b.statut,
+            "R09b doit etre NON_CONFORME pour un ICE a 11 chiffres")
+    }
+
+    @Test
+    fun `golden 23 R09b CONFORME pour ICE 15 chiffres exacts`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "X"
+            ice = "001509176000008" // 15 chiffres avec zeros initiaux significatifs
+            identifiantFiscal = "IF-1"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r09b = results.firstOrNull { it.regle == "R09b" }
+        assertTrue(r09b != null)
+        assertEquals(StatutCheck.CONFORME, r09b.statut, "ICE 15 chiffres exacts doit etre CONFORME format")
+        // R09 (coherence) doit aussi etre CONFORME : meme ICE.
+        val r09 = results.firstOrNull { it.regle == "R09" }
+        assertEquals(StatutCheck.CONFORME, r09?.statut, "R09 coherence doit etre CONFORME")
+    }
+
+    @Test
+    fun `golden 24 R09 NON_CONFORME quand 2 ICE divergent uniquement par les zeros initiaux (regression bug normalizeId)`() {
+        // Avant fix : `normalizeId` retirait les zeros de tete -> les deux ICE
+        // matchaient apres normalisation et R09 retournait CONFORME (faux negatif).
+        // Apres fix : `normalizeIce` preserve les zeros, R09 detecte la difference.
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "X"
+            ice = "001509176000008" // 15 chiffres
+            identifiantFiscal = "IF-1"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "X"
+            ice = "1509176000008" // 13 chiffres (autre entreprise OU OCR degrade)
+            identifiantFiscal = "IF-1"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r09 = results.firstOrNull { it.regle == "R09" }
+        assertTrue(r09 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r09.statut,
+            "R09 doit detecter les ICE differents meme quand seuls les zeros initiaux divergent")
+    }
+
+    @Test
     fun `golden 15 R11 NON_CONFORME si RIB facture et OP differents`() {
         val dossier = newDossier()
         val fDoc = doc(dossier, TypeDocument.FACTURE)
