@@ -8,6 +8,7 @@ import com.madaef.recondoc.repository.dossier.DossierRuleOverrideRepository
 import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.repository.dossier.RuleConfigRepository
 import com.madaef.recondoc.service.extraction.CallKind
+import com.madaef.recondoc.service.extraction.ExtractionSchemas
 import com.madaef.recondoc.service.extraction.LlmExtractionService
 import com.madaef.recondoc.service.extraction.PseudonymizationService
 import org.slf4j.LoggerFactory
@@ -153,10 +154,16 @@ class CustomRuleService(
             val (userPrompt, mapping) = pseudonymizationService.tokenize(
                 buildBatchUserPrompt(applicable, payload)
             )
-            val rawMasked = llm.callClaude(BATCH_SYSTEM_PROMPT, userPrompt, CallKind.RULES_BATCH)
-            val raw = if (mapping.isEmpty) rawMasked
-                      else pseudonymizationService.detokenize(rawMasked, mapping) as String
-            val verdicts = parseBatchResponse(raw)
+            // Mode tool_use : Claude est force d'appeler `evaluate_custom_rules_batch`
+            // avec un input conforme au schema (verdicts[].code, statut, ...). Supprime
+            // la classe entiere des erreurs "Reponse IA non JSON" / "verdicts manquants"
+            // observees en mode texte libre + parse manuel. Fallback automatique vers
+            // l'ancien mode texte si le tool_use echoue (catch en bas de bloc).
+            val schema = ExtractionSchemas.CUSTOM_RULES_BATCH
+            val toolResp = llm.callClaudeTool(
+                BATCH_SYSTEM_PROMPT, userPrompt, schema.name, schema.inputSchema, CallKind.RULES_BATCH
+            )
+            val verdicts = parseBatchToolResponse(toolResp.toolInput, mapping)
             val missing = applicable.filter { verdicts[it.code] == null }.map { it.code }
             if (missing.isNotEmpty()) {
                 log.warn("Batch returned partial results: missing verdicts for {} (dossier={})", missing, dossier.id)
@@ -447,6 +454,24 @@ $payloadJson
             )
         }
         return out
+    }
+
+    /**
+     * Parse la reponse `tool_use` (input deja struct map) du batch CUSTOM.
+     * Detokenise les chaines de caracteres apres serialisation pour que les
+     * valeurs PII restorees (RIB, emails) apparaissent dans `detail` et
+     * `evidences.valeur` cote UI. Reutilise la machinerie [parseBatchResponse]
+     * en repassant par un JSON intermediaire detokenise — evite de dupliquer
+     * la logique d'interpretation des verdicts.
+     */
+    private fun parseBatchToolResponse(
+        toolInput: Map<String, Any?>,
+        mapping: PseudonymizationService.PiiMapping
+    ): Map<String, BatchVerdict> {
+        val masked = objectMapper.writeValueAsString(toolInput)
+        val raw = if (mapping.isEmpty) masked
+                  else pseudonymizationService.detokenize(masked, mapping) as String
+        return parseBatchResponse(raw)
     }
 
     private fun buildResultFromVerdict(

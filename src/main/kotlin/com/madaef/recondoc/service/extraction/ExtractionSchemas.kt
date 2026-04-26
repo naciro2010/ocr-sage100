@@ -150,6 +150,8 @@ object ExtractionSchemas {
                 "montantTVA" to num("Total TVA general de la facture. Somme de TOUTES les TVA si plusieurs taux coexistent (20% + 10% par exemple). Strictement >= 0 (0 si facture exoneree).", minimum = 0, nullable = false),
                 "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant (applique au plus grand montantHT). Taux legaux Maroc : 0 (exonere), 7, 10, 14, 20. Tout autre taux = erreur OCR ou facture etrangere -> choisir le plus proche et ajouter un warning.", nullable = false),
                 "montantTTC" to num("Total TTC general = HT + TVA. Doit etre strictement positif. Priorite : ligne 'NET A PAYER' > 'TOTAL TTC' > 'TOTAL GENERAL' > somme calculee. Verifier HT+TVA ≈ TTC (tolerance 1%).", minimum = 0, nullable = false),
+                "devise" to str("Code devise ISO 4217 (MAD, EUR, USD). Detecter via le suffixe des montants ('1 234,56 DH', 'MAD', 'dirhams' = MAD ; 'EUR', '€', 'euros' = EUR ; 'USD', '$' = USD). Defaut : MAD si aucun signal etranger. Une devise non-MAD peut signaler une facture export, a verifier (regle R27 / CGNC + Loi 9-88).", pattern = "^[A-Z]{3}$"),
+                "dateReceptionFacture" to str("Date de reception de la facture par MADAEF, distincte de dateFacture (date d'emission par le fournisseur). Apparait sur le cachet d'arrivee, le tampon dateur, ou la mention 'recu le'. Format ISO YYYY-MM-DD. Sert au decompte du delai legal de paiement marche public (60j, decret 2-22-431 art. 159).", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
                 "referenceContrat" to str("Reference du contrat ou du bon de commande cite dans la facture (ex: 'CF SIE 2026-1234', 'Marche 2024/15'). Apparait souvent apres 'Ref. BC:' ou 'Marche N:'."),
                 "periode" to str("Periode couverte par la prestation (ex: 'Janvier 2026', '01/01/2026 - 31/03/2026')."),
                 "lignes" to arrayOf(obj(
@@ -209,6 +211,14 @@ object ExtractionSchemas {
                 "dateEmission" to str("Date d'emission de l'OP au format ISO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
                 "emetteur" to str("Entite MADAEF emettrice de l'OP (ex: 'MADAEF', 'MADAEF GOLFS', 'HRM'). Si non mentionne, null."),
                 "natureOperation" to str("Nature de l'operation (ex: 'Reglement facture', 'Acompte', 'Avoir', 'Solde marche')."),
+                "modePaiement" to enumField(
+                    listOf("VIREMENT", "CHEQUE", "ESPECES", "EFFET", "PRELEVEMENT", "AUTRE"),
+                    description = "Mode de reglement type. Detecter via les libelles : 'virement bancaire' / 'wire' = VIREMENT ; 'cheque n' = CHEQUE ; 'especes' / 'cash' / 'comptant' = ESPECES ; 'effet de commerce' / 'lettre de change' = EFFET ; 'prelevement' = PRELEVEMENT ; sinon AUTRE. Determinant pour R26 (plafond especes 5kMAD CGI art. 193-ter).",
+                    baseType = "string"
+                ),
+                "devise" to str("Code devise ISO 4217 du paiement (MAD attendu, sinon signaler).", pattern = "^[A-Z]{3}$"),
+                "signataireOrdonnateur" to str("Nom + fonction de l'ordonnateur (autorise la depense, distinct du comptable). Apparait dans le cartouche 'Vu et autorise par' / 'Ordonnateur' avec une signature. Decret 2-22-431 art. 21 : separation des pouvoirs obligatoire avec le comptable."),
+                "signataireComptable" to str("Nom + fonction du comptable (execute le paiement, distinct de l'ordonnateur). Apparait dans le cartouche 'Comptable' / 'Tresorier' / 'Vise par'. JAMAIS la meme personne que signataireOrdonnateur."),
                 "description" to str("Objet detaille/libre de l'operation. Texte explicatif du controleur."),
                 "beneficiaire" to str("Raison sociale du beneficiaire = fournisseur a payer. JAMAIS MADAEF.", nullable = false),
                 "rib" to str("RIB du beneficiaire : EXACTEMENT 24 chiffres apres suppression espaces/tirets. Sinon null + warning.", pattern = "^\\d{24}$"),
@@ -308,6 +318,11 @@ object ExtractionSchemas {
                 "ice" to str("ICE du contribuable : EXACTEMENT 15 chiffres. Si OCR incomplet apres normalisation, null + warning.", pattern = "^\\d{15}$"),
                 "rc" to str("Numero de Registre de Commerce du contribuable."),
                 "estEnRegle" to bool("true si le texte mentionne explicitement 'en situation reguliere', 'quitus fiscal', 'regulier'. false si 'non en regle', 'redressement', 'dette'. null + warning si ambigu."),
+                "typeAttestation" to enumField(
+                    listOf("REGULARITE_FISCALE", "ATTESTATION_PAIEMENT", "CNSS", "AUTRE"),
+                    description = "Type d'attestation : REGULARITE_FISCALE = la plus courante DGI 'attestation de regularite fiscale' (R18 6mo B2B / 3mo marche public). ATTESTATION_PAIEMENT = paiement d'un impot specifique (TVA, IS), validite limitee a la quittance citee. CNSS = regularite sociale (CNSS, hors DGI). AUTRE si format atypique. Distinguer ces types evite d'appliquer R18 a une attestation qui n'a pas la meme regle.",
+                    baseType = "string"
+                ),
                 "codeVerification" to str("Code de verification imprime sous le QR code (apres 'attestation.tax.gov.ma'). 12-32 caracteres hexadecimaux (ex: '18a50bf6baf372bd'). Retourner sans espace ni ponctuation.")
             ) + qualityFields(),
             required = listOf("numero", "dateEdition", "raisonSociale", "_confidence")
@@ -493,6 +508,84 @@ object ExtractionSchemas {
                 "indiceRevision" to str("Nom de l'indice de revision tarifaire si present (ex: 'IPC national', 'indice ICG'). null si pas de clause de revision.")
             ) + qualityFields(),
             required = listOf("reference", "objet", "fournisseur", "montantTtc", "dateDocument", "_confidence")
+        )
+    )
+
+    /**
+     * Schema `evaluate_custom_rules_batch` pour l'evaluation groupee de regles
+     * personnalisees CUSTOM-XX en mode tool_use. Force Claude a renvoyer un
+     * tableau de verdicts bien types — supprime la principale source d'erreur
+     * "Reponse IA non JSON" sur le batch (parse fragile en mode texte libre).
+     *
+     * Chaque entree du tableau correspond a une regle. Les codes references
+     * sont contraints par le prompt (CUSTOM-XX) ; le schema force la presence
+     * du code, du statut, et du flag needsMoreInfo. evidences/questions/detail
+     * restent optionnels pour preserver la flexibilite metier.
+     */
+    /**
+     * Schema `verify_critical_identifiers` pour la self-consistency. Second
+     * appel Claude qui ne lit que les identifiants reglementaires (ICE/RIB/IF)
+     * et permet de comparer avec l'extraction principale. Une divergence
+     * signale une hallucination que le grounding "10 derniers chiffres"
+     * peut laisser passer (chiffre invente au milieu du token).
+     *
+     * Tous les champs sont nullable : si Claude ne trouve pas l'identifiant
+     * dans l'OCR il met null + warning, ce qui est attendu et non-bloquant.
+     * La discordance se mesure par diff valeur, pas par presence/absence.
+     */
+    val IDENTIFIER_VERIFICATION = ToolSchema(
+        name = "verify_critical_identifiers",
+        description = "Re-extrait UNIQUEMENT les identifiants reglementaires (ICE/RIB/IF) du document pour controle croise. Mettre null si l'identifiant n'apparait pas clairement dans le texte OCR. JAMAIS inventer.",
+        inputSchema = obj(
+            properties = mapOf(
+                "ice" to ice("ICE 15 chiffres apres normalisation OCR (O->0, l->1). null si absent / illisible. JAMAIS inventer."),
+                "rib" to rib("RIB 24 chiffres apres normalisation OCR. null si absent / illisible. JAMAIS inventer."),
+                "identifiantFiscal" to str(
+                    "IF 5-15 chiffres. null si absent. JAMAIS inventer.",
+                    pattern = "^\\d{5,15}$"
+                )
+            ) + qualityFields(),
+            required = listOf("_confidence")
+        )
+    )
+
+    val CUSTOM_RULES_BATCH = ToolSchema(
+        name = "evaluate_custom_rules_batch",
+        description = "Retourne un verdict pour chaque regle CUSTOM-XX evaluee contre le dossier. Une entree par regle, code exact.",
+        inputSchema = obj(
+            properties = mapOf(
+                "verdicts" to arrayOf(obj(
+                    properties = mapOf(
+                        "code" to str("Code exact de la regle, ex: CUSTOM-01.", nullable = false),
+                        "statut" to enumField(
+                            listOf("CONFORME", "NON_CONFORME", "AVERTISSEMENT", "NON_APPLICABLE"),
+                            description = "Verdict du controleur. AVERTISSEMENT si doute raisonnable, NON_APPLICABLE si la regle ne s'applique pas aux documents presents.",
+                            nullable = false,
+                            baseType = "string"
+                        ),
+                        "detail" to str("Explication courte (<= 300 caracteres) factuelle, citant les valeurs observees."),
+                        "evidences" to arrayOf(obj(
+                            properties = mapOf(
+                                "role" to enumField(
+                                    listOf("attendu", "trouve", "source", "calcule"),
+                                    nullable = false, baseType = "string"
+                                ),
+                                "champ" to str(nullable = false),
+                                "libelle" to str(),
+                                "documentId" to str(),
+                                "documentType" to str(),
+                                "valeur" to str()
+                            ),
+                            required = listOf("role", "champ")
+                        )),
+                        "documentIds" to arrayOf(str(nullable = false), description = "IDs des documents impliques dans le verdict."),
+                        "needsMoreInfo" to bool("true si la regle requiert des donnees absentes du dossier (-> NON_APPLICABLE).", nullable = false),
+                        "questions" to arrayOf(str(nullable = false), description = "Champs/donnees manquants si needsMoreInfo=true.")
+                    ),
+                    required = listOf("code", "statut", "needsMoreInfo")
+                ), description = "Un verdict par regle, code exact CUSTOM-XX.")
+            ),
+            required = listOf("verdicts")
         )
     )
 

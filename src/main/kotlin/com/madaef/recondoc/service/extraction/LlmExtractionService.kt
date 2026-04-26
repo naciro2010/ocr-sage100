@@ -87,6 +87,12 @@ class LlmExtractionService(
                 .clientConnector(ReactorClientHttpConnector(httpClient))
                 .defaultHeader("x-api-key", apiKey)
                 .defaultHeader("anthropic-version", "2023-06-01")
+                // extended-cache-ttl active la valeur ttl="1h" sur cache_control
+                // (defaut Anthropic = 5min). Permet aux prefixes stables (regles
+                // communes Maroc, descriptions de tools) de survivre aux bursts
+                // d'upload nocturnes et aux pauses entre dossiers d'une meme
+                // session, divisant le cout prompt sur les fenetres > 5 min.
+                .defaultHeader("anthropic-beta", "extended-cache-ttl-2025-04-11")
                 .codecs { it.defaultCodecs().maxInMemorySize(10 * 1024 * 1024) }
                 .build()
         }
@@ -131,7 +137,29 @@ class LlmExtractionService(
         toolName: String,
         inputSchema: Map<String, Any>,
         kind: CallKind
-    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind, null)
+    ): ClaudeToolResponse = executeClaudeToolCall(null, systemPrompt, userContent, toolName, inputSchema, kind, null)
+
+    /**
+     * Variante a deux blocs cacheables pour le system prompt :
+     *  - `stableSystemPrefix` (ex: COMMON_RULES extraction) est cache TTL 1h
+     *    et partage entre TOUS les types de documents.
+     *  - `systemPrompt` (specifique au type, few-shots, schema) est cache 5 min.
+     * Sur un upload de 5 dossiers de types differents, le bloc stable est
+     * paye une seule fois (creation cache) puis lu pour tous les suivants
+     * (~10% du prix tokens). Reduit le cout prompt cross-type de 60-80%
+     * vs un seul bloc cache par type.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolCachedFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeToolCached(
+        stableSystemPrefix: String?,
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind
+    ): ClaudeToolResponse = executeClaudeToolCall(stableSystemPrefix, systemPrompt, userContent, toolName, inputSchema, kind, null)
 
     /**
      * Variante qui force un `max_tokens` specifique (override le setting).
@@ -151,15 +179,53 @@ class LlmExtractionService(
         inputSchema: Map<String, Any>,
         kind: CallKind,
         maxTokensOverride: Int
-    ): ClaudeToolResponse = executeClaudeToolCall(systemPrompt, userContent, toolName, inputSchema, kind, maxTokensOverride)
+    ): ClaudeToolResponse = executeClaudeToolCall(null, systemPrompt, userContent, toolName, inputSchema, kind, maxTokensOverride)
 
-    private fun executeClaudeToolCall(
+    /**
+     * Variante combinant cache prefixe stable + max_tokens override pour le
+     * retry sur reponse tronquee : conserve la cle de cache TTL 1h pour
+     * eviter de payer a nouveau les regles communes a chaque retry.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolCachedMaxTokensFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeToolCachedWithMaxTokens(
+        stableSystemPrefix: String?,
         systemPrompt: String,
         userContent: String,
         toolName: String,
         inputSchema: Map<String, Any>,
         kind: CallKind,
-        maxTokensOverride: Int?
+        maxTokensOverride: Int
+    ): ClaudeToolResponse = executeClaudeToolCall(stableSystemPrefix, systemPrompt, userContent, toolName, inputSchema, kind, maxTokensOverride, null)
+
+    /**
+     * Variante avec override de temperature (utilisee par la self-consistency
+     * sur identifiants critiques). Le second run utilise une temperature > 0
+     * pour briser le determinisme local et exposer les hallucinations stables
+     * que le run a temperature 0 reproduirait a l'identique.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolTemperatureFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeToolWithTemperature(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind,
+        temperatureOverride: Double
+    ): ClaudeToolResponse = executeClaudeToolCall(null, systemPrompt, userContent, toolName, inputSchema, kind, null, temperatureOverride)
+
+    private fun executeClaudeToolCall(
+        stableSystemPrefix: String?,
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind,
+        maxTokensOverride: Int?,
+        temperatureOverride: Double? = null
     ): ClaudeToolResponse {
         val model = modelFor(kind)
         val maxTokens = maxTokensOverride ?: appSettingsService.getAiMaxTokens(kind.key)
@@ -167,14 +233,16 @@ class LlmExtractionService(
             kind, model, toolName, maxTokens, userContent.length)
 
         // Prompt caching : on marque la definition de l'outil comme cache
-        // ephemere (5 min TTL cote Anthropic). Le schema JSON est identique
-        // pour tous les documents d'un meme type (ex: FACTURE), donc chaque
-        // appel suivant lit le prefixe depuis le cache -> ~90% moins cher.
+        // ephemere (TTL 1h via beta header extended-cache-ttl). Le schema JSON
+        // est identique pour tous les documents d'un meme type (ex: FACTURE),
+        // donc chaque appel suivant lit le prefixe depuis le cache -> ~10% du
+        // prix sur le bloc cache. TTL 1h vs 5min permet aux few-shots et
+        // schemas de survivre aux pauses entre dossiers.
         val tool = mapOf(
             "name" to toolName,
             "description" to "Structured extraction tool. Call this exactly once with the extracted data.",
             "input_schema" to inputSchema,
-            "cache_control" to mapOf("type" to "ephemeral")
+            "cache_control" to mapOf("type" to "ephemeral", "ttl" to "1h")
         )
 
         // Temperature 0 par defaut (opt-out via `ai.temperature = -1` si un modele
@@ -182,16 +250,30 @@ class LlmExtractionService(
         // meme extraction. `tool_choice` contraint deja le schema, mais Claude
         // garde des choix libres sur les valeurs (numero facture, montants...) —
         // c'est la que temperature 0 evite les derives d'une run a l'autre.
-        val requestBody = withTemperature(
-            mapOf(
-                "model" to model,
-                "max_tokens" to maxTokens,
-                "system" to cacheableSystem(systemPrompt),
-                "tools" to listOf(tool),
-                "tool_choice" to mapOf("type" to "tool", "name" to toolName),
-                "messages" to listOf(mapOf("role" to "user", "content" to userContent))
-            )
+        // disable_parallel_tool_use = true : on s'attend a UN SEUL appel d'outil
+        // (extraction d'un document) ; Claude n'a aucun benefice a multiplier
+        // les appels et le faire augmente le risque de tronquage et de cle
+        // doublonnee dans la response.
+        val baseBody = mapOf(
+            "model" to model,
+            "max_tokens" to maxTokens,
+            "system" to cacheableSystem(stableSystemPrefix, systemPrompt),
+            "tools" to listOf(tool),
+            "tool_choice" to mapOf(
+                "type" to "tool",
+                "name" to toolName,
+                "disable_parallel_tool_use" to true
+            ),
+            "messages" to listOf(mapOf("role" to "user", "content" to userContent))
         )
+        // temperatureOverride bypass le setting global pour le second run de
+        // self-consistency (cf. IdentifierConsistencyService) sans changer la
+        // configuration applicative.
+        val requestBody = if (temperatureOverride != null && temperatureOverride >= 0.0) {
+            baseBody + ("temperature" to temperatureOverride)
+        } else {
+            withTemperature(baseBody)
+        }
 
         val response = postToAnthropic(requestBody, model, " (tool_use)")
 
@@ -227,7 +309,7 @@ class LlmExtractionService(
             mapOf(
                 "model" to model,
                 "max_tokens" to maxTokens,
-                "system" to cacheableSystem(systemPrompt),
+                "system" to cacheableSystem(null, systemPrompt),
                 "messages" to listOf(mapOf("role" to "user", "content" to userContent))
             )
         )
@@ -266,21 +348,45 @@ class LlmExtractionService(
     }
 
     /**
-     * Enveloppe le prompt systeme en content-block unique pour activer le
-     * prompt caching Anthropic (ephemere, TTL 5 min). Notre prompt systeme
-     * ne change pas entre deux documents du meme type : premiere requete
-     * facture 100% du prix (creation cache), les suivantes ~10% du prix sur
-     * le prefixe cache. Anthropic ignore silencieusement `cache_control` si
-     * le bloc est plus court que son minimum (1024 tokens Sonnet, 2048 Haiku),
-     * donc aucun risque de regression sur les prompts courts.
+     * Enveloppe le prompt systeme en 1 ou 2 content-blocks pour activer le
+     * prompt caching Anthropic.
+     *
+     *  - 1 bloc (mode legacy, stableSystemPrefix=null) : tout le system est
+     *    cache TTL 1h via beta `extended-cache-ttl`. Reduction ~90% du cout
+     *    prompt sur les appels successifs du meme type de document.
+     *
+     *  - 2 blocs (mode cross-type) :
+     *      * stableSystemPrefix : regles communes Maroc + format JSON,
+     *        identiques pour tous les types -> cache 1h, hit cross-type.
+     *      * systemPrompt : portion specifique au type (few-shots, schema,
+     *        regles dediees) -> cache 1h aussi, hit sur meme type.
+     *    Les deux blocs etant marques cache_control, Anthropic stocke deux
+     *    breakpoints distincts ; un upload de 5 dossiers de types varies
+     *    paie le bloc commun UNE fois et le bloc specifique par type.
+     *
+     * Anthropic ignore silencieusement `cache_control` si le bloc est plus
+     * court que son minimum (1024 tokens Sonnet, 2048 Haiku), donc aucun
+     * risque de regression sur les prompts courts.
      */
-    private fun cacheableSystem(systemPrompt: String): List<Map<String, Any>> = listOf(
-        mapOf(
+    private fun cacheableSystem(
+        stableSystemPrefix: String?,
+        systemPrompt: String
+    ): List<Map<String, Any>> {
+        val blocks = mutableListOf<Map<String, Any>>()
+        if (!stableSystemPrefix.isNullOrBlank()) {
+            blocks += mapOf(
+                "type" to "text",
+                "text" to stableSystemPrefix,
+                "cache_control" to mapOf("type" to "ephemeral", "ttl" to "1h")
+            )
+        }
+        blocks += mapOf(
             "type" to "text",
             "text" to systemPrompt,
-            "cache_control" to mapOf("type" to "ephemeral")
+            "cache_control" to mapOf("type" to "ephemeral", "ttl" to "1h")
         )
-    )
+        return blocks
+    }
 
     /**
      * Envoi un payload a /v1/messages et recupere la reponse parsee. Factorise
@@ -388,11 +494,40 @@ class LlmExtractionService(
     }
 
     @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolCachedFallback(
+        stableSystemPrefix: String?, systemPrompt: String, userContent: String,
+        toolName: String, inputSchema: Map<String, Any>, kind: CallKind, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t)
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
     private fun claudeToolMaxTokensFallback(
         systemPrompt: String, userContent: String, toolName: String,
         inputSchema: Map<String, Any>, kind: CallKind, maxTokensOverride: Int, t: Throwable
     ): ClaudeToolResponse {
         fallbackMessage(t) // always throws
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolCachedMaxTokensFallback(
+        stableSystemPrefix: String?, systemPrompt: String, userContent: String,
+        toolName: String, inputSchema: Map<String, Any>, kind: CallKind,
+        maxTokensOverride: Int, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t)
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolTemperatureFallback(
+        systemPrompt: String, userContent: String, toolName: String,
+        inputSchema: Map<String, Any>, kind: CallKind,
+        temperatureOverride: Double, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t)
         throw IllegalStateException("unreachable")
     }
 

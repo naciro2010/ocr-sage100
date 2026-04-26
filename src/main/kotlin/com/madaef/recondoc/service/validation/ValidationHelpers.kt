@@ -2,6 +2,7 @@ package com.madaef.recondoc.service.validation
 
 import com.madaef.recondoc.entity.dossier.Document
 import com.madaef.recondoc.entity.dossier.DossierPaiement
+import com.madaef.recondoc.entity.dossier.Facture
 import com.madaef.recondoc.entity.dossier.ResultatValidation
 import com.madaef.recondoc.entity.dossier.StatutCheck
 import com.madaef.recondoc.entity.dossier.TypeDocument
@@ -38,10 +39,30 @@ private val FALSY = setOf("false", "non", "non conforme", "n", "no")
 fun normalizeRib(rib: String?): String? =
     rib?.replace(WHITESPACE_RE, "")?.takeIf { it.isNotBlank() }
 
-/** Normalise un identifiant B2B (ICE/IF/RC/CNSS) : supprime espaces + zeros en tete. */
+/** Normalise un identifiant B2B (IF/RC/CNSS) : supprime espaces + zeros en tete. */
 fun normalizeId(value: String?): String? {
     if (value.isNullOrBlank()) return null
     return value.replace(WHITESPACE_RE, "").trimStart('0').ifEmpty { "0" }
+}
+
+/**
+ * Normalise un ICE en preservant les zeros initiaux significatifs.
+ * Selon le decret 2-11-13 et l'arrete OMPIC, l'ICE est strictement de
+ * 15 chiffres : `001509176000008` n'est PAS equivalent a `1509176000008`.
+ * `normalizeId` (qui retire les zeros de tete) ne doit JAMAIS etre
+ * utilisee pour comparer deux ICE — c'etait un bug qui faisait passer
+ * pour identiques deux ICE structurellement differents.
+ */
+fun normalizeIce(value: String?): String? {
+    if (value.isNullOrBlank()) return null
+    return value.replace(WHITESPACE_RE, "").ifEmpty { null }
+}
+
+/** ICE valide = exactement 15 chiffres apres normalisation espaces/ponctuation. */
+private val ICE_FORMAT_RE = Regex("^[0-9]{15}$")
+fun isIceFormatValid(ice: String?): Boolean {
+    val normalized = normalizeIce(ice) ?: return false
+    return ICE_FORMAT_RE.matches(normalized)
 }
 
 /** Normalise un "code" (QR code, reference courte) pour comparaison souple. */
@@ -153,6 +174,69 @@ fun normalizeLabel(s: String?): String {
         .trim()
 }
 
+/**
+ * Detecte si deux noms de personnes designent vraisemblablement la meme
+ * personne, en tolerant les variations courantes :
+ *   - "Mohamed Alami" vs "M. Alami" (initiale + nom de famille)
+ *   - "Mohamed Alami, DAF" vs "M. ALAMI - Directeur" (titre / fonction)
+ *   - "ALAMI Mohamed" vs "Mohamed Alami" (ordre inverse)
+ *
+ * Heuristique :
+ *   1. Normalisation (casse / accents / ponctuation, cf. normalizeLabel).
+ *   2. Match du nom de famille (dernier token significatif >= 3 lettres).
+ *   3. Si nom de famille match, verifier compatibilite des prenoms /
+ *      initiales (chaque prenom de la version courte doit avoir un
+ *      equivalent dans la version longue : meme mot OU initiale).
+ *   4. Sinon, tomber sur Jaccard classique (seuil 0.6) pour les noms tres
+ *      differents qui partageraient encore beaucoup de tokens.
+ *
+ * Conservatif : prefere flagger un faux positif (alerter sur deux personnes
+ * vraiment distinctes) plutot qu'un faux negatif (laisser passer une meme
+ * personne sur les 2 roles ordonnateur/comptable, vice de procedure majeur).
+ */
+fun personNamesLikelySame(a: String?, b: String?): Boolean {
+    val ta = normalizeLabel(a).split(" ").filter { it.isNotBlank() }
+    val tb = normalizeLabel(b).split(" ").filter { it.isNotBlank() }
+    if (ta.isEmpty() || tb.isEmpty()) return false
+    // Cas trivial : meme suite de tokens (ordre identique ou non).
+    if (ta.toSet() == tb.toSet()) return true
+    // Heuristique nom de famille : on tente DEUX positions (dernier token
+    // ET premier token >= 3 lettres) parce que les noms marocains sont
+    // ecrits soit "Mohamed Alami" soit "ALAMI Mohamed".
+    val candidatesA = setOfNotNull(
+        ta.last().takeIf { it.length >= 3 },
+        ta.first().takeIf { it.length >= 3 }
+    )
+    val candidatesB = setOfNotNull(
+        tb.last().takeIf { it.length >= 3 },
+        tb.first().takeIf { it.length >= 3 }
+    )
+    val familyMatches = candidatesA.intersect(candidatesB)
+    if (familyMatches.isNotEmpty()) {
+        val family = familyMatches.first()
+        // Verifier compatibilite des prenoms / initiales (pas deux personnes
+        // distinctes qui partageraient le meme nom de famille).
+        val (short, long) = if (ta.size <= tb.size) ta to tb else tb to ta
+        val firstShort = short.filter { it != family }
+        val firstLong = long.filter { it != family }
+        if (firstShort.isEmpty()) return true
+        if (firstLong.isEmpty()) return true
+        return firstShort.all { s ->
+            firstLong.any { l ->
+                s == l
+                    || (s.length == 1 && l.startsWith(s))
+                    || (l.length == 1 && s.startsWith(l))
+            }
+        }
+    }
+    // Fallback Jaccard sur tokens significatifs (seuil 0.6).
+    val sa = ta.filter { it.length > 1 }.toSet()
+    val sb = tb.filter { it.length > 1 }.toSet()
+    if (sa.isEmpty() || sb.isEmpty()) return false
+    val ratio = sa.intersect(sb).size.toDouble() / sa.union(sb).size.toDouble()
+    return ratio >= 0.6
+}
+
 /** Score Jaccard sur tokens normalises (0.0 = disjoint, 1.0 = identique). */
 fun labelSimilarity(a: String?, b: String?): Double {
     val na = normalizeLabel(a); val nb = normalizeLabel(b)
@@ -242,6 +326,28 @@ fun mergeStatut(systemStatut: StatutCheck, checklistValide: Boolean?): StatutChe
     return if (systemStatut == StatutCheck.NON_CONFORME || ckStatut == StatutCheck.NON_CONFORME) StatutCheck.NON_CONFORME
     else if (systemStatut == StatutCheck.AVERTISSEMENT || ckStatut == StatutCheck.AVERTISSEMENT) StatutCheck.AVERTISSEMENT
     else StatutCheck.CONFORME
+}
+
+private val AVOIR_NUMERO_RE = Regex("\\b(avoir|annul|annulation|rectif|rectificatif|av-|cn-|credit\\s*note|note\\s*de\\s*credit)\\b", RegexOption.IGNORE_CASE)
+
+/**
+ * Detecte les factures qui sont en realite des avoirs / annulations /
+ * compensations : montant TTC negatif, libelle de numero contenant
+ * AVOIR / ANNUL / RECTIF / AV- / CN-, ou type de document explicitement
+ * marque comme tel dans `donneesExtraites`.
+ *
+ * Cette detection est utilisee par R21 pour ne pas confondre une
+ * compensation legitime (facture + avoir du meme montant) avec un
+ * doublon de facturation.
+ */
+fun isFactureAvoir(f: Facture): Boolean {
+    val ttc = f.montantTtc
+    if (ttc != null && ttc.signum() < 0) return true
+    val numero = f.numeroFacture
+    if (!numero.isNullOrBlank() && AVOIR_NUMERO_RE.containsMatchIn(numero)) return true
+    val typeFromJson = f.document.donneesExtraites?.get("typeFacture")?.toString()
+    if (!typeFromJson.isNullOrBlank() && AVOIR_NUMERO_RE.containsMatchIn(typeFromJson)) return true
+    return false
 }
 
 /** Parse la configuration CSV `app.required-documents` en liste de [TypeDocument]. */

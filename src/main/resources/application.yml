@@ -55,7 +55,17 @@ claude:
 
 # Application settings (dossier de paiement)
 app:
+  # tolerance-montant : ecart absolu (en MAD) tolere lors de la comparaison
+  # de deux totaux issus de documents distincts (rounding sur centimes).
+  # 5 centimes par defaut, suffisant pour absorber un arrondi TVA.
   tolerance-montant: ${TOLERANCE_MONTANT:0.05}
+  # tolerance-montant-pct : tolerance relative (%) appliquee aux controles
+  # proportionnels (R16b/R01g : qte * pu vs total ligne). Hybride avec
+  # tolerance-montant : limite = max(absolu, base * pct).
+  # 0.5 % par defaut. Avant cette separation, les controles relatifs
+  # reutilisaient `tolerance-montant=0.05` comme pourcentage, soit 5%,
+  # ce qui acceptait des ecarts de ligne tres importants.
+  tolerance-montant-pct: ${TOLERANCE_MONTANT_PCT:0.005}
 
 # OCR configuration
 ocr:

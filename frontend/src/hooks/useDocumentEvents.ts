@@ -42,7 +42,21 @@ export function useDocumentEvents(dossierId: string | undefined, onUpdate: () =>
 
   const handleProgress = useCallback((e: MessageEvent) => {
     try {
-      const data: DocProgress = JSON.parse(e.data)
+      const raw = JSON.parse(e.data) as unknown
+      // Guard runtime : un payload SSE corrompu ne doit pas casser l'app ;
+      // on log et on ignore. Avant, le cast direct `as DocProgress` faisait
+      // remonter `data.documentId` undefined silencieusement et marquait des
+      // documents random.
+      if (
+        !raw || typeof raw !== 'object'
+        || typeof (raw as Record<string, unknown>).documentId !== 'string'
+        || typeof (raw as Record<string, unknown>).statut !== 'string'
+        || typeof (raw as Record<string, unknown>).step !== 'string'
+      ) {
+        console.warn('SSE invalid payload, ignored', raw)
+        return
+      }
+      const data = raw as DocProgress
       sseConnected.current = true
       setProgress(prev => {
         if (prev[data.documentId]?.statut === data.statut && prev[data.documentId]?.step === data.step) return prev

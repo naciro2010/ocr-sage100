@@ -32,6 +32,16 @@ class Facture(
     @Column(name = "taux_tva", precision = 5, scale = 2) var tauxTva: BigDecimal? = null,
     @Column(name = "montant_ttc", precision = 15, scale = 2) var montantTtc: BigDecimal? = null,
 
+    // Devise officielle de la facture (code ISO 4217 typique : MAD, EUR, USD).
+    // CGNC + Loi 9-88 imposent MAD pour les transactions marocaines. Sert a R27.
+    @Column(length = 8) var devise: String? = null,
+
+    // Date a laquelle MADAEF a recu la facture (cachet d'arrivee), distincte
+    // de dateFacture (date d'emission par le fournisseur). Sert a R25 :
+    // delai legal de paiement marche public = 60 j a compter de cette date
+    // (decret 2-22-431 art. 159 + circulaire DGFiP).
+    @Column(name = "date_reception_facture") var dateReceptionFacture: LocalDate? = null,
+
     @Column(name = "reference_contrat") var referenceContrat: String? = null,
     var periode: String? = null,
 

@@ -88,7 +88,7 @@ PDF/Image upload
 - RIB bancaire (24 digits)
 - Document types: FACTURE, BON_COMMANDE, CONTRAT_AVENANT, ORDRE_PAIEMENT, CHECKLIST_AUTOCONTROLE, TABLEAU_CONTROLE, PV_RECEPTION, ATTESTATION_FISCALE
 - Dossier statuses: BROUILLON → EN_VERIFICATION → VALIDE / REJETE
-- Montant tolerance for cross-document validation: configurable via `app.tolerance-montant` (default 5%)
+- Montant tolerance pour la comparaison cross-document : `app.tolerance-montant` = ecart absolu en MAD (defaut 0.05 = 5 centimes, pour l'arrondi TVA) et `app.tolerance-montant-pct` = ecart relatif pour les controles proportionnels lignes (R16b/R01g, defaut 0.005 = 0.5%). Hybride : limite = max(abs, base * pct).
 
 ## Key Environment Variables
 - `CLAUDE_API_KEY`: Required for AI extraction (classification + extraction structuree)
@@ -148,22 +148,59 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 4. **Re-lancement granulaire** : relancer un seul controle individuellement
 5. **Cascade** : si une donnee change et touche plusieurs controles, les relancer TOUS
 
-### Regles de validation (22 regles)
-- R01-R03: Concordance montants facture vs BC (TTC, HT, TVA, taux)
-- R04-R05: Montant OP vs facture (avec/sans retenues)
-- R06: Verification arithmetique retenues (base x taux = montant)
-- R07-R08: References facture/BC citees dans OP
-- R09-R11: Coherence ICE, IF, RIB entre documents
-- R12: Checklist completude (10 points mappes aux documents source)
-- R13: Tableau controle financier completude
-- R14: Coherence nom fournisseur entre documents
-- R15: Grille tarifaire x duree = HT facture (CONTRACTUEL uniquement)
-- R16: Verification arithmetique HT + TVA = TTC
-- R17a-R17b: Coherence temporelle (BC/Contrat → Facture → OP)
-- R18: Validite attestation fiscale (fenetre 6 mois)
-- R20: Completude dossier (documents requis presents)
-- R21: Anti-doublon facture (meme numero OU meme fournisseur+montant+date +/-3j sur 12 mois glissants)
-- R22: Paiement posterieur a la reception (date OP >= date PV_RECEPTION ; CONTRACTUEL uniquement)
+### Regles de validation (regroupees par etape du parcours operateur)
+
+> Les regles sont organisees par **processus mental du controleur**, pas
+> par code numerique. Voir `RuleCatalog.GROUPE_ORDER` (source de verite
+> consommee par le frontend Settings / RulesHealth).
+
+**1. Completude documentaire**
+- R20: Completude dossier (toutes les pieces obligatoires presentes)
+- R24: Completude lignes facture (au-dela d'un seuil TTC, lignes detaillees attendues)
+
+**2. Identite fournisseur (identifiants B2B)**
+- R09 / R09b: Coherence ICE entre documents + format 15 chiffres exacts (decret 2-11-13 OMPIC)
+- R10: Coherence IF entre documents
+- R11: Coherence RIB facture vs OP
+- R14 / R14b: Coherence nom fournisseur + attestation fiscale = fournisseur facture
+
+**3. Concordance montants facture vs BC/contrat**
+- R01-R03 + R03b: Concordance TTC / HT / TVA / taux entre facture et BC
+- R01g: Matching ligne par ligne facture ↔ BC ou grille tarifaire
+- R15: Grille tarifaire × duree = HT facture (CONTRACTUEL uniquement)
+- R16 / R16b / R16c: Verification arithmetique (HT+TVA=TTC, lignes, somme lignes = HT)
+
+**4. Paiement & arithmetique (taux legaux MA)**
+- R04 / R05: Montant OP = TTC (avec ou sans retenues)
+- R06 / R06b: Calcul des retenues + taux legal CGI (TVA marches=75% art.117, IR honoraires=10% art.73-II-G)
+- R26: Plafond paiement especes 5 000 MAD (CGI art. 193-ter)
+- R27: Devise MAD obligatoire (CGNC + Loi 9-88)
+- R30: Taux TVA dans la liste legale {0, 7, 10, 14, 20} (CGI 2026 art. 87-100)
+
+**5. References croisees**
+- R07 / R08: Numero facture + reference BC/contrat cites dans l'OP
+
+**6. Chronologie & delais legaux**
+- R17a / R17b: BC/Contrat ≤ Facture ≤ OP — NON_CONFORME si paiement antidate
+- R22: Paiement posterieur a la reception (date OP ≥ date PV_RECEPTION)
+- R18: Validite attestation fiscale (3 mois marche public, 6 mois B2B — Circulaire DGI 717), borne inclusive
+- R25: Delai paiement marche public ≤ 60 jours (decret 2-22-431 art. 159)
+
+**7. Conformite documentaire (autocontroles, signatures, QR)**
+- R12 (+ R12.01-R12.10): Checklist autocontrole CCF-EN-04 (10 points mappes aux documents source)
+- R13: Tableau de controle financier complet
+- R19: QR code attestation fiscale (origine DGI attestation.tax.gov.ma)
+- R23: Regularite fiscale (champ estEnRegle de l'attestation)
+- R31: Separation des pouvoirs OP — ordonnateur ≠ comptable (decret 2-22-431 art. 21)
+
+**8. Anti-fraude**
+- R21: Anti-doublon facture (12 mois glissants ; distingue avoirs/compensations des vrais doublons)
+
+**9-12. Couche Engagement (transverse + specifique par type)**
+- R-E01..05 communes (plafond, fournisseur canonique, statut actif, reference, rattachement)
+- R-M01..07 marche public (delai execution, retenue garantie, penalites, AO, revision prix, decomptes, caution)
+- R-B01..04 bon de commande (validite, anti-fractionnement decret 2-22-431 art.88, livraison unique, pas de garantie)
+- R-C01..05 contrat (periodicite, duree, nombre paiements, revision tarifaire, montant echeancier)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL
@@ -182,7 +219,7 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 
 ## Sub-agents spécialisés (persistés dans `.claude/agents/`)
 
-Quatre sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améliorent en continu pour : **meilleur résultat, moindre coût, meilleure performance**. À invoquer avec l'outil `Agent` en passant `subagent_type: "<name>"`.
+Sept sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améliorent en continu pour : **fiabilité 100%, conformité réglementaire MA, meilleure UX, meilleure qualité de code, moindre coût, meilleure performance**. À invoquer avec l'outil `Agent` en passant `subagent_type: "<name>"`.
 
 | Sub-agent | Mission | Quand l'invoquer |
 |-----------|---------|------------------|
@@ -190,13 +227,41 @@ Quatre sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améli
 | `extraction-auditor` | Vérifier que l'extraction est complète (champs obligatoires, confidence validée, cohérence arithmétique). Score qualité composite + re-extraction ciblée. | "Champs manquants", "score qualité", "détecter extractions dégradées", "re-extraction auto" |
 | `controls-optimizer` | Optimiser le moteur de règles (R01-R20 + CUSTOM batch). Mémoïsation, pré-calcul features, profiling par règle, prompt caching batch. | "Règles lentes", "CUSTOM-XX cher", "instrumenter par règle", "memoïsation montants" |
 | `controls-auditor` | Auditer la justesse des contrôles (faux positifs/négatifs, couverture métier, drift). Proposer règles manquantes, jeu de dossiers golden. | "Auditer justesse contrôles", "trop de faux positifs", "règle manquante", "couverture métier" |
+| `ux-finance-designer` | Concevoir / refondre l'UI/UX en s'inspirant des standards Odoo, Sage, SAP Fiori, Pennylane, Qonto, Spendesk. Drilldowns, matrices de contrôles, wizards, accessibilité WCAG. | "Améliorer UX dossier", "design comme Odoo", "wizard validation", "table de contrôles plus lisible", "drilldown extraction", "accessibilité" |
+| `morocco-compliance-expert` | Garantir la conformité réglementaire MA (DGI, CGI, BAM, OMPIC, CNDP, Code Marchés Publics, normes MADAEF/CDG). Source légale citée pour chaque règle. | "TVA Maroc", "ICE/IF/RC/RIB", "attestation fiscale 6 mois", "Loi 69-21 e-facture", "Loi 09-08 RGPD", "Décret 2-22-431 marchés publics" |
+| `frontend-quality-guardian` | Qualité technique frontend (React 19 + TS + Tailwind + Vite) : bundle, type safety, performance, accessibilité, ErrorBoundary, déduplication API, tests. | "Bundle trop gros", "frontend lent", "types any", "ErrorBoundary manquant", "lazy loading routes", "memoïsation React" |
+
+### Carte de coordination entre agents
+
+```
+                          morocco-compliance-expert
+                          (source légale, seuils MA)
+                                     |
+                                     v
+   extraction-optimizer ------> extraction-auditor ------> controls-auditor ------> controls-optimizer
+   (OCR + prompts Claude)       (qualité champs)           (justesse verdicts)      (perf moteur)
+            |                          |                          |                       |
+            +--------------------------+--------------------------+-----------------------+
+                                                |
+                                                v
+                                       ux-finance-designer
+                                       (visualisation, drilldown, microcopy)
+                                                |
+                                                v
+                                  frontend-quality-guardian
+                                  (perf bundle, a11y, types, ErrorBoundary)
+```
+
+Règle d'or : un agent ne sort jamais de son périmètre. S'il identifie un besoin hors scope, il ouvre un ticket pour l'agent concerné dans la description du PR.
 
 ### Règles d'intervention des sub-agents
 - **Frontières strictes**: chaque agent a un périmètre de fichiers explicité dans son fichier `.md`. Il ne sort pas de son scope.
 - **Un changement ROI par PR**: pas de refonte, pas d'optimisation cumulée. Une PR = un gain mesurable.
+- **Gates de précision bloquants**: chaque agent décrit dans son `.md` les preuves obligatoires à joindre au PR (tests golden verts, diff de verdict, mesure perf, source légale, score Lighthouse, etc.). PR sans gate satisfait = pas de merge.
 - **Respect du git workflow**: feature branch + PR + CI verte. Jamais de commit direct sur `main`.
 - **Pas de régression**: les tests existants doivent continuer à passer. Ajout de tests obligatoire pour tout nouveau comportement.
-- **Mesure avant/après**: tout changement de perf/coût doit être mesuré et documenté dans la description de PR.
+- **Mesure avant/après**: tout changement de perf/coût/qualité doit être mesuré et documenté dans la description de PR.
+- **Conformité MA d'abord**: toute règle, seuil, format ou champ extrait à dimension réglementaire doit être validé par `morocco-compliance-expert` avec source légale citée.
 - **Pas de commentaires AI**, texte humain, logs en français, conventions Kotlin/TS idiomatiques.
 
 ### Plan d'amélioration continue (vision)

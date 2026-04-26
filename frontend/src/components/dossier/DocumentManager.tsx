@@ -7,8 +7,56 @@ import DocumentPipeline from '../DocumentPipeline'
 import ExtractedDataView from './ExtractedDataView'
 import type { DocProgress } from '../../hooks/useDocumentEvents'
 import {
-  FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink, ChevronDown, ChevronUp
+  FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink, ChevronDown, ChevronUp,
+  AlertTriangle, ShieldAlert, ShieldCheck
 } from 'lucide-react'
+
+/**
+ * Bandeau qualite d'extraction pour le document selectionne.
+ * Rend visible (au lieu d'enfouir dans la sidebar) :
+ *   - le score de confidence Claude (vert >= 80%, ambre 50-80%, rouge < 50%)
+ *   - le score OCR si disponible
+ *   - la liste des warnings d'extraction (champs hors schema, valeurs manquantes)
+ * Sans ce bandeau, l'operateur lit les donnees sans signal sur leur fiabilite.
+ */
+function ExtractionQualityBanner({ doc }: { doc: DocumentInfo }) {
+  const conf = doc.extractionConfidence
+  const ocr = doc.ocrConfidence
+  const warnings = doc.extractionWarnings ?? []
+  const tier = conf >= 0.8 ? 'high' : conf >= 0.5 ? 'medium' : 'low'
+  const palette = tier === 'high'
+    ? { fg: 'var(--success)', bg: '#ecfdf5', border: '#a7f3d0', icon: ShieldCheck, label: 'Confiance elevee' }
+    : tier === 'medium'
+    ? { fg: 'var(--warning)', bg: '#fffbeb', border: '#fde68a', icon: AlertTriangle, label: 'Confiance moyenne — relecture conseillee' }
+    : { fg: 'var(--danger)', bg: '#fef2f2', border: '#fecaca', icon: ShieldAlert, label: 'Confiance faible — verifier valeur par valeur' }
+  const Icon = palette.icon
+  return (
+    <div className="alert mb-2" role="status" aria-live="polite" style={{
+      background: palette.bg,
+      border: `1px solid ${palette.border}`,
+      color: palette.fg,
+      padding: '8px 12px',
+      borderRadius: 6,
+      fontSize: 12,
+      display: 'flex',
+      flexDirection: 'column',
+      gap: 4,
+    }}>
+      <div style={{ display: 'flex', alignItems: 'center', gap: 6, fontWeight: 600 }}>
+        <Icon size={14} aria-hidden="true" />
+        <span>{palette.label}</span>
+        <span style={{ marginLeft: 'auto', fontWeight: 700 }}>{Math.round(conf * 100)}%</span>
+        {ocr > 0 && <span style={{ color: 'var(--ink-40)', fontWeight: 400 }}>· OCR {Math.round(ocr * 100)}%</span>}
+      </div>
+      {warnings.length > 0 && (
+        <ul style={{ margin: 0, paddingLeft: 18, color: palette.fg }}>
+          {warnings.slice(0, 5).map((w, i) => <li key={i} style={{ fontSize: 11 }}>{w}</li>)}
+          {warnings.length > 5 && <li style={{ fontSize: 11, fontStyle: 'italic' }}>+ {warnings.length - 5} autre(s)</li>}
+        </ul>
+      )}
+    </div>
+  )
+}
 
 interface Props {
   dossier: DossierDetail
@@ -374,6 +422,9 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             {showExtracted && (
               <div style={{ padding: '0 18px 18px' }}>
                 {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
+                {selectedDoc.statutExtraction === 'EXTRAIT' && (
+                  <ExtractionQualityBanner doc={selectedDoc} />
+                )}
                 <ExtractedDataView data={getDataForType(selectedDoc.typeDocument, selectedDoc.id) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
               </div>
             )}

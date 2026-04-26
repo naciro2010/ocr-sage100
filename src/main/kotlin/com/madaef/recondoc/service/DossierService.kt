@@ -68,6 +68,7 @@ class DossierService(
     private val extractionQualityService: ExtractionQualityService,
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val groundingValidator: GroundingValidator,
+    private val identifierConsistencyService: com.madaef.recondoc.service.extraction.IdentifierConsistencyService,
     private val pseudonymizationService: com.madaef.recondoc.service.extraction.PseudonymizationService,
     private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
@@ -795,6 +796,14 @@ class DossierService(
             if (llmService.isAvailable) {
                 val prompt = getPromptForType(detectedType)
                 if (prompt != null) {
+                    // Split system en 2 blocs cacheables : stableCommonPrefix
+                    // partage entre tous les types (cache TTL 1h, hit cross-type)
+                    // + specificPrompt (few-shots + schema dedies). Si specificFor
+                    // retourne null pour un type rare, on retombe sur l'envoi en
+                    // 1 bloc (stableCommonPrefix=null) sans regression.
+                    val specificPrompt: String = ExtractionPrompts.specificFor(detectedType) ?: prompt
+                    val stableCommonPrefix: String? = ExtractionPrompts.STABLE_COMMON_PREFIX
+                        .takeIf { specificPrompt !== prompt }
                     // Pseudonymisation des PII avant tout appel Claude (souverainete
                     // Maroc / Loi 09-08). Les emails, telephones MA, RIB 24 chiffres
                     // et noms avec civilite sont remplaces par des tokens opaques.
@@ -815,8 +824,9 @@ class DossierService(
                     var toolUseFallbackNeeded = false
                     if (schema != null) {
                         try {
-                            val toolResp = llmService.callClaudeTool(
-                                prompt, ocrContext, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                            val toolResp = llmService.callClaudeToolCached(
+                                stableCommonPrefix, specificPrompt, ocrContext,
+                                schema.name, schema.inputSchema, CallKind.EXTRACTION
                             )
                             if (toolResp.stopReason == "max_tokens") truncatedByMaxTokens = true
                             data = toolResp.toolInput
@@ -834,8 +844,9 @@ class DossierService(
                                 emitProgress(doc, "extract", "active",
                                     "Re-extraction (budget tokens etendu a ${expandedMaxTokens})...")
                                 try {
-                                    val expandedResp = llmService.callClaudeToolWithMaxTokens(
-                                        prompt, ocrContext, schema.name, schema.inputSchema,
+                                    val expandedResp = llmService.callClaudeToolCachedWithMaxTokens(
+                                        stableCommonPrefix, specificPrompt, ocrContext,
+                                        schema.name, schema.inputSchema,
                                         CallKind.EXTRACTION, expandedMaxTokens
                                     )
                                     retriesLeft -= 1
@@ -893,8 +904,9 @@ class DossierService(
                             var retryStopReason: String? = null
                             if (schema != null) {
                                 try {
-                                    val retryTool = llmService.callClaudeTool(
-                                        prompt, retryUser, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                                    val retryTool = llmService.callClaudeToolCached(
+                                        stableCommonPrefix, specificPrompt, retryUser,
+                                        schema.name, schema.inputSchema, CallKind.EXTRACTION
                                     )
                                     retryData = retryTool.toolInput
                                     retryStopReason = retryTool.stopReason
@@ -927,8 +939,20 @@ class DossierService(
                         // absents du texte -> faux critical violations.
                         @Suppress("UNCHECKED_CAST")
                         val restoredData = pseudonymizationService.detokenize(data, piiMapping) as Map<String, Any?>
-                        val (finalData, criticalViolations) = validateAndGround(doc, detectedType, restoredData, rawText)
-                        criticalSchemaFailure = criticalViolations
+                        val (groundedData, criticalViolations) = validateAndGround(doc, detectedType, restoredData, rawText)
+                        // Self-consistency sur identifiants reglementaires (ICE/RIB/IF) :
+                        // 2e appel Claude a temperature differente. Toute divergence sur
+                        // un identifiant -> strip + warning + flag de revue humaine. Filet
+                        // anti-hallucination residuelle (CLAUDE.md fiabilite 100%). Inerte
+                        // si ai.identifier_consistency.enabled = false ou si le type n'a
+                        // pas d'identifiants critiques.
+                        val consistency = identifierConsistencyService.verify(detectedType, groundedData, rawText)
+                        val finalData = consistency.cleanedData
+                        criticalSchemaFailure = if (consistency.hasCriticalDiscrepancy) {
+                            criticalViolations + consistency.discrepancies.map { d ->
+                                FieldViolation(d.field, d.firstRun, d.reason)
+                            }
+                        } else criticalViolations
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
@@ -1159,10 +1183,13 @@ class DossierService(
             // le mode texte libre est la principale source de hallucination residuelle
             // (JSON mal forme accepte par parseLlmResponse au regex pres).
             val schema = if (toolUseEnabled) ExtractionSchemas.forType(type) else null
+            val specificBase = ExtractionPrompts.specificFor(type) ?: basePrompt
+            val stableBase = ExtractionPrompts.STABLE_COMMON_PREFIX.takeIf { specificBase !== basePrompt }
             val retryDataMasked: Map<String, Any?> = if (schema != null) {
                 try {
-                    llmService.callClaudeTool(
-                        basePrompt, retryUser, schema.name, schema.inputSchema, CallKind.EXTRACTION
+                    llmService.callClaudeToolCached(
+                        stableBase, specificBase, retryUser,
+                        schema.name, schema.inputSchema, CallKind.EXTRACTION
                     ).toolInput
                 } catch (e: Exception) {
                     log.warn("Reinforced retry tool_use failed for {} ({}), falling back to text: {}",
@@ -1270,6 +1297,8 @@ class DossierService(
         facture.montantTva = toBigDecimal(data["montantTVA"])
         facture.tauxTva = toBigDecimal(data["tauxTVA"])
         facture.montantTtc = toBigDecimal(data["montantTTC"])
+        facture.devise = (data["devise"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        facture.dateReceptionFacture = parseDate(data["dateReceptionFacture"] as? String)
         facture.referenceContrat = data["referenceContrat"] as? String
         facture.periode = data["periode"] as? String
 
@@ -1364,6 +1393,10 @@ class DossierService(
         op.beneficiaire = data["beneficiaire"] as? String
         op.rib = data["rib"] as? String
         op.banque = data["banque"] as? String
+        op.modePaiement = (data["modePaiement"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        op.devise = (data["devise"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
+        op.signataireOrdonnateur = (data["signataireOrdonnateur"] as? String)?.trim()?.takeIf { it.isNotBlank() }
+        op.signataireComptable = (data["signataireComptable"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         op.montantOperation = toBigDecimal(data["montantOperation"])
         op.referenceFacture = data["referenceFacture"] as? String
         op.referenceBcOuContrat = data["referenceBcOuContrat"] as? String
@@ -1473,6 +1506,7 @@ class DossierService(
         arf.rc = data["rc"] as? String
         arf.estEnRegle = data["estEnRegle"] as? Boolean
         arf.dateValidite = parseDate(data["dateValidite"] as? String)
+        arf.typeAttestation = (data["typeAttestation"] as? String)?.trim()?.uppercase()?.takeIf { it.isNotBlank() }
         arf.codeVerification = (data["codeVerification"] as? String)?.trim()?.takeIf { it.isNotBlank() }
         arf.raisonSociale?.takeIf { it.isNotBlank() }?.let { raw ->
             val match = fournisseurMatchingService.findOrCreateCanonical(

@@ -51,16 +51,32 @@ export default memo(function DossierHeader({
           <button className="btn btn-secondary" onClick={onToggleCompare}>
             <Columns2 size={15} /> {showCompare ? 'Masquer' : 'Comparer'}
           </button>
-          <button className="btn btn-primary" onClick={onValidate} disabled={validating}>
-            {validating ? <><Loader2 size={15} className="spin" /> Verification...</> : <><ShieldCheck size={15} /> Verifier</>}
+          <button
+            className="btn btn-primary"
+            onClick={onValidate}
+            disabled={validating}
+            title="Re-execute les regles R01-R30 + CUSTOM-XX. Ne change pas le statut du dossier."
+          >
+            {validating ? <><Loader2 size={15} className="spin" /> Re-execution...</> : <><ShieldCheck size={15} /> Relancer les controles</>}
           </button>
           {dossier.statut !== 'VALIDE' && (
-            <button className="btn btn-success" onClick={onValider} disabled={actionLoading}
-              title={nbNonConformes > 0 ? `${nbNonConformes} controle(s) non conforme(s)` : ''}
-              style={nbNonConformes > 0 ? { position: 'relative' } : undefined}>
+            // Validation bloquee tant qu'il reste des verdicts NON_CONFORME :
+            // l'operateur doit d'abord corriger le controle (panneau Corriger
+            // dans ControlSplitView) ou rejeter explicitement le dossier.
+            // Garde-fou fiabilite 100 % : un dossier ne peut etre VALIDE sans
+            // que tous les bloquants aient ete leves ou justifies.
+            <button
+              className="btn btn-success"
+              onClick={onValider}
+              disabled={actionLoading || nbNonConformes > 0}
+              title={nbNonConformes > 0
+                ? `Validation bloquee : ${nbNonConformes} controle(s) NON_CONFORME a lever ou rejeter`
+                : 'Marquer le dossier comme VALIDE'}
+              aria-disabled={nbNonConformes > 0}
+              style={nbNonConformes > 0 ? { position: 'relative', opacity: 0.55, cursor: 'not-allowed' } : undefined}>
               {actionLoading ? <Loader2 size={15} className="spin" /> : <CheckCircle size={15} />} Valider
               {nbNonConformes > 0 && (
-                <span style={{
+                <span aria-label={`${nbNonConformes} bloquant${nbNonConformes > 1 ? 's' : ''}`} style={{
                   position: 'absolute', top: -6, right: -6, background: '#dc2626', color: '#fff',
                   borderRadius: '50%', width: 18, height: 18, fontSize: 10, fontWeight: 800,
                   display: 'flex', alignItems: 'center', justifyContent: 'center',
