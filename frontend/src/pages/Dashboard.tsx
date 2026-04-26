@@ -229,40 +229,42 @@ export default function Dashboard() {
                 Voir tout <ArrowRight size={12} />
               </Link>
             </div>
-            <table className="data-table">
-              <thead>
-                <tr>
-                  <th>Reference</th>
-                  <th>Fournisseur</th>
-                  <th>Type</th>
-                  <th>Montant TTC</th>
-                  <th>Statut</th>
-                  <th>Date</th>
-                </tr>
-              </thead>
-              <tbody>
-                {recent.map(d => {
-                  const c = STATUT_CONFIG[d.statut]
-                  // Au survol : bundle JS de la page + endpoints atomiques
-                  // de la ressource dossier en parallele. Au clic, tout est
-                  // deja en cache (front + Service Worker).
-                  const prefetch = () => {
-                    Pages.DossierDetail.preload()
-                    prefetchDossierDetail(d.id)
-                  }
-                  return (
-                    <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
-                      <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
-                      <td>{d.fournisseur || '\u2014'}</td>
-                      <td><span className="tag">{d.type}</span></td>
-                      <td className="cell-mono">{d.montantTtc != null ? Number(d.montantTtc).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' MAD' : '\u2014'}</td>
-                      <td><span className="status-badge" style={{ background: c.bg, color: c.color }}>{c.label}</span></td>
-                      <td style={{ color: 'var(--ink-50)' }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
+            <div className="table-scroll">
+              <table className="data-table">
+                <thead>
+                  <tr>
+                    <th>Reference</th>
+                    <th>Fournisseur</th>
+                    <th>Type</th>
+                    <th>Montant TTC</th>
+                    <th>Statut</th>
+                    <th>Date</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {recent.map(d => {
+                    const c = STATUT_CONFIG[d.statut]
+                    // Au survol : bundle JS de la page + endpoints atomiques
+                    // de la ressource dossier en parallele. Au clic, tout est
+                    // deja en cache (front + Service Worker).
+                    const prefetch = () => {
+                      Pages.DossierDetail.preload()
+                      prefetchDossierDetail(d.id)
+                    }
+                    return (
+                      <tr key={d.id} onMouseEnter={prefetch} onFocus={prefetch}>
+                        <td><Link to={`/dossiers/${d.id}`}>{d.reference}</Link></td>
+                        <td>{d.fournisseur || '\u2014'}</td>
+                        <td><span className="tag">{d.type}</span></td>
+                        <td className="cell-mono">{d.montantTtc != null ? Number(d.montantTtc).toLocaleString('fr-FR', { minimumFractionDigits: 2 }) + ' MAD' : '\u2014'}</td>
+                        <td><span className="status-badge" style={{ background: c.bg, color: c.color }}>{c.label}</span></td>
+                        <td style={{ color: 'var(--ink-50)' }}>{new Date(d.dateCreation).toLocaleDateString('fr-FR')}</td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
           </div>
         </>
       )}

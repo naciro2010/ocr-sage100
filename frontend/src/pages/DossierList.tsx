@@ -366,6 +366,7 @@ export default function DossierList() {
         </div>
       ) : (
         <div className="card">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
@@ -449,6 +450,7 @@ export default function DossierList() {
               )}
             </tbody>
           </table>
+          </div>
 
           {data && data.totalPages > 1 && (
             <div className="pagination">

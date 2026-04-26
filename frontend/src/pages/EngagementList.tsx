@@ -181,24 +181,26 @@ function NoResults() {
 function EngagementTable({ items }: { items: EngagementListItem[] }) {
   return (
     <div className="card">
-      <table className="data-table">
-        <thead>
-          <tr>
-            <th>Type</th>
-            <th>Reference</th>
-            <th>Objet</th>
-            <th>Fournisseur</th>
-            <th style={{ textAlign: 'center' }}>Dossiers</th>
-            <th>Consommation</th>
-            <th>Montant TTC</th>
-            <th>Statut</th>
-            <th aria-label="actions"></th>
-          </tr>
-        </thead>
-        <tbody>
-          {items.map(e => <EngagementRow key={e.id} e={e} />)}
-        </tbody>
-      </table>
+      <div className="table-scroll">
+        <table className="data-table">
+          <thead>
+            <tr>
+              <th>Type</th>
+              <th>Reference</th>
+              <th>Objet</th>
+              <th>Fournisseur</th>
+              <th style={{ textAlign: 'center' }}>Dossiers</th>
+              <th>Consommation</th>
+              <th>Montant TTC</th>
+              <th>Statut</th>
+              <th aria-label="actions"></th>
+            </tr>
+          </thead>
+          <tbody>
+            {items.map(e => <EngagementRow key={e.id} e={e} />)}
+          </tbody>
+        </table>
+      </div>
     </div>
   )
 }

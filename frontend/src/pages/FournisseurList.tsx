@@ -229,6 +229,7 @@ export default function FournisseurList() {
         </div>
       ) : (
         <div className="card">
+          <div className="table-scroll">
           <table className="data-table">
             <thead>
               <tr>
@@ -310,6 +311,7 @@ export default function FournisseurList() {
               })}
             </tbody>
           </table>
+          </div>
         </div>
       )}
     </div>
