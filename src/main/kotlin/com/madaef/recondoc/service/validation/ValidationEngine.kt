@@ -276,6 +276,36 @@ class ValidationEngine(
             }
         }
 
+        // R30 : taux TVA Maroc dans la liste legale (CGI 2026 art. 87-100).
+        //   0%   = exoneration (art. 91)
+        //   7%   = produits de premiere necessite (art. 99-I)
+        //   10%  = restauration / hotellerie / transport (art. 99-II)
+        //   14%  = beurre / electricite / energie (art. 99-III)
+        //   20%  = taux normal (art. 88)
+        // Tout autre taux est anormal : soit erreur d'extraction, soit
+        // facture frauduleuse cherchant a minorer la TVA collectee.
+        if (isEnabled("R30") && facture != null) {
+            val fTauxTva = facture.tauxTva ?: docAmount(fDoc, "tauxTVA")
+            if (fTauxTva != null) {
+                val tauxLegaux = listOf(BigDecimal.ZERO, BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20"))
+                val ok = tauxLegaux.any { it.compareTo(fTauxTva) == 0 }
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R30",
+                    libelle = "Taux TVA conforme aux taux legaux marocains (CGI art. 87-100)",
+                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (ok)
+                        "Taux ${fTauxTva}% present dans la liste legale {0, 7, 10, 14, 20}"
+                    else
+                        "Taux ${fTauxTva}% hors liste legale CGI : verifier la facture (erreur d'extraction ou taux frauduleux)",
+                    valeurAttendue = "0 / 7 / 10 / 14 / 20",
+                    valeurTrouvee = fTauxTva.toPlainString(),
+                    evidences = listOf(
+                        evidence("source", "tauxTVA", "Taux TVA de la facture", fDoc, fTauxTva)
+                    )
+                )
+            }
+        }
+
         val opDoc = op?.document
         val arfDoc = arf?.document
         val tcDoc = dossier.documents.find { it.typeDocument == TypeDocument.TABLEAU_CONTROLE }
@@ -320,6 +350,46 @@ class ValidationEngine(
                             evidence("source", "taux", "Taux de la retenue ${ret.type}", opDoc, ret.taux),
                             evidence("calcule", "montantAttendu", "base × taux", null, calcule),
                             evidence("trouve", "montant", "Montant retenue", opDoc, ret.montant)
+                        )
+                    )
+                }
+            }
+        }
+
+        // R06b : conformite des taux de retenue a la source au Code General
+        // des Impots marocain. R06 verifie l'arithmetique base*taux=montant ;
+        // R06b verifie que le taux declare correspond au taux legal :
+        //   - TVA_SOURCE   = 75 % (CGI art. 117 : retenue TVA marches publics)
+        //   - IS_HONORAIRES = 10 % (CGI art. 73-II-G : retenue IR honoraires)
+        // Pour GARANTIE / AUTRE : pas de taux legal universel (depend du contrat),
+        // donc pas de check (on laisse a R-M/R-C pour les engagements typees).
+        if (isEnabled("R06b") && op != null) {
+            for (ret in op.retenues) {
+                val tauxAttendu = when (ret.type) {
+                    TypeRetenue.TVA_SOURCE -> BigDecimal("75")
+                    TypeRetenue.IS_HONORAIRES -> BigDecimal("10")
+                    else -> null
+                }
+                if (tauxAttendu != null && ret.taux != null) {
+                    val ok = ret.taux!!.subtract(tauxAttendu).abs() <= BigDecimal("0.5")
+                    val sourceArt = when (ret.type) {
+                        TypeRetenue.TVA_SOURCE -> "CGI art. 117"
+                        TypeRetenue.IS_HONORAIRES -> "CGI art. 73-II-G"
+                        else -> "CGI"
+                    }
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R06b",
+                        libelle = "Taux retenue ${ret.type} conforme au CGI (${sourceArt})",
+                        statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                        detail = if (ok)
+                            "Taux ${ret.taux}% conforme au taux legal ${tauxAttendu}% (${sourceArt})"
+                        else
+                            "Taux declare ${ret.taux}% != taux legal ${tauxAttendu}% (${sourceArt}) — verifier la retenue",
+                        valeurAttendue = "${tauxAttendu}%",
+                        valeurTrouvee = "${ret.taux}%",
+                        evidences = listOf(
+                            evidence("source", "taux", "Taux de la retenue ${ret.type}", opDoc, ret.taux),
+                            evidence("attendu", "tauxLegal", "Taux legal ${sourceArt}", null, tauxAttendu)
                         )
                     )
                 }
@@ -776,6 +846,122 @@ class ValidationEngine(
             }
         }
 
+        // R25 : delai legal de paiement <= 60 jours pour les marches publics
+        // (decret 2-22-431 du 08/03/2023, art. 159). Le decompte court a partir
+        // de la date de constatation du service fait (PV de reception). On
+        // utilise dateReception PV en priorite, sinon dateFacture en repli.
+        // S'applique uniquement quand l'engagement est un Marche public.
+        if (isEnabled("R25")) {
+            val isMarche = dossier.engagement?.typeEngagement() == com.madaef.recondoc.entity.engagement.TypeEngagement.MARCHE
+            if (isMarche && op != null) {
+                val dateOp = op.dateEmission ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
+                val dateReception = pv?.dateReception ?: pv?.periodeFin
+                    ?: facture?.dateFacture
+                    ?: docStr(fDoc, "dateFacture")?.let { parseLocalDate(it) }
+                if (dateOp != null && dateReception != null) {
+                    val jours = ChronoUnit.DAYS.between(dateReception, dateOp)
+                    val ok = jours in 0..60
+                    val source = "Decret 2-22-431 art. 159 (delai global de paiement marche public)"
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R25",
+                        libelle = "Delai paiement marche public <= 60 jours",
+                        statut = when {
+                            ok -> StatutCheck.CONFORME
+                            jours < 0 -> StatutCheck.NON_CONFORME
+                            else -> StatutCheck.NON_CONFORME
+                        },
+                        detail = if (ok)
+                            "OP emis ${jours} j apres la reception (limite 60 j). ${source}."
+                        else if (jours < 0)
+                            "OP du ${dateOp} anterieur a la reception du ${dateReception} (cf. R22). ${source}."
+                        else
+                            "Delai de paiement ${jours} jours, depasse le plafond legal de 60 jours. ${source}.",
+                        valeurAttendue = "<= 60 jours",
+                        valeurTrouvee = "${jours} jours",
+                        evidences = listOfNotNull(
+                            evidence("source", "dateReception", "Date constatation service fait", pv?.document ?: fDoc, dateReception),
+                            evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOp)
+                        )
+                    )
+                }
+            }
+        }
+
+        // R26 : plafond legal de paiement en especes (CGI art. 193-ter +
+        // Loi de finances 2019, maintenu en 2026). Tout paiement > 5 000 MAD
+        // hors circuit bancaire est non deductible et expose le fournisseur
+        // a une amende de 6 % (art. 193-ter §II). On detecte le paiement en
+        // especes via op.natureOperation et op.donneesExtraites.modePaiement.
+        if (isEnabled("R26") && op != null) {
+            val nature = (op.natureOperation ?: docStr(opDoc, "natureOperation") ?: "")
+                .lowercase()
+            val mode = (docStr(opDoc, "modePaiement") ?: "")
+                .lowercase()
+            val isCash = listOf("especes", "espèce", "espece", "cash", "comptant", "liquide")
+                .any { it in nature || it in mode }
+            val montant = op.montantOperation ?: docAmount(opDoc, "montantOperation", "montant")
+            if (isCash && montant != null) {
+                val plafond = BigDecimal("5000")
+                val depasse = montant.compareTo(plafond) > 0
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R26",
+                    libelle = "Plafond paiement especes (CGI art. 193-ter)",
+                    statut = if (depasse) StatutCheck.NON_CONFORME else StatutCheck.CONFORME,
+                    detail = if (depasse)
+                        "Paiement especes ${montant} MAD > plafond legal 5 000 MAD : non deductible (CGI art. 193-ter), amende 6 % encourue par le fournisseur."
+                    else
+                        "Paiement especes ${montant} MAD <= plafond 5 000 MAD",
+                    valeurAttendue = "<= 5 000 MAD si especes",
+                    valeurTrouvee = "${montant} MAD ${if (isCash) "(especes)" else ""}",
+                    evidences = listOfNotNull(
+                        evidence("source", "natureOperation", "Mode de reglement OP", opDoc, op.natureOperation ?: nature),
+                        evidence("source", "montantOperation", "Montant de l'OP", opDoc, montant)
+                    )
+                )
+            }
+        }
+
+        // R27 : devise obligatoirement MAD (CGNC + Loi 9-88 art. 1).
+        // Une facture marocaine doit etre libellee en MAD. Une facture en
+        // EUR / USD sans contre-valeur MAD signalee est non conforme : risque
+        // de comptabilisation au mauvais cours, contournement du controle des
+        // changes Office des Changes. Lecture priorite :
+        //   1. donneesExtraites.devise (champ explicite si extrait)
+        //   2. detection texte EUR/USD/€/$ dans nature ou raison sociale
+        //   3. defaut MAD si rien detecte (pas de signal d'alerte)
+        if (isEnabled("R27") && facture != null) {
+            val devise = (docStr(fDoc, "devise", "currency") ?: "").trim().uppercase()
+            val texte = listOfNotNull(
+                docStr(fDoc, "natureOperation"),
+                docStr(fDoc, "totalEnLettres"),
+                docStr(fDoc, "mentionsLegales")
+            ).joinToString(" ").uppercase()
+            val deviseEffective = when {
+                devise.isNotBlank() -> devise
+                "EUR" in texte || "EURO" in texte || "€" in texte -> "EUR"
+                "USD" in texte || "DOLLAR" in texte || "$" in texte -> "USD"
+                else -> "MAD" // par defaut suppose MAD (pas d'alerte sur silence)
+            }
+            val deviseValide = deviseEffective in setOf("MAD", "DH", "DHS", "DIRHAM", "DIRHAMS")
+            // Pas de check si on n'a aucun signal explicite : eviter le bruit.
+            if (devise.isNotBlank() || (!deviseValide)) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R27",
+                    libelle = "Devise MAD obligatoire (CGNC + Loi 9-88)",
+                    statut = if (deviseValide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (deviseValide)
+                        "Devise = ${deviseEffective}, conforme au CGNC."
+                    else
+                        "Devise detectee = ${deviseEffective}. Une facture marocaine doit etre en MAD (CGNC art. 1, Loi 9-88).",
+                    valeurAttendue = "MAD",
+                    valeurTrouvee = deviseEffective,
+                    evidences = listOf(
+                        evidence("source", "devise", "Devise extraite ou detectee", fDoc, deviseEffective)
+                    )
+                )
+            }
+        }
+
         // R24 : completude lignes facture au-dela d'un seuil montant. Au-dessus
         // du seuil, une facture sans lignes detaillees signale soit une
         // extraction degradee (Claude a manque le tableau), soit une facture
@@ -921,19 +1107,31 @@ class ValidationEngine(
         val arfDateEdition = arf?.dateEdition
             ?: docStr(arfDoc, "dateEdition")?.let { parseLocalDate(it) }
         if (isEnabled("R18") && arfDateEdition != null) {
+            // La duree de validite varie selon le contexte (Circulaire DGI 717
+            // / Instruction DGI 2014) :
+            //   - Marche public : 3 mois (rappele par le decret 2-22-431)
+            //   - B2B / BC / contrat hors marche : 6 mois (regle generale DGI)
             // Borne inclusive : l'attestation editee le 26/10/2025 reste valide
-            // jusqu'a la fin de journee du 26/04/2026 (M+6). Utiliser !isBefore
-            // pour inclure le jour exact d'expiration.
-            val limite = arfDateEdition.plusMonths(6)
-            val valide = !limite.isBefore(LocalDate.now())
+            // jusqu'a la fin de journee du 26/04/2026 (M+6) ; utiliser !isBefore
+            // pour inclure le jour exact d'expiration. La date de reference est
+            // `op.dateEmission` si dispo (= date du paiement, c'est elle qui
+            // doit etre couverte par une attestation valide), sinon today().
+            val isMarche = dossier.engagement?.typeEngagement() == com.madaef.recondoc.entity.engagement.TypeEngagement.MARCHE
+            val mois = if (isMarche) 3L else 6L
+            val refDate = op?.dateEmission ?: LocalDate.now()
+            val limite = arfDateEdition.plusMonths(mois)
+            val valide = !limite.isBefore(refDate)
+            val source = if (isMarche) "Circulaire DGI 717 / decret 2-22-431 (3 mois marche public)"
+                         else "Regle generale DGI (6 mois B2B)"
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
-                libelle = "Validite attestation fiscale (6 mois)",
+                libelle = "Validite attestation fiscale (${mois} mois ${if (isMarche) "marche public" else "B2B"})",
                 statut = if (valide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${limite} inclus",
+                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${limite} inclus, evaluee au ${refDate}. ${source}.",
                 evidences = listOf(
                     evidence("source", "dateEdition", "Date d'edition de l'attestation", arfDoc, arfDateEdition),
-                    evidence("calcule", "dateValidite", "Valide jusqu'au (+6 mois, inclus)", null, limite)
+                    evidence("calcule", "dateValidite", "Valide jusqu'au (+${mois} mois, inclus)", null, limite),
+                    evidence("calcule", "dateReference", "Date de reference (OP ou aujourd'hui)", opDoc, refDate)
                 )
             )
         }

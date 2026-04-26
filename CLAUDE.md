@@ -152,18 +152,25 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 - R01-R03: Concordance montants facture vs BC (TTC, HT, TVA, taux)
 - R04-R05: Montant OP vs facture (avec/sans retenues)
 - R06: Verification arithmetique retenues (base x taux = montant)
+- R06b: Taux retenue conforme au CGI (TVA marches=75% art.117, IR honoraires=10% art.73-II-G)
 - R07-R08: References facture/BC citees dans OP
-- R09-R11: Coherence ICE, IF, RIB entre documents
+- R09: Coherence ICE entre documents
+- R09b: Format ICE 15 chiffres exacts (decret 2-11-13 OMPIC)
+- R10-R11: Coherence IF, RIB entre documents
 - R12: Checklist completude (10 points mappes aux documents source)
 - R13: Tableau controle financier completude
 - R14: Coherence nom fournisseur entre documents
 - R15: Grille tarifaire x duree = HT facture (CONTRACTUEL uniquement)
 - R16: Verification arithmetique HT + TVA = TTC
-- R17a-R17b: Coherence temporelle (BC/Contrat → Facture → OP)
-- R18: Validite attestation fiscale (fenetre 6 mois)
+- R17a-R17b: Coherence temporelle (BC/Contrat → Facture → OP) — NON_CONFORME si paiement antidate
+- R18: Validite attestation fiscale (3 mois marche public, 6 mois B2B - Circulaire DGI 717), borne inclusive
 - R20: Completude dossier (documents requis presents)
-- R21: Anti-doublon facture (meme numero OU meme fournisseur+montant+date +/-3j sur 12 mois glissants)
+- R21: Anti-doublon facture (12 mois glissants ; distingue avoirs/compensations)
 - R22: Paiement posterieur a la reception (date OP >= date PV_RECEPTION ; CONTRACTUEL uniquement)
+- R25: Delai paiement marche public <= 60 jours (decret 2-22-431 art. 159)
+- R26: Plafond paiement especes 5 000 MAD (CGI art. 193-ter)
+- R27: Devise MAD obligatoire (CGNC + Loi 9-88)
+- R30: Taux TVA dans la liste legale {0, 7, 10, 14, 20} (CGI 2026 art. 87-100)
 
 ## CI/CD
 - GitHub Actions (`.github/workflows/`): builds backend (Gradle) and frontend (npm), runs unit tests on H2 then integration tests on PostgreSQL

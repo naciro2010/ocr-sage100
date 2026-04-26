@@ -1,7 +1,9 @@
 package com.madaef.recondoc
 
 import com.madaef.recondoc.entity.dossier.*
+import com.madaef.recondoc.entity.engagement.EngagementMarche
 import com.madaef.recondoc.repository.dossier.DossierRepository
+import com.madaef.recondoc.repository.engagement.EngagementMarcheRepository
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -28,6 +30,7 @@ class GoldenDossiersRegressionTest {
 
     @Autowired lateinit var validationEngine: ValidationEngine
     @Autowired lateinit var dossierRepo: DossierRepository
+    @Autowired lateinit var marcheRepo: EngagementMarcheRepository
 
     private fun newDossier(type: DossierType = DossierType.BC) = dossierRepo.save(
         DossierPaiement(reference = "GOLDEN-${System.nanoTime()}", type = type, statut = StatutDossier.BROUILLON)
@@ -644,6 +647,273 @@ class GoldenDossiersRegressionTest {
         assertTrue(r09 != null)
         assertEquals(StatutCheck.NON_CONFORME, r09.statut,
             "R09 doit detecter les ICE differents meme quand seuls les zeros initiaux divergent")
+    }
+
+    // ----- PR #2b : conformite reglementaire MA (R25 R26 R27 R30 R06b R18-split) -----
+
+    private fun newMarche(reference: String = "MARCHE-${System.nanoTime()}"): EngagementMarche {
+        val m = EngagementMarche().apply { this.reference = reference }
+        return marcheRepo.saveAndFlush(m)
+    }
+
+    @Test
+    fun `golden 25 R30 NON_CONFORME si taux TVA hors liste legale (CGI art 87-100)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantHt = BigDecimal("1000"); montantTva = BigDecimal("180"); montantTtc = BigDecimal("1180")
+            tauxTva = BigDecimal("18") // hors {0,7,10,14,20}
+            fournisseur = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        dossierRepo.save(dossier)
+
+        val r30 = validationEngine.validate(dossier).first { it.regle == "R30" }
+        assertEquals(StatutCheck.NON_CONFORME, r30.statut,
+            "Taux 18% n'est pas dans la liste legale CGI {0, 7, 10, 14, 20}")
+    }
+
+    @Test
+    fun `golden 26 R30 CONFORME pour taux TVA 20 pourcent`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-2"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantHt = BigDecimal("1000"); montantTva = BigDecimal("200"); montantTtc = BigDecimal("1200")
+            tauxTva = BigDecimal("20")
+            fournisseur = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        dossierRepo.save(dossier)
+
+        val r30 = validationEngine.validate(dossier).first { it.regle == "R30" }
+        assertEquals(StatutCheck.CONFORME, r30.statut, "20% est le taux normal CGI art. 88")
+    }
+
+    @Test
+    fun `golden 27 R06b NON_CONFORME si TVA_SOURCE declaree a 50 pourcent au lieu de 75`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("120000"); fournisseur = "X"
+        })
+        val op = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("100000")
+        }
+        op.retenues.add(Retenue(ordrePaiement = op, type = TypeRetenue.TVA_SOURCE).apply {
+            base = BigDecimal("20000"); taux = BigDecimal("50") // taux legal = 75 %
+            montant = BigDecimal("10000")
+        })
+        dossier.ordrePaiement = op
+        dossierRepo.save(dossier)
+
+        val r06b = validationEngine.validate(dossier).first { it.regle == "R06b" }
+        assertEquals(StatutCheck.NON_CONFORME, r06b.statut,
+            "Taux TVA_SOURCE legal = 75% (CGI art. 117), declare 50% doit etre NOK")
+    }
+
+    @Test
+    fun `golden 28 R06b CONFORME pour IS_HONORAIRES a 10 pourcent (CGI art 73-II-G)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("12000"); fournisseur = "X"
+        })
+        val op = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("10800")
+        }
+        op.retenues.add(Retenue(ordrePaiement = op, type = TypeRetenue.IS_HONORAIRES).apply {
+            base = BigDecimal("12000"); taux = BigDecimal("10")
+            montant = BigDecimal("1200")
+        })
+        dossier.ordrePaiement = op
+        dossierRepo.save(dossier)
+
+        val r06b = validationEngine.validate(dossier).first { it.regle == "R06b" }
+        assertEquals(StatutCheck.CONFORME, r06b.statut, "IR honoraires legal = 10% CGI art. 73-II-G")
+    }
+
+    @Test
+    fun `golden 29 R18 marche public NON_CONFORME si attestation au-dela de 3 mois`() {
+        val marche = newMarche()
+        val dossier = newDossier()
+        dossier.engagement = marche
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "X"
+            ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        // OP du 2026-04-15, attestation editee 4 mois avant : valide B2B (6 mo)
+        // mais NOK pour marche public (3 mo).
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.of(2025, 12, 15)
+            raisonSociale = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        }
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 4, 15)
+            montantOperation = BigDecimal("1000")
+        }
+        dossierRepo.save(dossier)
+
+        val r18 = validationEngine.validate(dossier).first { it.regle == "R18" }
+        assertEquals(StatutCheck.NON_CONFORME, r18.statut,
+            "R18 marche public : 3 mois max (Circulaire DGI 717) — attestation 4 mois doit etre NOK")
+    }
+
+    @Test
+    fun `golden 30 R18 B2B CONFORME pour attestation a 4 mois (regle 6 mois s'applique)`() {
+        // Pas d'engagement Marche : on tombe sur la regle B2B 6 mois.
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.of(2026, 3, 15); fournisseur = "X"
+            ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.of(2025, 12, 15)
+            raisonSociale = "X"; ice = "001509176000008"; identifiantFiscal = "IF-1"
+        }
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 4, 15)
+            montantOperation = BigDecimal("1000")
+        }
+        dossierRepo.save(dossier)
+
+        val r18 = validationEngine.validate(dossier).first { it.regle == "R18" }
+        assertEquals(StatutCheck.CONFORME, r18.statut,
+            "R18 B2B : attestation 4 mois <= 6 mois doit etre CONFORME")
+    }
+
+    @Test
+    fun `golden 31 R25 NON_CONFORME si OP marche public emis plus de 60 jours apres reception`() {
+        val marche = newMarche()
+        val dossier = newDossier(DossierType.CONTRACTUEL)
+        dossier.engagement = marche
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val pvDoc = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(opDoc, pvDoc))
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 4, 30)
+            montantOperation = BigDecimal("100000")
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = pvDoc).apply {
+            dateReception = LocalDate.of(2026, 1, 15) // 105 jours avant l'OP
+        }
+        dossierRepo.save(dossier)
+
+        val r25 = validationEngine.validate(dossier).first { it.regle == "R25" }
+        assertEquals(StatutCheck.NON_CONFORME, r25.statut,
+            "Decret 2-22-431 art. 159 : delai > 60 j sur marche public doit etre NOK")
+    }
+
+    @Test
+    fun `golden 32 R25 CONFORME si OP marche public emis dans les 60 jours`() {
+        val marche = newMarche()
+        val dossier = newDossier(DossierType.CONTRACTUEL)
+        dossier.engagement = marche
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val pvDoc = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(opDoc, pvDoc))
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("100000")
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = pvDoc).apply {
+            dateReception = LocalDate.of(2026, 1, 15) // 45 jours avant l'OP
+        }
+        dossierRepo.save(dossier)
+
+        val r25 = validationEngine.validate(dossier).first { it.regle == "R25" }
+        assertEquals(StatutCheck.CONFORME, r25.statut, "45j <= 60j : conforme")
+    }
+
+    @Test
+    fun `golden 33 R26 NON_CONFORME si paiement especes superieur a 5000 MAD (CGI art 193-ter)`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("12000")
+            natureOperation = "Reglement en especes"
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.NON_CONFORME, r26.statut,
+            "Paiement especes 12000 MAD > plafond legal 5000 (CGI art. 193-ter)")
+    }
+
+    @Test
+    fun `golden 34 R26 CONFORME pour paiement especes inferieur a 5000 MAD`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-2"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("3000")
+            natureOperation = "Reglement comptant"
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.CONFORME, r26.statut, "3000 MAD <= 5000 : conforme")
+    }
+
+    @Test
+    fun `golden 35 R27 NON_CONFORME si devise EUR sur facture marocaine`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        // On simule un champ devise extrait via donneesExtraites JSON.
+        fDoc.donneesExtraites = mapOf(
+            "fournisseur" to "X",
+            "devise" to "EUR"
+        )
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-EUR"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantTtc = BigDecimal("1000"); fournisseur = "X"
+            ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        dossierRepo.save(dossier)
+
+        val r27 = validationEngine.validate(dossier).first { it.regle == "R27" }
+        assertEquals(StatutCheck.NON_CONFORME, r27.statut,
+            "CGNC + Loi 9-88 : devise MAD obligatoire, EUR doit etre NOK")
+    }
+
+    @Test
+    fun `golden 36 R27 CONFORME si devise MAD explicite`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        fDoc.donneesExtraites = mapOf("fournisseur" to "X", "devise" to "MAD")
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-MAD"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantTtc = BigDecimal("1000"); fournisseur = "X"
+            ice = "001509176000008"; identifiantFiscal = "IF-1"
+        })
+        dossierRepo.save(dossier)
+
+        val r27 = validationEngine.validate(dossier).first { it.regle == "R27" }
+        assertEquals(StatutCheck.CONFORME, r27.statut, "Devise MAD explicite : CONFORME")
     }
 
     @Test
