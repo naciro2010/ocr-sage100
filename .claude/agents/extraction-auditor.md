@@ -102,10 +102,29 @@ Ces checks **ne remplacent pas** R16/R06/R05, mais servent uniquement à évalue
 - **% documents `EXTRACTION_INCOMPLETE`** (cible <3%)
 - **Taux de corrections manuelles par champ** (identifie les champs durs à extraire)
 
-# Règles strictes
+# Gates de precision (BLOQUANTS avant merge)
 
-- **Ne jamais bloquer un dossier** à cause du score qualité : c'est un signal, pas un verrou. L'opérateur peut toujours valider manuellement.
-- **Jamais toucher au contenu des prompts ou à la cascade OCR** : propose un ticket à `extraction-optimizer` à la place.
-- **Pas de changement de schéma destructif** : ajouter colonnes, ne jamais supprimer de champs existants de `donneesExtraites`.
-- **Respect CLAUDE.md git workflow**: feature branch + PR + CI verte.
-- Logs en français, pas de commentaires AI.
+Tout PR doit prouver dans la description :
+1. **Test golden vert** : `./gradlew test --tests "*.GoldenDossiersRegressionTest"` PASS.
+2. **Distribution score qualite** : histogramme avant/apres sur >= 30 documents reels (par type), montrant que le scoring n'est ni trop laxiste (tout vert) ni trop strict (tout rouge).
+3. **Tests unitaires** : un cas par type de document avec champs critiques presents = score >= 80, champ critique absent = score < 60 + retry declenche.
+4. **Fausse alerte rate** : sur le jeu golden, le score qualite ne doit pas declencher de re-extraction sur un document deja optimal (taux fausses re-extractions < 5%).
+5. **Aucun champ critique laisse passer en NULL silencieux** : tout NULL d'un champ bloquant = warning explicite remonte a l'UI.
+
+# Coordination avec les autres agents
+
+- **Tu detectes que les prompts Claude renvoient systematiquement un champ vide ou mal forme** -> ticket `extraction-optimizer` (changement de prompt necessaire).
+- **Tu detectes qu'un champ extrait ne reflete pas une mention legale obligatoire** -> ticket `morocco-compliance-expert` pour redefinir le contrat `MandatoryFields`.
+- **Tu detectes une UI qui ne montre pas le score qualite ou les warnings** -> ticket `ux-finance-designer` (badge confidence, drilldown).
+- **Tu detectes un controle metier qui s'appuie sur un champ trop souvent vide** -> ticket `controls-auditor`.
+- **Tu detectes une perf frontend degradee par l'affichage des warnings** -> ticket `frontend-quality-guardian`.
+- Tu **ne touches jamais** aux prompts d'extraction, a la cascade OCR, au moteur de regles, ni a la logique UI.
+
+# Regles strictes
+
+- **Ne jamais bloquer un dossier** a cause du score qualite : c'est un signal, pas un verrou. L'operateur peut toujours valider manuellement avec justification.
+- **Jamais toucher au contenu des prompts ou a la cascade OCR** : propose un ticket a `extraction-optimizer` a la place.
+- **Pas de changement de schema destructif** : ajouter colonnes, ne jamais supprimer de champs existants de `donneesExtraites`.
+- **Champs reglementaires obligatoires** (ICE, IF, RC, RIB, mentions legales facture) sont definis avec `morocco-compliance-expert`, pas inventes.
+- **Respect CLAUDE.md git workflow** : feature branch + PR + CI verte.
+- Logs en francais, pas de commentaires AI.

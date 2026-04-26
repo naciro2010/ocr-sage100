@@ -182,7 +182,7 @@ Rapprochement et controle de coherence entre les documents d'un dossier de paiem
 
 ## Sub-agents spécialisés (persistés dans `.claude/agents/`)
 
-Quatre sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améliorent en continu pour : **meilleur résultat, moindre coût, meilleure performance**. À invoquer avec l'outil `Agent` en passant `subagent_type: "<name>"`.
+Sept sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améliorent en continu pour : **fiabilité 100%, conformité réglementaire MA, meilleure UX, meilleure qualité de code, moindre coût, meilleure performance**. À invoquer avec l'outil `Agent` en passant `subagent_type: "<name>"`.
 
 | Sub-agent | Mission | Quand l'invoquer |
 |-----------|---------|------------------|
@@ -190,13 +190,41 @@ Quatre sub-agents dédiés, chacun responsable d'un domaine unique. Ils s'améli
 | `extraction-auditor` | Vérifier que l'extraction est complète (champs obligatoires, confidence validée, cohérence arithmétique). Score qualité composite + re-extraction ciblée. | "Champs manquants", "score qualité", "détecter extractions dégradées", "re-extraction auto" |
 | `controls-optimizer` | Optimiser le moteur de règles (R01-R20 + CUSTOM batch). Mémoïsation, pré-calcul features, profiling par règle, prompt caching batch. | "Règles lentes", "CUSTOM-XX cher", "instrumenter par règle", "memoïsation montants" |
 | `controls-auditor` | Auditer la justesse des contrôles (faux positifs/négatifs, couverture métier, drift). Proposer règles manquantes, jeu de dossiers golden. | "Auditer justesse contrôles", "trop de faux positifs", "règle manquante", "couverture métier" |
+| `ux-finance-designer` | Concevoir / refondre l'UI/UX en s'inspirant des standards Odoo, Sage, SAP Fiori, Pennylane, Qonto, Spendesk. Drilldowns, matrices de contrôles, wizards, accessibilité WCAG. | "Améliorer UX dossier", "design comme Odoo", "wizard validation", "table de contrôles plus lisible", "drilldown extraction", "accessibilité" |
+| `morocco-compliance-expert` | Garantir la conformité réglementaire MA (DGI, CGI, BAM, OMPIC, CNDP, Code Marchés Publics, normes MADAEF/CDG). Source légale citée pour chaque règle. | "TVA Maroc", "ICE/IF/RC/RIB", "attestation fiscale 6 mois", "Loi 69-21 e-facture", "Loi 09-08 RGPD", "Décret 2-22-431 marchés publics" |
+| `frontend-quality-guardian` | Qualité technique frontend (React 19 + TS + Tailwind + Vite) : bundle, type safety, performance, accessibilité, ErrorBoundary, déduplication API, tests. | "Bundle trop gros", "frontend lent", "types any", "ErrorBoundary manquant", "lazy loading routes", "memoïsation React" |
+
+### Carte de coordination entre agents
+
+```
+                          morocco-compliance-expert
+                          (source légale, seuils MA)
+                                     |
+                                     v
+   extraction-optimizer ------> extraction-auditor ------> controls-auditor ------> controls-optimizer
+   (OCR + prompts Claude)       (qualité champs)           (justesse verdicts)      (perf moteur)
+            |                          |                          |                       |
+            +--------------------------+--------------------------+-----------------------+
+                                                |
+                                                v
+                                       ux-finance-designer
+                                       (visualisation, drilldown, microcopy)
+                                                |
+                                                v
+                                  frontend-quality-guardian
+                                  (perf bundle, a11y, types, ErrorBoundary)
+```
+
+Règle d'or : un agent ne sort jamais de son périmètre. S'il identifie un besoin hors scope, il ouvre un ticket pour l'agent concerné dans la description du PR.
 
 ### Règles d'intervention des sub-agents
 - **Frontières strictes**: chaque agent a un périmètre de fichiers explicité dans son fichier `.md`. Il ne sort pas de son scope.
 - **Un changement ROI par PR**: pas de refonte, pas d'optimisation cumulée. Une PR = un gain mesurable.
+- **Gates de précision bloquants**: chaque agent décrit dans son `.md` les preuves obligatoires à joindre au PR (tests golden verts, diff de verdict, mesure perf, source légale, score Lighthouse, etc.). PR sans gate satisfait = pas de merge.
 - **Respect du git workflow**: feature branch + PR + CI verte. Jamais de commit direct sur `main`.
 - **Pas de régression**: les tests existants doivent continuer à passer. Ajout de tests obligatoire pour tout nouveau comportement.
-- **Mesure avant/après**: tout changement de perf/coût doit être mesuré et documenté dans la description de PR.
+- **Mesure avant/après**: tout changement de perf/coût/qualité doit être mesuré et documenté dans la description de PR.
+- **Conformité MA d'abord**: toute règle, seuil, format ou champ extrait à dimension réglementaire doit être validé par `morocco-compliance-expert` avec source légale citée.
 - **Pas de commentaires AI**, texte humain, logs en français, conventions Kotlin/TS idiomatiques.
 
 ### Plan d'amélioration continue (vision)
