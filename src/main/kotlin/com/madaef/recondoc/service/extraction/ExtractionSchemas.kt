@@ -150,6 +150,8 @@ object ExtractionSchemas {
                 "montantTVA" to num("Total TVA general de la facture. Somme de TOUTES les TVA si plusieurs taux coexistent (20% + 10% par exemple). Strictement >= 0 (0 si facture exoneree).", minimum = 0, nullable = false),
                 "tauxTVA" to enumField(listOf(0, 7, 10, 14, 20), "Taux TVA dominant (applique au plus grand montantHT). Taux legaux Maroc : 0 (exonere), 7, 10, 14, 20. Tout autre taux = erreur OCR ou facture etrangere -> choisir le plus proche et ajouter un warning.", nullable = false),
                 "montantTTC" to num("Total TTC general = HT + TVA. Doit etre strictement positif. Priorite : ligne 'NET A PAYER' > 'TOTAL TTC' > 'TOTAL GENERAL' > somme calculee. Verifier HT+TVA ≈ TTC (tolerance 1%).", minimum = 0, nullable = false),
+                "devise" to str("Code devise ISO 4217 (MAD, EUR, USD). Detecter via le suffixe des montants ('1 234,56 DH', 'MAD', 'dirhams' = MAD ; 'EUR', '€', 'euros' = EUR ; 'USD', '$' = USD). Defaut : MAD si aucun signal etranger. Une devise non-MAD peut signaler une facture export, a verifier (regle R27 / CGNC + Loi 9-88).", pattern = "^[A-Z]{3}$"),
+                "dateReceptionFacture" to str("Date de reception de la facture par MADAEF, distincte de dateFacture (date d'emission par le fournisseur). Apparait sur le cachet d'arrivee, le tampon dateur, ou la mention 'recu le'. Format ISO YYYY-MM-DD. Sert au decompte du delai legal de paiement marche public (60j, decret 2-22-431 art. 159).", pattern = "^\\d{4}-\\d{2}-\\d{2}$"),
                 "referenceContrat" to str("Reference du contrat ou du bon de commande cite dans la facture (ex: 'CF SIE 2026-1234', 'Marche 2024/15'). Apparait souvent apres 'Ref. BC:' ou 'Marche N:'."),
                 "periode" to str("Periode couverte par la prestation (ex: 'Janvier 2026', '01/01/2026 - 31/03/2026')."),
                 "lignes" to arrayOf(obj(
@@ -209,6 +211,14 @@ object ExtractionSchemas {
                 "dateEmission" to str("Date d'emission de l'OP au format ISO YYYY-MM-DD.", pattern = "^\\d{4}-\\d{2}-\\d{2}$", nullable = false),
                 "emetteur" to str("Entite MADAEF emettrice de l'OP (ex: 'MADAEF', 'MADAEF GOLFS', 'HRM'). Si non mentionne, null."),
                 "natureOperation" to str("Nature de l'operation (ex: 'Reglement facture', 'Acompte', 'Avoir', 'Solde marche')."),
+                "modePaiement" to enumField(
+                    listOf("VIREMENT", "CHEQUE", "ESPECES", "EFFET", "PRELEVEMENT", "AUTRE"),
+                    description = "Mode de reglement type. Detecter via les libelles : 'virement bancaire' / 'wire' = VIREMENT ; 'cheque n' = CHEQUE ; 'especes' / 'cash' / 'comptant' = ESPECES ; 'effet de commerce' / 'lettre de change' = EFFET ; 'prelevement' = PRELEVEMENT ; sinon AUTRE. Determinant pour R26 (plafond especes 5kMAD CGI art. 193-ter).",
+                    baseType = "string"
+                ),
+                "devise" to str("Code devise ISO 4217 du paiement (MAD attendu, sinon signaler).", pattern = "^[A-Z]{3}$"),
+                "signataireOrdonnateur" to str("Nom + fonction de l'ordonnateur (autorise la depense, distinct du comptable). Apparait dans le cartouche 'Vu et autorise par' / 'Ordonnateur' avec une signature. Decret 2-22-431 art. 21 : separation des pouvoirs obligatoire avec le comptable."),
+                "signataireComptable" to str("Nom + fonction du comptable (execute le paiement, distinct de l'ordonnateur). Apparait dans le cartouche 'Comptable' / 'Tresorier' / 'Vise par'. JAMAIS la meme personne que signataireOrdonnateur."),
                 "description" to str("Objet detaille/libre de l'operation. Texte explicatif du controleur."),
                 "beneficiaire" to str("Raison sociale du beneficiaire = fournisseur a payer. JAMAIS MADAEF.", nullable = false),
                 "rib" to str("RIB du beneficiaire : EXACTEMENT 24 chiffres apres suppression espaces/tirets. Sinon null + warning.", pattern = "^\\d{24}$"),
@@ -308,6 +318,11 @@ object ExtractionSchemas {
                 "ice" to str("ICE du contribuable : EXACTEMENT 15 chiffres. Si OCR incomplet apres normalisation, null + warning.", pattern = "^\\d{15}$"),
                 "rc" to str("Numero de Registre de Commerce du contribuable."),
                 "estEnRegle" to bool("true si le texte mentionne explicitement 'en situation reguliere', 'quitus fiscal', 'regulier'. false si 'non en regle', 'redressement', 'dette'. null + warning si ambigu."),
+                "typeAttestation" to enumField(
+                    listOf("REGULARITE_FISCALE", "ATTESTATION_PAIEMENT", "CNSS", "AUTRE"),
+                    description = "Type d'attestation : REGULARITE_FISCALE = la plus courante DGI 'attestation de regularite fiscale' (R18 6mo B2B / 3mo marche public). ATTESTATION_PAIEMENT = paiement d'un impot specifique (TVA, IS), validite limitee a la quittance citee. CNSS = regularite sociale (CNSS, hors DGI). AUTRE si format atypique. Distinguer ces types evite d'appliquer R18 a une attestation qui n'a pas la meme regle.",
+                    baseType = "string"
+                ),
                 "codeVerification" to str("Code de verification imprime sous le QR code (apres 'attestation.tax.gov.ma'). 12-32 caracteres hexadecimaux (ex: '18a50bf6baf372bd'). Retourner sans espace ni ponctuation.")
             ) + qualityFields(),
             required = listOf("numero", "dateEdition", "raisonSociale", "_confidence")

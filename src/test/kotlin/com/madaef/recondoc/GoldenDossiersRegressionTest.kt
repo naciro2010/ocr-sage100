@@ -916,6 +916,138 @@ class GoldenDossiersRegressionTest {
         assertEquals(StatutCheck.CONFORME, r27.statut, "Devise MAD explicite : CONFORME")
     }
 
+    // ----- PR #2d : champs typees (devise / modePaiement / signataires) -----
+
+    @Test
+    fun `golden 37 R27 NON_CONFORME via champ typee Facture devise=EUR`() {
+        // Avant PR #2d : R27 ne lisait que donneesExtraites JSON.
+        // Apres : Facture.devise (champ type DB) prime — plus precis et persistant.
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        dossier.documents.add(fDoc)
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-EUR-2"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantTtc = BigDecimal("1000"); fournisseur = "X"
+            ice = "001509176000008"; identifiantFiscal = "IF-1"
+            devise = "EUR" // champ type, prioritaire sur donneesExtraites
+        })
+        dossierRepo.save(dossier)
+
+        val r27 = validationEngine.validate(dossier).first { it.regle == "R27" }
+        assertEquals(StatutCheck.NON_CONFORME, r27.statut)
+        assertTrue(r27.detail!!.contains("EUR"), "Detail mentionne la devise detectee")
+    }
+
+    @Test
+    fun `golden 38 R26 NON_CONFORME via champ typee modePaiement=ESPECES`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-CASH"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("8000")
+            modePaiement = "ESPECES" // champ type, prioritaire
+            // natureOperation laissee vide : la regle doit declencher uniquement
+            // sur le champ type (sans dependre du parsing texte fragile).
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.NON_CONFORME, r26.statut,
+            "Champ type ESPECES + 8000 MAD doit declencher R26 (CGI art. 193-ter)")
+    }
+
+    @Test
+    fun `golden 39 R31 NON_CONFORME si meme personne ordonnateur et comptable`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-COLLUSION"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("100000")
+            signataireOrdonnateur = "Mohamed Alami"
+            signataireComptable = "M. Alami" // meme personne, vice de procedure
+        }
+        dossierRepo.save(dossier)
+
+        val r31 = validationEngine.validate(dossier).first { it.regle == "R31" }
+        assertEquals(StatutCheck.NON_CONFORME, r31.statut,
+            "Meme personne sur les 2 roles = vice de procedure (decret 2-22-431 art. 21)")
+    }
+
+    @Test
+    fun `golden 40 R31 CONFORME si ordonnateur et comptable distincts`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-OK"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("100000")
+            signataireOrdonnateur = "Mohamed Alami, DAF"
+            signataireComptable = "Aicha Benali, Tresorier"
+        }
+        dossierRepo.save(dossier)
+
+        val r31 = validationEngine.validate(dossier).first { it.regle == "R31" }
+        assertEquals(StatutCheck.CONFORME, r31.statut, "Deux signataires distincts : CONFORME")
+    }
+
+    @Test
+    fun `golden 41 R31 NON_CONFORME si un seul signataire identifie`() {
+        val dossier = newDossier()
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(opDoc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-PARTIAL"; dateEmission = LocalDate.of(2026, 3, 1)
+            montantOperation = BigDecimal("100000")
+            signataireOrdonnateur = "Mohamed Alami"
+            signataireComptable = null // OP a un seul signataire identifie
+        }
+        dossierRepo.save(dossier)
+
+        val r31 = validationEngine.validate(dossier).first { it.regle == "R31" }
+        assertEquals(StatutCheck.NON_CONFORME, r31.statut,
+            "Un seul signataire = decret 2-22-431 art. 21 non respecte")
+    }
+
+    @Test
+    fun `golden 42 R25 utilise dateReceptionFacture (cachet d'arrivee MADAEF) prioritaire`() {
+        // Decret 2-22-431 art. 159 : decompte des 60j a partir de la
+        // "constatation du service fait" — typiquement le cachet d'arrivee.
+        // Avant PR #2d, R25 utilisait dateReception PV ou dateFacture (moins
+        // precis). Apres : facture.dateReceptionFacture prime.
+        val marche = newMarche()
+        val dossier = newDossier(DossierType.CONTRACTUEL)
+        dossier.engagement = marche
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val pvDoc = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc, pvDoc))
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-MARCHE-1"
+            dateFacture = LocalDate.of(2026, 1, 5)
+            // Cachet MADAEF arrive 1 mois apres l'emission par le fournisseur,
+            // c'est cette date qui doit etre la reference legale pour le 60j.
+            dateReceptionFacture = LocalDate.of(2026, 2, 1)
+            montantTtc = BigDecimal("100000"); fournisseur = "X"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-MARCHE-1"; dateEmission = LocalDate.of(2026, 3, 15)
+            montantOperation = BigDecimal("100000")
+        }
+        // PV avec dateReception ancienne : on doit IGNORER au profit du cachet.
+        dossier.pvReception = PvReception(dossier = dossier, document = pvDoc).apply {
+            dateReception = LocalDate.of(2025, 12, 1) // si pris -> 104 j NOK
+        }
+        dossierRepo.save(dossier)
+
+        val r25 = validationEngine.validate(dossier).first { it.regle == "R25" }
+        assertEquals(StatutCheck.CONFORME, r25.statut,
+            "R25 doit utiliser dateReceptionFacture (42j) plutot que PV (104j)")
+        assertTrue(r25.detail!!.contains("cachet"),
+            "Le detail doit mentionner que la source est le cachet : ${r25.detail}")
+    }
+
     @Test
     fun `golden 15 R11 NON_CONFORME si RIB facture et OP differents`() {
         val dossier = newDossier()

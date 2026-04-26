@@ -42,11 +42,26 @@ class ExtractionQualityService {
         )
 
         private val IMPORTANT: Map<TypeDocument, List<String>> = mapOf(
-            TypeDocument.FACTURE to listOf("montantHT", "tauxTVA", "lignes", "identifiantFiscal", "rib"),
+            // FACTURE : `devise` est important pour R27 (CGNC + Loi 9-88) ;
+            // `dateReceptionFacture` debloque R25 (decompte 60j marche public).
+            TypeDocument.FACTURE to listOf(
+                "montantHT", "tauxTVA", "lignes", "identifiantFiscal", "rib",
+                "devise", "dateReceptionFacture"
+            ),
             TypeDocument.BON_COMMANDE to listOf("montantHT", "tauxTVA", "lignes", "objet", "signataire"),
-            TypeDocument.ORDRE_PAIEMENT to listOf("referenceFacture", "retenues", "banque", "syntheseControleur"),
+            // OP : `modePaiement` typage R26 ; `signataireOrdonnateur` et
+            // `signataireComptable` separes pour R31 (separation des pouvoirs
+            // decret 2-22-431 art. 21).
+            TypeDocument.ORDRE_PAIEMENT to listOf(
+                "referenceFacture", "retenues", "banque", "syntheseControleur",
+                "modePaiement", "signataireOrdonnateur", "signataireComptable"
+            ),
             TypeDocument.CONTRAT_AVENANT to listOf("grillesTarifaires", "dateEffet", "numeroAvenant"),
-            TypeDocument.ATTESTATION_FISCALE to listOf("identifiantFiscal", "rc", "estEnRegle", "codeVerification"),
+            // ATTESTATION : `typeAttestation` distingue REGULARITE_FISCALE
+            // (R18 6mo/3mo) des autres types qui ont leurs propres regles.
+            TypeDocument.ATTESTATION_FISCALE to listOf(
+                "identifiantFiscal", "rc", "estEnRegle", "codeVerification", "typeAttestation"
+            ),
             TypeDocument.PV_RECEPTION to listOf("signataireMadaef", "signataireFournisseur", "periodeDebut", "periodeFin"),
             TypeDocument.CHECKLIST_AUTOCONTROLE to listOf("signataires", "dateEtablissement", "referenceBc", "nomProjet"),
             TypeDocument.CHECKLIST_PIECES to listOf("typeDossier", "signataire", "dateEtablissement"),

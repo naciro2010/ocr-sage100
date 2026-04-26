@@ -27,6 +27,13 @@ class AttestationFiscale(
     @Column(name = "est_en_regle") var estEnRegle: Boolean? = null,
     @Column(name = "date_validite") var dateValidite: LocalDate? = null,
 
+    // Type d'attestation DGI : REGULARITE_FISCALE (la plus courante, R18 6mo
+    // B2B / 3mo marche public), ATTESTATION_PAIEMENT (paiement d'un impot
+    // specifique), CNSS (regularite sociale, hors scope DGI strict).
+    // Sert a R18 pour appliquer la bonne duree de validite, et permet d'eviter
+    // de confondre les types qui ont des regles distinctes.
+    @Column(name = "type_attestation", length = 30) var typeAttestation: String? = null,
+
     // "Code de verification sur www.tax.gov.ma" printed under the QR. Read by OCR/LLM.
     @Column(name = "code_verification") var codeVerification: String? = null,
     // Raw payload decoded from the QR code on the document.

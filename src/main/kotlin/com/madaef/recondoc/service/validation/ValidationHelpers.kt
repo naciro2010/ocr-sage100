@@ -174,6 +174,69 @@ fun normalizeLabel(s: String?): String {
         .trim()
 }
 
+/**
+ * Detecte si deux noms de personnes designent vraisemblablement la meme
+ * personne, en tolerant les variations courantes :
+ *   - "Mohamed Alami" vs "M. Alami" (initiale + nom de famille)
+ *   - "Mohamed Alami, DAF" vs "M. ALAMI - Directeur" (titre / fonction)
+ *   - "ALAMI Mohamed" vs "Mohamed Alami" (ordre inverse)
+ *
+ * Heuristique :
+ *   1. Normalisation (casse / accents / ponctuation, cf. normalizeLabel).
+ *   2. Match du nom de famille (dernier token significatif >= 3 lettres).
+ *   3. Si nom de famille match, verifier compatibilite des prenoms /
+ *      initiales (chaque prenom de la version courte doit avoir un
+ *      equivalent dans la version longue : meme mot OU initiale).
+ *   4. Sinon, tomber sur Jaccard classique (seuil 0.6) pour les noms tres
+ *      differents qui partageraient encore beaucoup de tokens.
+ *
+ * Conservatif : prefere flagger un faux positif (alerter sur deux personnes
+ * vraiment distinctes) plutot qu'un faux negatif (laisser passer une meme
+ * personne sur les 2 roles ordonnateur/comptable, vice de procedure majeur).
+ */
+fun personNamesLikelySame(a: String?, b: String?): Boolean {
+    val ta = normalizeLabel(a).split(" ").filter { it.isNotBlank() }
+    val tb = normalizeLabel(b).split(" ").filter { it.isNotBlank() }
+    if (ta.isEmpty() || tb.isEmpty()) return false
+    // Cas trivial : meme suite de tokens (ordre identique ou non).
+    if (ta.toSet() == tb.toSet()) return true
+    // Heuristique nom de famille : on tente DEUX positions (dernier token
+    // ET premier token >= 3 lettres) parce que les noms marocains sont
+    // ecrits soit "Mohamed Alami" soit "ALAMI Mohamed".
+    val candidatesA = setOfNotNull(
+        ta.last().takeIf { it.length >= 3 },
+        ta.first().takeIf { it.length >= 3 }
+    )
+    val candidatesB = setOfNotNull(
+        tb.last().takeIf { it.length >= 3 },
+        tb.first().takeIf { it.length >= 3 }
+    )
+    val familyMatches = candidatesA.intersect(candidatesB)
+    if (familyMatches.isNotEmpty()) {
+        val family = familyMatches.first()
+        // Verifier compatibilite des prenoms / initiales (pas deux personnes
+        // distinctes qui partageraient le meme nom de famille).
+        val (short, long) = if (ta.size <= tb.size) ta to tb else tb to ta
+        val firstShort = short.filter { it != family }
+        val firstLong = long.filter { it != family }
+        if (firstShort.isEmpty()) return true
+        if (firstLong.isEmpty()) return true
+        return firstShort.all { s ->
+            firstLong.any { l ->
+                s == l
+                    || (s.length == 1 && l.startsWith(s))
+                    || (l.length == 1 && s.startsWith(l))
+            }
+        }
+    }
+    // Fallback Jaccard sur tokens significatifs (seuil 0.6).
+    val sa = ta.filter { it.length > 1 }.toSet()
+    val sb = tb.filter { it.length > 1 }.toSet()
+    if (sa.isEmpty() || sb.isEmpty()) return false
+    val ratio = sa.intersect(sb).size.toDouble() / sa.union(sb).size.toDouble()
+    return ratio >= 0.6
+}
+
 /** Score Jaccard sur tokens normalises (0.0 = disjoint, 1.0 = identique). */
 fun labelSimilarity(a: String?, b: String?): Double {
     val na = normalizeLabel(a); val nb = normalizeLabel(b)
