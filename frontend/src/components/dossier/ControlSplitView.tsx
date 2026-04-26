@@ -1,7 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import type { DossierDetail, ValidationResult, DocumentInfo } from '../../api/dossierTypes'
 import { updateValidationResult, correctAndRerun, getDocumentFileUrl, downloadWithAuth } from '../../api/dossierApi'
-import { getActiveRules, RULE_GROUPS, ALL_RULES } from '../../config/validationRules'
+import { getActiveRules, DOC_CATEGORIES, DOC_CATEGORY_LABEL, ALL_RULES } from '../../config/validationRules'
 import type { CustomRule } from '../../api/customRulesApi'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
@@ -1061,25 +1061,38 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
   const items: RuleItem[] = useMemo(() => {
     const list: RuleItem[] = []
 
-    for (const g of RULE_GROUPS) {
-      const groupRuleCodes = systemRuleDefs.filter(r => (r as { group?: string }).group === g.key).map(r => r.code)
-      for (const code of groupRuleCodes) {
+    for (const cat of DOC_CATEGORIES) {
+      if (cat.key === 'custom' || cat.key === 'autocontrole') continue // injectes plus bas via parsedPoints / customRules
+      const catRuleCodes = systemRuleDefs.filter(r => (r as { docCategory?: string }).docCategory === cat.key).map(r => r.code)
+      for (const code of catRuleCodes) {
         const ruleDef = systemRuleDefs.find(r => r.code === code)
         const fullDef = ALL_RULES.find(r => r.code === code)
         const result = results.find(r => r.regle === code || r.regle.startsWith(code + '.')) || undefined
         const status: ItemStatus = result
           ? statutToItemStatus(result.statut)
           : 'pending'
-        list.push({ key: code, code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result, status, group: g.label, category: 'system', engine: deriveEngine({ category: 'system', result }), mini: miniVerdict(result) })
+        list.push({ key: code, code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result, status, group: cat.label, category: 'system', engine: deriveEngine({ category: 'system', result }), mini: miniVerdict(result) })
       }
     }
 
+    // Autocontrole : R12 / R13 (system) + R12.01..R12.10 (checklist parsee)
+    const autocontroleLabel = DOC_CATEGORY_LABEL.autocontrole
+    const autocontroleSystemCodes = systemRuleDefs
+      .filter(r => (r as { docCategory?: string }).docCategory === 'autocontrole')
+      .map(r => r.code)
+    for (const code of autocontroleSystemCodes) {
+      const ruleDef = systemRuleDefs.find(r => r.code === code)
+      const fullDef = ALL_RULES.find(r => r.code === code)
+      const result = results.find(r => r.regle === code || r.regle.startsWith(code + '.')) || undefined
+      const status: ItemStatus = result ? statutToItemStatus(result.statut) : 'pending'
+      list.push({ key: code, code, label: ruleDef?.label || code, desc: fullDef?.desc || '', result, status, group: autocontroleLabel, category: 'system', engine: deriveEngine({ category: 'system', result }), mini: miniVerdict(result) })
+    }
     if (parsedPoints.length > 0) {
       for (const pt of parsedPoints) {
         const rCode = `R12.${String(pt.num).padStart(2, '0')}`
         const result = results.find(r => r.regle === rCode) || undefined
         const status = result ? statutToItemStatus(result.statut) : estValideToItemStatus(pt.estValide, results.length > 0)
-        list.push({ key: `ck-${pt.num}`, code: rCode, label: pt.desc, desc: '', result, status, group: 'Autocontrole', category: 'checklist', engine: 'human', mini: miniVerdict(result) })
+        list.push({ key: `ck-${pt.num}`, code: rCode, label: pt.desc, desc: '', result, status, group: autocontroleLabel, category: 'checklist', engine: 'human', mini: miniVerdict(result) })
       }
     }
 
@@ -1098,7 +1111,7 @@ export default memo(function ControlSplitView({ dossier, dossierId, validating, 
         list.push({
           key: `custom-${cr.code}`, code: cr.code, label: cr.libelle,
           desc: cr.description ?? '', result, status,
-          group: 'Regles personnalisees (IA)', category: 'custom', engine: 'ai', custom: cr,
+          group: DOC_CATEGORY_LABEL.custom, category: 'custom', engine: 'ai', custom: cr,
           mini: miniVerdict(result),
         })
       }
