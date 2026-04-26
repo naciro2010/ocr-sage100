@@ -3628,8 +3628,13 @@ body {
   .sidebar-logout { justify-content: center; }
   .sidebar-footer { padding: 10px 8px; justify-content: center; }
   .main-content { margin-left: 52px; padding: 16px 14px; }
-  .page-header { flex-wrap: wrap; gap: 10px; margin-bottom: 16px; }
-  .page-header h1 { font-size: 17px; }
+  /* Page header : titre sur sa propre ligne, actions sur une ligne dediee
+     pour eviter que la reference soit cassee mot par mot ("DOS-/2026-/57136"). */
+  .page-header { flex-wrap: wrap; gap: 10px; margin-bottom: 16px; align-items: flex-start; }
+  .page-header h1 { font-size: 17px; flex: 1 1 100%; min-width: 0; word-break: break-word; }
+  .page-header .header-actions { flex: 1 1 100%; }
+  .header-actions { flex-wrap: wrap; gap: 6px; }
+  .header-actions .btn { flex: 1 1 auto; justify-content: center; min-width: 0; }
   .stats-grid { grid-template-columns: 1fr 1fr; }
   .stat-value { font-size: 22px; }
   .cards-row { grid-template-columns: 1fr; }
@@ -3644,18 +3649,32 @@ body {
     -webkit-overflow-scrolling: touch;
   }
   .data-table th, .data-table td { padding: 8px 10px; font-size: 12px; }
+  /* Badges + nom fournisseur : on autorise le wrap pour que le nom long ne
+     soit pas casse mot par mot dans une colonne ridicule. */
+  .card-flex { flex-wrap: wrap; gap: 8px; }
+  .card-flex-start { flex-wrap: wrap; row-gap: 6px; }
+  .card-flex-start strong { flex: 1 1 100%; font-size: 14px !important; line-height: 1.3; word-break: break-word; }
   .chart-bar-label { width: 80px; font-size: 10.5px; }
   .indicator-amount { font-size: 18px; }
   .info-grid { grid-template-columns: 1fr; }
   .split-view { grid-template-columns: 1fr; }
-  .timeline { flex-wrap: wrap; gap: 4px; }
+  /* Timeline : passe en grille pour que chaque etape garde sa lisibilite,
+     les connecteurs deviennent inutiles quand on wrap, on les masque. */
+  .timeline { flex-wrap: wrap; gap: 6px; padding: 8px 0; margin-bottom: 14px; }
+  .timeline-step { font-size: 10.5px; padding: 6px 10px; }
+  .timeline-connector { display: none; }
+  /* Metrics bar : pile verticale, pas de margin-left auto qui envoie les
+     stats dans un coin etroit. */
+  .metrics-amount-row { gap: 10px 16px; }
+  .metrics-amount { font-size: 18px; }
+  .metrics-secondary { padding-left: 12px; }
+  .metrics-checks { margin-left: 0; flex-basis: 100%; padding-top: 6px; border-top: 1px solid var(--ink-05); }
   .finalize-op-grid { grid-template-columns: 1fr 1fr; }
   .finalize-sig-grid { grid-template-columns: 1fr; }
   .engine-grid { grid-template-columns: 1fr; }
   .edv-grid.cols-3 { grid-template-columns: 1fr; }
   .login-card { width: calc(100vw - 32px); max-width: 380px; }
   .search-panel { width: calc(100vw - 32px); }
-  .header-actions { flex-wrap: wrap; }
 }
 
 /* Tres petits ecrans (< 480px) : on retire les paddings agressifs pour
@@ -3667,6 +3686,26 @@ body {
   .stat-card { padding: 12px 12px; }
   .stat-value { font-size: 20px; }
   .page-header h1 { font-size: 16px; }
+}
+
+/* ===== Responsive: Tres grands ecrans (>= 1764px) =====
+   Au-dela de 1764px (sidebar 232 + contenu 1300 + 232 marge symetrique),
+   on centre le contenu dans l'espace restant pour qu'il ne reste pas colle
+   a gauche sur les ecrans 4K / ultra-wide. La sidebar reste fixed a gauche. */
+@media (min-width: 1764px) {
+  .main-content {
+    margin-left: max(232px, calc(50% - 650px));
+    margin-right: auto;
+  }
+}
+
+/* Au-dela de 1920px on accepte un peu plus de largeur pour mieux occuper
+   les ecrans QHD/4K, tout en gardant la lisibilite (lignes pas trop larges). */
+@media (min-width: 1920px) {
+  .main-content {
+    max-width: 1500px;
+    margin-left: max(232px, calc(50% - 750px));
+  }
 }
 
 /* ============================================================
