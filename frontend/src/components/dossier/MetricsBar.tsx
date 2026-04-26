@@ -11,6 +11,16 @@ interface Props {
 
 export default memo(function MetricsBar({ dossier, nbConformes, fmt, hasProcessing }: Props) {
   const nbTotal = dossier.resultatsValidation.length
+  // Couleurs semantiques strictes (CLAUDE.md / ux-finance-designer) :
+  //   rouge  = au moins un controle NON_CONFORME (verdict bloquant)
+  //   ambre  = aucun NOK mais des AVERTISSEMENT
+  //   vert   = tous CONFORME ou NON_APPLICABLE
+  // Avant ce fix, l'ambre etait affiche meme en presence de NOK, ce qui
+  // sous-evaluait la criticite et pouvait pousser a valider un dossier KO.
+  const nbNonConformes = dossier.resultatsValidation.filter(r => r.statut === 'NON_CONFORME').length
+  const checksColor = nbNonConformes > 0 ? 'var(--danger)'
+    : nbConformes < nbTotal ? 'var(--warning)'
+    : 'var(--success)'
   const hasDocs = dossier.documents.length > 0
   const allExtracted = hasDocs && dossier.documents.every(d => d.statutExtraction === 'EXTRAIT')
   const hasValidation = nbTotal > 0
@@ -43,8 +53,10 @@ export default memo(function MetricsBar({ dossier, nbConformes, fmt, hasProcessi
               <Banknote size={14} style={{ color: 'var(--accent)', opacity: 0.5 }} aria-hidden="true" />
               <span className="metrics-checks-label">{dossier.documents.length} docs</span>
               <span className="metrics-separator" aria-hidden="true">&middot;</span>
-              <ShieldCheck size={14} style={{ color: nbConformes === nbTotal ? 'var(--success)' : 'var(--warning)', opacity: 0.7 }} aria-hidden="true" />
-              <span className="metrics-checks-label">{nbConformes}/{nbTotal} OK</span>
+              <ShieldCheck size={14} style={{ color: checksColor, opacity: 0.85 }} aria-hidden="true" />
+              <span className="metrics-checks-label" style={{ color: checksColor, fontWeight: nbNonConformes > 0 ? 600 : 500 }}>
+                {nbConformes}/{nbTotal} OK{nbNonConformes > 0 ? ` · ${nbNonConformes} bloquant${nbNonConformes > 1 ? 's' : ''}` : ''}
+              </span>
             </div>
           )}
         </div>

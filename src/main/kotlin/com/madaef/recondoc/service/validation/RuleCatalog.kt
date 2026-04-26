@@ -55,6 +55,7 @@ object RuleCatalog {
         Def("R07", "Reference facture dans l'OP", "Verifie que le numero de facture est cite dans l'ordre de paiement", "references"),
         Def("R08", "Reference BC/contrat dans l'OP", "Verifie que le numero de BC ou contrat est cite dans l'OP", "references"),
         Def("R09", "Coherence ICE", "Verifie que l'ICE est identique entre facture et attestation fiscale", "identifiants"),
+        Def("R09b", "Format ICE (15 chiffres)", "Verifie que l'ICE respecte le format legal OMPIC (decret 2-11-13) : exactement 15 chiffres", "identifiants"),
         Def("R10", "Coherence IF", "Verifie que l'identifiant fiscal est identique entre documents", "identifiants"),
         Def("R11", "Coherence RIB", "Verifie que le RIB de la facture correspond a celui de l'OP", "identifiants"),
         Def("R14", "Coherence fournisseur", "Verifie que le nom du fournisseur est coherent entre tous les documents", "identifiants"),
@@ -64,10 +65,15 @@ object RuleCatalog {
         Def("R13", "Tableau de controle", "Verifie que tous les points du TC sont Conforme ou NA", "documents"),
         Def("R17a", "Chronologie BC/Contrat → Facture", "Verifie que date BC/Contrat <= date facture", "dates"),
         Def("R17b", "Chronologie Facture → OP", "Verifie que date facture <= date OP", "dates"),
-        Def("R18", "Validite attestation fiscale", "Verifie que l'attestation fiscale a moins de 6 mois", "dates"),
+        Def("R18", "Validite attestation fiscale", "Verifie l'attestation fiscale (3 mois marche public, 6 mois B2B - Circulaire DGI 717)", "dates"),
         Def("R19", "QR code attestation fiscale", "Scanne le QR, verifie l'origine DGI (attestation.tax.gov.ma) et bloque les QR dangereux (javascript:, http non chiffre, domaine inattendu)", "dates"),
         Def("R23", "Regularite fiscale", "Verifie que l'attestation confirme que la societe est en situation reguliere (champ estEnRegle)", "documents"),
-        Def("R24", "Completude lignes facture", "Au-dessus d'un seuil de montant (defaut 50 000 MAD TTC), la facture doit comporter au moins une ligne detaillee. Sinon avertissement — soit l'extraction a manque le tableau, soit la facture est elle-meme peu detaillee pour un montant significatif", "completude")
+        Def("R24", "Completude lignes facture", "Au-dessus d'un seuil de montant (defaut 50 000 MAD TTC), la facture doit comporter au moins une ligne detaillee. Sinon avertissement — soit l'extraction a manque le tableau, soit la facture est elle-meme peu detaillee pour un montant significatif", "completude"),
+        Def("R25", "Delai paiement marche public", "Decret 2-22-431 art. 159 : delai global de paiement <= 60 jours a compter de la constatation du service fait. Specifique aux engagements de type Marche.", "dates"),
+        Def("R26", "Plafond paiement especes", "CGI art. 193-ter : tout reglement en especes > 5 000 MAD est non deductible et expose le fournisseur a une amende de 6 %.", "montants"),
+        Def("R27", "Devise MAD obligatoire", "CGNC + Loi 9-88 art. 1 : la facture marocaine doit etre libellee en MAD. EUR/USD non conforme sans contre-valeur officielle.", "identifiants"),
+        Def("R30", "Taux TVA legal", "CGI 2026 art. 87-100 : seuls les taux 0 / 7 / 10 / 14 / 20 % sont legaux. Tout autre taux signale une erreur d'extraction ou une fraude.", "montants"),
+        Def("R06b", "Taux retenue legal", "CGI : TVA marches publics = 75 % (art. 117), IR honoraires = 10 % (art. 73-II-G). Verifie que le taux declare correspond au taux legal applicable au type de retenue.", "montants")
     ) + (1..10).map { i ->
         val num = "%02d".format(i)
         Def("R12.$num", "Point checklist $num", "Controle CK$num de la checklist autocontrole CCF-EN-04", "documents", categorie = "checklist")

@@ -17,7 +17,13 @@ interface ControlPoint {
   source: 'autocontrole' | 'systeme' | 'manuel'
 }
 
-const STORAGE_KEY_SIG = 'recondoc_signature'
+// La signature manuscrite est une donnee biometrique au sens de la
+// Loi 09-08 (CNDP) et du RGPD. Elle n'est JAMAIS persistee cote
+// navigateur (localStorage / sessionStorage / indexedDB). Elle reste
+// en memoire dans le canvas le temps de la finalisation, puis est
+// envoyee au backend qui la stocke dans le PDF du TC genere.
+// Seul le nom du signataire (texte libre) reste memorise pour le
+// confort de l'utilisateur (donnee non sensible).
 const STORAGE_KEY_NAME = 'recondoc_signataire'
 
 const DEFAULT_CHECKLIST = [
@@ -52,18 +58,6 @@ export default function Finalize() {
   useEffect(() => {
     return () => { if (pdfBlobUrl) URL.revokeObjectURL(pdfBlobUrl) }
   }, [pdfBlobUrl])
-
-  useEffect(() => {
-    const saved = localStorage.getItem(STORAGE_KEY_SIG)
-    if (saved && canvasRef.current) {
-      const img = new Image()
-      img.onload = () => {
-        const ctx = canvasRef.current?.getContext('2d')
-        if (ctx) { ctx.drawImage(img, 0, 0); setHasSigned(true) }
-      }
-      img.src = saved
-    }
-  }, [dossier])
 
   useEffect(() => {
     if (!id) return
@@ -169,16 +163,13 @@ export default function Finalize() {
 
   const stopDraw = useCallback(() => {
     isDrawingRef.current = false
-    if (canvasRef.current && hasSigned) {
-      localStorage.setItem(STORAGE_KEY_SIG, canvasRef.current.toDataURL('image/png'))
-    }
-  }, [hasSigned])
+    // Pas de persistance localStorage : signature biometrique (Loi 09-08).
+  }, [])
 
   const clearSignature = () => {
     const ctx = canvasRef.current?.getContext('2d'); if (!ctx) return
     ctx.clearRect(0, 0, canvasRef.current!.width, canvasRef.current!.height)
     setHasSigned(false)
-    localStorage.removeItem(STORAGE_KEY_SIG)
   }
 
   const updatePoint = (i: number, field: keyof ControlPoint, value: string | boolean) => {
@@ -187,10 +178,9 @@ export default function Finalize() {
 
   const handleSubmit = async () => {
     if (!id || !signataire.trim()) { toast('warning', 'Nom du signataire requis'); return }
+    // Le nom du signataire reste memorise (donnee non sensible).
+    // La signature manuscrite n'est PAS persistee cote navigateur.
     localStorage.setItem(STORAGE_KEY_NAME, signataire.trim())
-    if (hasSigned && canvasRef.current) {
-      localStorage.setItem(STORAGE_KEY_SIG, canvasRef.current.toDataURL('image/png'))
-    }
     setSubmitting(true)
     try {
       const activePoints = points.filter(p => !p.skip)

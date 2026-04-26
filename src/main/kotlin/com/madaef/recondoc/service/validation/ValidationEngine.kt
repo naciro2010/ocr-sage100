@@ -27,6 +27,7 @@ class ValidationEngine(
     private val fournisseurMatchingService: com.madaef.recondoc.service.fournisseur.FournisseurMatchingService,
     private val engagementDispatcher: com.madaef.recondoc.service.validation.engagement.EngagementValidationDispatcher,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
+    @Value("\${app.tolerance-montant-pct:0.005}") private val toleranceMontantPct: String,
     @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
     @Value("\${app.anti-doublon.date-tolerance-days:3}") private val antiDoublonDateToleranceDays: Long,
     @Value("\${app.anti-doublon.montant-tolerance-pct:0.01}") private val antiDoublonMontantTolerancePct: String,
@@ -165,7 +166,14 @@ class ValidationEngine(
 
     private fun runAllRules(dossier: DossierPaiement, isEnabled: (String) -> Boolean): List<ResultatValidation> {
         val results = mutableListOf<ResultatValidation>()
+        // tol  = tolerance absolue en MAD (5 centimes par defaut) pour comparer
+        //        deux totaux issus de documents differents (ecart d'arrondi).
+        // tolPct = tolerance relative (0.5% par defaut) pour les controles
+        //        proportionnels lignes/cumuls. Sans cette distinction, les
+        //        regles R16b et R01g reutilisaient `tol` comme pourcentage,
+        //        ce qui revenait a accepter 5% d'ecart sur une ligne — trop laxiste.
         val tol = BigDecimal(toleranceMontant)
+        val tolPct = BigDecimal(toleranceMontantPct)
         val ctx = ValidationContext(
             dossier = dossier,
             facture = dossier.factures.firstOrNull(),
@@ -268,6 +276,36 @@ class ValidationEngine(
             }
         }
 
+        // R30 : taux TVA Maroc dans la liste legale (CGI 2026 art. 87-100).
+        //   0%   = exoneration (art. 91)
+        //   7%   = produits de premiere necessite (art. 99-I)
+        //   10%  = restauration / hotellerie / transport (art. 99-II)
+        //   14%  = beurre / electricite / energie (art. 99-III)
+        //   20%  = taux normal (art. 88)
+        // Tout autre taux est anormal : soit erreur d'extraction, soit
+        // facture frauduleuse cherchant a minorer la TVA collectee.
+        if (isEnabled("R30") && facture != null) {
+            val fTauxTva = facture.tauxTva ?: docAmount(fDoc, "tauxTVA")
+            if (fTauxTva != null) {
+                val tauxLegaux = listOf(BigDecimal.ZERO, BigDecimal("7"), BigDecimal("10"), BigDecimal("14"), BigDecimal("20"))
+                val ok = tauxLegaux.any { it.compareTo(fTauxTva) == 0 }
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R30",
+                    libelle = "Taux TVA conforme aux taux legaux marocains (CGI art. 87-100)",
+                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (ok)
+                        "Taux ${fTauxTva}% present dans la liste legale {0, 7, 10, 14, 20}"
+                    else
+                        "Taux ${fTauxTva}% hors liste legale CGI : verifier la facture (erreur d'extraction ou taux frauduleux)",
+                    valeurAttendue = "0 / 7 / 10 / 14 / 20",
+                    valeurTrouvee = fTauxTva.toPlainString(),
+                    evidences = listOf(
+                        evidence("source", "tauxTVA", "Taux TVA de la facture", fDoc, fTauxTva)
+                    )
+                )
+            }
+        }
+
         val opDoc = op?.document
         val arfDoc = arf?.document
         val tcDoc = dossier.documents.find { it.typeDocument == TypeDocument.TABLEAU_CONTROLE }
@@ -318,6 +356,46 @@ class ValidationEngine(
             }
         }
 
+        // R06b : conformite des taux de retenue a la source au Code General
+        // des Impots marocain. R06 verifie l'arithmetique base*taux=montant ;
+        // R06b verifie que le taux declare correspond au taux legal :
+        //   - TVA_SOURCE   = 75 % (CGI art. 117 : retenue TVA marches publics)
+        //   - IS_HONORAIRES = 10 % (CGI art. 73-II-G : retenue IR honoraires)
+        // Pour GARANTIE / AUTRE : pas de taux legal universel (depend du contrat),
+        // donc pas de check (on laisse a R-M/R-C pour les engagements typees).
+        if (isEnabled("R06b") && op != null) {
+            for (ret in op.retenues) {
+                val tauxAttendu = when (ret.type) {
+                    TypeRetenue.TVA_SOURCE -> BigDecimal("75")
+                    TypeRetenue.IS_HONORAIRES -> BigDecimal("10")
+                    else -> null
+                }
+                if (tauxAttendu != null && ret.taux != null) {
+                    val ok = ret.taux!!.subtract(tauxAttendu).abs() <= BigDecimal("0.5")
+                    val sourceArt = when (ret.type) {
+                        TypeRetenue.TVA_SOURCE -> "CGI art. 117"
+                        TypeRetenue.IS_HONORAIRES -> "CGI art. 73-II-G"
+                        else -> "CGI"
+                    }
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R06b",
+                        libelle = "Taux retenue ${ret.type} conforme au CGI (${sourceArt})",
+                        statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                        detail = if (ok)
+                            "Taux ${ret.taux}% conforme au taux legal ${tauxAttendu}% (${sourceArt})"
+                        else
+                            "Taux declare ${ret.taux}% != taux legal ${tauxAttendu}% (${sourceArt}) — verifier la retenue",
+                        valeurAttendue = "${tauxAttendu}%",
+                        valeurTrouvee = "${ret.taux}%",
+                        evidences = listOf(
+                            evidence("source", "taux", "Taux de la retenue ${ret.type}", opDoc, ret.taux),
+                            evidence("attendu", "tauxLegal", "Taux legal ${sourceArt}", null, tauxAttendu)
+                        )
+                    )
+                }
+            }
+        }
+
         if (isEnabled("R07") && facture != null && op != null) {
             val fNumero = facture.numeroFacture ?: docStr(fDoc, "numeroFacture")
             val opRefFacture = op.referenceFacture ?: docStr(opDoc, "referenceFacture")
@@ -356,12 +434,22 @@ class ValidationEngine(
         if (isEnabled("R09")) {
             val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
             val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
-            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeId(it) }.distinct()
+            // ICE = 15 chiffres significatifs (decret 2-11-13 OMPIC). On NE retire
+            // PAS les zeros de tete : `001509176000008` est l'ICE legal d'une
+            // entreprise, distinct de `1509176000008` (13 chiffres = ICE invalide
+            // ou autre entreprise). `normalizeId` aurait fait matcher les deux.
+            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeIce(it) }.distinct()
+            // ICE est obligatoire sur toute facture B2B au Maroc. Une facture
+            // existante sans ICE = NON_CONFORME systematique. L'attestation
+            // fiscale est facultative dans le scope R09 : si elle existe, son
+            // ICE doit etre coherent avec la facture.
             val statut = when {
-                iceFacture == null && iceArf == null -> StatutCheck.AVERTISSEMENT
-                iceFacture == null || iceArf == null -> StatutCheck.AVERTISSEMENT
-                normalizedIces.size == 1 -> StatutCheck.CONFORME
-                else -> StatutCheck.NON_CONFORME
+                facture == null && arf == null -> StatutCheck.AVERTISSEMENT
+                facture != null && iceFacture == null -> StatutCheck.NON_CONFORME
+                arf != null && iceArf == null && facture == null -> StatutCheck.AVERTISSEMENT
+                arf != null && iceArf == null -> StatutCheck.NON_CONFORME
+                iceFacture != null && iceArf != null && normalizedIces.size != 1 -> StatutCheck.NON_CONFORME
+                else -> StatutCheck.CONFORME
             }
             results += ResultatValidation(
                 dossier = dossier, regle = "R09",
@@ -370,8 +458,12 @@ class ValidationEngine(
                 valeurAttendue = iceFacture ?: "Absent de la facture",
                 valeurTrouvee = iceArf ?: "Absent de l'attestation fiscale",
                 detail = when (statut) {
-                    StatutCheck.AVERTISSEMENT -> "ICE absent dans ${if (iceFacture == null) "la facture" else "l'attestation fiscale"}"
-                    StatutCheck.NON_CONFORME -> "ICE differents: facture=$iceFacture, attestation=$iceArf"
+                    StatutCheck.AVERTISSEMENT -> "ICE non disponible (sources documentaires insuffisantes)"
+                    StatutCheck.NON_CONFORME -> when {
+                        facture != null && iceFacture == null -> "ICE manquant sur la facture (obligation B2B Maroc)"
+                        arf != null && iceArf == null -> "ICE manquant sur l'attestation fiscale alors que la facture en mentionne un ($iceFacture)"
+                        else -> "ICE differents : facture=$iceFacture, attestation=$iceArf"
+                    }
                     else -> "ICE identiques"
                 },
                 evidences = listOf(
@@ -381,15 +473,51 @@ class ValidationEngine(
             )
         }
 
+        // R09b : validite du format ICE (decret 2-11-13 + arrete OMPIC).
+        // Un ICE doit faire exactement 15 chiffres. Un ICE plus court (ex:
+        // perte de zeros initiaux par OCR) ou plus long est anormal et doit
+        // bloquer le dossier — la regle de coherence R09 ne suffit pas car
+        // deux ICE tronques identiques se "matcheraient" silencieusement.
+        if (isEnabled("R09b")) {
+            val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            val invalides = mutableListOf<String>()
+            val r09bEvidences = mutableListOf<ValidationEvidence>()
+            if (iceFacture != null && !isIceFormatValid(iceFacture)) {
+                invalides += "ICE facture invalide : '$iceFacture' (attendu 15 chiffres)"
+                r09bEvidences += evidence("source", "ice", "ICE sur la facture", fDoc, iceFacture)
+            }
+            if (iceArf != null && !isIceFormatValid(iceArf)) {
+                invalides += "ICE attestation fiscale invalide : '$iceArf' (attendu 15 chiffres)"
+                r09bEvidences += evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf)
+            }
+            // Ne lever de resultat que si au moins un ICE etait extrait : sinon
+            // R09 a deja signale l'absence et on ne veut pas du bruit redondant.
+            if (iceFacture != null || iceArf != null) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R09b",
+                    libelle = "Format ICE valide (15 chiffres exacts)",
+                    statut = if (invalides.isEmpty()) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (invalides.isEmpty())
+                        "ICE au format attendu (15 chiffres)"
+                    else
+                        invalides.joinToString(" | "),
+                    evidences = r09bEvidences.ifEmpty { null }
+                )
+            }
+        }
+
         if (isEnabled("R10")) {
             val ifFacture = (facture?.identifiantFiscal ?: docStr(fDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
             val ifArf = (arf?.identifiantFiscal ?: docStr(arfDoc, "identifiantFiscal"))?.trim()?.takeIf { it.isNotBlank() }
             val normalizedIfs = listOfNotNull(ifFacture, ifArf).mapNotNull { normalizeId(it) }.distinct()
             val statut = when {
-                ifFacture == null && ifArf == null -> StatutCheck.AVERTISSEMENT
-                ifFacture == null || ifArf == null -> StatutCheck.AVERTISSEMENT
-                normalizedIfs.size == 1 -> StatutCheck.CONFORME
-                else -> StatutCheck.NON_CONFORME
+                facture == null && arf == null -> StatutCheck.AVERTISSEMENT
+                facture != null && ifFacture == null -> StatutCheck.NON_CONFORME
+                arf != null && ifArf == null && facture == null -> StatutCheck.AVERTISSEMENT
+                arf != null && ifArf == null -> StatutCheck.NON_CONFORME
+                ifFacture != null && ifArf != null && normalizedIfs.size != 1 -> StatutCheck.NON_CONFORME
+                else -> StatutCheck.CONFORME
             }
             results += ResultatValidation(
                 dossier = dossier, regle = "R10",
@@ -398,8 +526,12 @@ class ValidationEngine(
                 valeurAttendue = ifFacture ?: "Absent de la facture",
                 valeurTrouvee = ifArf ?: "Absent de l'attestation fiscale",
                 detail = when (statut) {
-                    StatutCheck.AVERTISSEMENT -> "IF absent dans ${if (ifFacture == null) "la facture" else "l'attestation fiscale"}"
-                    StatutCheck.NON_CONFORME -> "IF differents: facture=$ifFacture, attestation=$ifArf"
+                    StatutCheck.AVERTISSEMENT -> "IF non disponible (sources documentaires insuffisantes)"
+                    StatutCheck.NON_CONFORME -> when {
+                        facture != null && ifFacture == null -> "IF manquant sur la facture"
+                        arf != null && ifArf == null -> "IF manquant sur l'attestation fiscale alors que la facture en mentionne un ($ifFacture)"
+                        else -> "IF differents : facture=$ifFacture, attestation=$ifArf"
+                    }
                     else -> "IF identiques"
                 },
                 evidences = listOf(
@@ -530,7 +662,7 @@ class ValidationEngine(
                     mismatches += "Raison sociale : facture « $fRaison » ≠ attestation « $arfRaison » (similarite ${"%.0f".format(sim * 100)}%)"
                 }
             }
-            if (fIce != null && arfIce != null && normalizeId(fIce) != normalizeId(arfIce)) {
+            if (fIce != null && arfIce != null && normalizeIce(fIce) != normalizeIce(arfIce)) {
                 mismatches += "ICE : facture=$fIce, attestation=$arfIce"
             }
             if (fIf != null && arfIf != null && normalizeId(fIf) != normalizeId(arfIf)) {
@@ -569,22 +701,34 @@ class ValidationEngine(
 
         if (isEnabled("R21") && allFactures.isNotEmpty()) {
             measureRule("R21", results) {
-                val tolPct = BigDecimal(antiDoublonMontantTolerancePct)
+                val antiDoublonTolPct = BigDecimal(antiDoublonMontantTolerancePct)
                 val today = LocalDate.now()
                 val lookbackFrom = today.minusMonths(antiDoublonLookbackMonths)
                 val dossierId = dossier.id!!
                 for (f in allFactures) {
                     val doublons = mutableListOf<String>()
+                    val compensations = mutableListOf<String>()
                     val r21Evidences = mutableListOf<ValidationEvidence>()
 
                     val numero = f.numeroFacture?.takeIf { it.isNotBlank() }
+                    val isCurrentAvoir = isFactureAvoir(f)
+
                     if (numero != null) {
                         val byNumero = factureRepository.findByNumeroFacture(numero, lookbackFrom, dossierId)
                         byNumero.forEach { d ->
-                            doublons += "Meme numero '${numero}' dans dossier ${d.dossier.reference}" +
-                                (d.dateFacture?.let { " du ${it}" } ?: "")
-                            r21Evidences += evidence("doublon", "numeroFacture",
-                                "Doublon par numero - dossier ${d.dossier.reference}", f.document, numero)
+                            val dIsAvoir = isFactureAvoir(d)
+                            // Une compensation legitime : l'un des deux est un avoir
+                            // (libelle AVOIR/ANNUL/RECTIF ou montant TTC negatif).
+                            if (isCurrentAvoir != dIsAvoir) {
+                                compensations += "Compensation : '${numero}' lie a un avoir dans dossier ${d.dossier.reference}"
+                                r21Evidences += evidence("compensation", "numeroFacture",
+                                    "Avoir/compensation - dossier ${d.dossier.reference}", f.document, numero)
+                            } else {
+                                doublons += "Meme numero '${numero}' dans dossier ${d.dossier.reference}" +
+                                    (d.dateFacture?.let { " du ${it}" } ?: "")
+                                r21Evidences += evidence("doublon", "numeroFacture",
+                                    "Doublon par numero - dossier ${d.dossier.reference}", f.document, numero)
+                            }
                         }
                     }
 
@@ -592,8 +736,12 @@ class ValidationEngine(
                     val date = f.dateFacture
                     val canonId = f.fournisseurCanonique?.id
                     val fournisseur = f.fournisseur?.takeIf { it.isNotBlank() }
-                    if (ttc != null && date != null) {
-                        val delta = ttc.multiply(tolPct)
+                    // Le combo fournisseur+montant+date n'a de sens que sur des
+                    // factures non-avoir et avec un TTC strictement positif :
+                    // sinon la fenetre BETWEEN se centre sur 0 ou un montant
+                    // negatif et matche tout ce qui flotte autour.
+                    if (ttc != null && date != null && !isCurrentAvoir && ttc.signum() > 0) {
+                        val delta = ttc.multiply(antiDoublonTolPct)
                         val mMin = ttc.subtract(delta)
                         val mMax = ttc.add(delta)
                         val dMin = date.minusDays(antiDoublonDateToleranceDays)
@@ -605,7 +753,9 @@ class ValidationEngine(
                             factureRepository.findByMontantFournisseurDate(fournisseur, mMin, mMax, dMin, dMax, dossierId)
                         } else emptyList()
 
-                        byCombo.filter { it.numeroFacture?.equals(numero, ignoreCase = true) != true }
+                        byCombo
+                            .filter { it.numeroFacture?.equals(numero, ignoreCase = true) != true }
+                            .filter { !isFactureAvoir(it) } // exclure les avoirs/compensations
                             .forEach { d ->
                                 val via = if (canonId != null) "meme fournisseur canonique" else "meme fournisseur"
                                 doublons += "${via}, montant/date (+/- ${antiDoublonDateToleranceDays}j) dans dossier ${d.dossier.reference}"
@@ -615,21 +765,36 @@ class ValidationEngine(
                             }
                     }
 
-                    if (doublons.isNotEmpty()) {
-                        results += ResultatValidation(
-                            dossier = dossier, regle = "R21",
-                            libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
-                            statut = StatutCheck.NON_CONFORME,
-                            detail = doublons.joinToString(" | "),
-                            evidences = r21Evidences.ifEmpty { null }
-                        )
-                    } else {
-                        results += ResultatValidation(
-                            dossier = dossier, regle = "R21",
-                            libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
-                            statut = StatutCheck.CONFORME,
-                            detail = "Aucun doublon detecte pour la facture ${f.numeroFacture ?: "(sans numero)"}"
-                        )
+                    when {
+                        doublons.isNotEmpty() -> {
+                            val detail = doublons.joinToString(" | ") +
+                                if (compensations.isNotEmpty()) " | (compensations ignorees : ${compensations.size})" else ""
+                            results += ResultatValidation(
+                                dossier = dossier, regle = "R21",
+                                libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
+                                statut = StatutCheck.NON_CONFORME,
+                                detail = detail,
+                                evidences = r21Evidences.ifEmpty { null }
+                            )
+                        }
+                        compensations.isNotEmpty() -> {
+                            results += ResultatValidation(
+                                dossier = dossier, regle = "R21",
+                                libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
+                                statut = StatutCheck.CONFORME,
+                                detail = "Compensation/avoir detecte(s) (${compensations.size}), aucun doublon : " + compensations.joinToString(" | "),
+                                evidences = r21Evidences.ifEmpty { null }
+                            )
+                        }
+                        else -> {
+                            results += ResultatValidation(
+                                dossier = dossier, regle = "R21",
+                                libelle = "Anti-doublon facture (${antiDoublonLookbackMonths} mois glissants)",
+                                statut = StatutCheck.CONFORME,
+                                detail = "Aucun doublon detecte pour la facture ${f.numeroFacture ?: "(sans numero)"}" +
+                                    if (isCurrentAvoir) " (avoir/compensation, hors detection combo)" else ""
+                            )
+                        }
                     }
                 }
             }
@@ -678,6 +843,122 @@ class ValidationEngine(
                         )
                     }
                 }
+            }
+        }
+
+        // R25 : delai legal de paiement <= 60 jours pour les marches publics
+        // (decret 2-22-431 du 08/03/2023, art. 159). Le decompte court a partir
+        // de la date de constatation du service fait (PV de reception). On
+        // utilise dateReception PV en priorite, sinon dateFacture en repli.
+        // S'applique uniquement quand l'engagement est un Marche public.
+        if (isEnabled("R25")) {
+            val isMarche = dossier.engagement?.typeEngagement() == com.madaef.recondoc.entity.engagement.TypeEngagement.MARCHE
+            if (isMarche && op != null) {
+                val dateOp = op.dateEmission ?: docStr(opDoc, "dateEmission")?.let { parseLocalDate(it) }
+                val dateReception = pv?.dateReception ?: pv?.periodeFin
+                    ?: facture?.dateFacture
+                    ?: docStr(fDoc, "dateFacture")?.let { parseLocalDate(it) }
+                if (dateOp != null && dateReception != null) {
+                    val jours = ChronoUnit.DAYS.between(dateReception, dateOp)
+                    val ok = jours in 0..60
+                    val source = "Decret 2-22-431 art. 159 (delai global de paiement marche public)"
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R25",
+                        libelle = "Delai paiement marche public <= 60 jours",
+                        statut = when {
+                            ok -> StatutCheck.CONFORME
+                            jours < 0 -> StatutCheck.NON_CONFORME
+                            else -> StatutCheck.NON_CONFORME
+                        },
+                        detail = if (ok)
+                            "OP emis ${jours} j apres la reception (limite 60 j). ${source}."
+                        else if (jours < 0)
+                            "OP du ${dateOp} anterieur a la reception du ${dateReception} (cf. R22). ${source}."
+                        else
+                            "Delai de paiement ${jours} jours, depasse le plafond legal de 60 jours. ${source}.",
+                        valeurAttendue = "<= 60 jours",
+                        valeurTrouvee = "${jours} jours",
+                        evidences = listOfNotNull(
+                            evidence("source", "dateReception", "Date constatation service fait", pv?.document ?: fDoc, dateReception),
+                            evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOp)
+                        )
+                    )
+                }
+            }
+        }
+
+        // R26 : plafond legal de paiement en especes (CGI art. 193-ter +
+        // Loi de finances 2019, maintenu en 2026). Tout paiement > 5 000 MAD
+        // hors circuit bancaire est non deductible et expose le fournisseur
+        // a une amende de 6 % (art. 193-ter §II). On detecte le paiement en
+        // especes via op.natureOperation et op.donneesExtraites.modePaiement.
+        if (isEnabled("R26") && op != null) {
+            val nature = (op.natureOperation ?: docStr(opDoc, "natureOperation") ?: "")
+                .lowercase()
+            val mode = (docStr(opDoc, "modePaiement") ?: "")
+                .lowercase()
+            val isCash = listOf("especes", "espèce", "espece", "cash", "comptant", "liquide")
+                .any { it in nature || it in mode }
+            val montant = op.montantOperation ?: docAmount(opDoc, "montantOperation", "montant")
+            if (isCash && montant != null) {
+                val plafond = BigDecimal("5000")
+                val depasse = montant.compareTo(plafond) > 0
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R26",
+                    libelle = "Plafond paiement especes (CGI art. 193-ter)",
+                    statut = if (depasse) StatutCheck.NON_CONFORME else StatutCheck.CONFORME,
+                    detail = if (depasse)
+                        "Paiement especes ${montant} MAD > plafond legal 5 000 MAD : non deductible (CGI art. 193-ter), amende 6 % encourue par le fournisseur."
+                    else
+                        "Paiement especes ${montant} MAD <= plafond 5 000 MAD",
+                    valeurAttendue = "<= 5 000 MAD si especes",
+                    valeurTrouvee = "${montant} MAD ${if (isCash) "(especes)" else ""}",
+                    evidences = listOfNotNull(
+                        evidence("source", "natureOperation", "Mode de reglement OP", opDoc, op.natureOperation ?: nature),
+                        evidence("source", "montantOperation", "Montant de l'OP", opDoc, montant)
+                    )
+                )
+            }
+        }
+
+        // R27 : devise obligatoirement MAD (CGNC + Loi 9-88 art. 1).
+        // Une facture marocaine doit etre libellee en MAD. Une facture en
+        // EUR / USD sans contre-valeur MAD signalee est non conforme : risque
+        // de comptabilisation au mauvais cours, contournement du controle des
+        // changes Office des Changes. Lecture priorite :
+        //   1. donneesExtraites.devise (champ explicite si extrait)
+        //   2. detection texte EUR/USD/€/$ dans nature ou raison sociale
+        //   3. defaut MAD si rien detecte (pas de signal d'alerte)
+        if (isEnabled("R27") && facture != null) {
+            val devise = (docStr(fDoc, "devise", "currency") ?: "").trim().uppercase()
+            val texte = listOfNotNull(
+                docStr(fDoc, "natureOperation"),
+                docStr(fDoc, "totalEnLettres"),
+                docStr(fDoc, "mentionsLegales")
+            ).joinToString(" ").uppercase()
+            val deviseEffective = when {
+                devise.isNotBlank() -> devise
+                "EUR" in texte || "EURO" in texte || "€" in texte -> "EUR"
+                "USD" in texte || "DOLLAR" in texte || "$" in texte -> "USD"
+                else -> "MAD" // par defaut suppose MAD (pas d'alerte sur silence)
+            }
+            val deviseValide = deviseEffective in setOf("MAD", "DH", "DHS", "DIRHAM", "DIRHAMS")
+            // Pas de check si on n'a aucun signal explicite : eviter le bruit.
+            if (devise.isNotBlank() || (!deviseValide)) {
+                results += ResultatValidation(
+                    dossier = dossier, regle = "R27",
+                    libelle = "Devise MAD obligatoire (CGNC + Loi 9-88)",
+                    statut = if (deviseValide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (deviseValide)
+                        "Devise = ${deviseEffective}, conforme au CGNC."
+                    else
+                        "Devise detectee = ${deviseEffective}. Une facture marocaine doit etre en MAD (CGNC art. 1, Loi 9-88).",
+                    valeurAttendue = "MAD",
+                    valeurTrouvee = deviseEffective,
+                    evidences = listOf(
+                        evidence("source", "devise", "Devise extraite ou detectee", fDoc, deviseEffective)
+                    )
+                )
             }
         }
 
@@ -792,8 +1073,12 @@ class ValidationEngine(
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17a",
                     libelle = "Chronologie : date BC/Contrat <= date Facture",
-                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.AVERTISSEMENT,
-                    valeurAttendue = dateBcContrat.toString(), valeurTrouvee = dateFacture.toString(),
+                    // Une facture anterieure au BC/Contrat = engagement post-facto :
+                    // scenario typique de regularisation a posteriori, bloquant.
+                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (ok) null else
+                        "Facture du ${dateFacture} anterieure au BC/Contrat du ${dateBcContrat} : engagement non couvert au moment de la facturation.",
+                    valeurAttendue = ">= ${dateBcContrat}", valeurTrouvee = dateFacture.toString(),
                     evidences = listOf(
                         evidence("attendu", if (bc != null) "dateBc" else "dateSignature", "Date BC / Contrat", refDoc, dateBcContrat),
                         evidence("trouve", "dateFacture", "Date de la facture", fDoc, dateFacture)
@@ -805,8 +1090,12 @@ class ValidationEngine(
                 results += ResultatValidation(
                     dossier = dossier, regle = "R17b",
                     libelle = "Chronologie : date Facture <= date OP",
-                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.AVERTISSEMENT,
-                    valeurAttendue = dateFacture.toString(), valeurTrouvee = dateOp.toString(),
+                    // Un OP anterieur a la facture = paiement antidate, scenario fraude.
+                    // Bloquant pour fiabilite 100%.
+                    statut = if (ok) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
+                    detail = if (ok) null else
+                        "OP emis le ${dateOp} avant la facture du ${dateFacture} : paiement antidate, incoherence chronologique.",
+                    valeurAttendue = ">= ${dateFacture}", valeurTrouvee = dateOp.toString(),
                     evidences = listOf(
                         evidence("attendu", "dateFacture", "Date de la facture", fDoc, dateFacture),
                         evidence("trouve", "dateEmission", "Date d'emission de l'OP", opDoc, dateOp)
@@ -818,15 +1107,31 @@ class ValidationEngine(
         val arfDateEdition = arf?.dateEdition
             ?: docStr(arfDoc, "dateEdition")?.let { parseLocalDate(it) }
         if (isEnabled("R18") && arfDateEdition != null) {
-            val valide = arfDateEdition.plusMonths(6).isAfter(LocalDate.now())
+            // La duree de validite varie selon le contexte (Circulaire DGI 717
+            // / Instruction DGI 2014) :
+            //   - Marche public : 3 mois (rappele par le decret 2-22-431)
+            //   - B2B / BC / contrat hors marche : 6 mois (regle generale DGI)
+            // Borne inclusive : l'attestation editee le 26/10/2025 reste valide
+            // jusqu'a la fin de journee du 26/04/2026 (M+6) ; utiliser !isBefore
+            // pour inclure le jour exact d'expiration. La date de reference est
+            // `op.dateEmission` si dispo (= date du paiement, c'est elle qui
+            // doit etre couverte par une attestation valide), sinon today().
+            val isMarche = dossier.engagement?.typeEngagement() == com.madaef.recondoc.entity.engagement.TypeEngagement.MARCHE
+            val mois = if (isMarche) 3L else 6L
+            val refDate = op?.dateEmission ?: LocalDate.now()
+            val limite = arfDateEdition.plusMonths(mois)
+            val valide = !limite.isBefore(refDate)
+            val source = if (isMarche) "Circulaire DGI 717 / decret 2-22-431 (3 mois marche public)"
+                         else "Regle generale DGI (6 mois B2B)"
             results += ResultatValidation(
                 dossier = dossier, regle = "R18",
-                libelle = "Validite attestation fiscale (6 mois)",
+                libelle = "Validite attestation fiscale (${mois} mois ${if (isMarche) "marche public" else "B2B"})",
                 statut = if (valide) StatutCheck.CONFORME else StatutCheck.NON_CONFORME,
-                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${arfDateEdition.plusMonths(6)}",
+                detail = "Editee le ${arfDateEdition}, valide jusqu'au ${limite} inclus, evaluee au ${refDate}. ${source}.",
                 evidences = listOf(
                     evidence("source", "dateEdition", "Date d'edition de l'attestation", arfDoc, arfDateEdition),
-                    evidence("calcule", "dateValidite", "Valide jusqu'au (+6 mois)", null, arfDateEdition.plusMonths(6))
+                    evidence("calcule", "dateValidite", "Valide jusqu'au (+${mois} mois, inclus)", null, limite),
+                    evidence("calcule", "dateReference", "Date de reference (OP ou aujourd'hui)", opDoc, refDate)
                 )
             )
         }
@@ -863,7 +1168,10 @@ class ValidationEngine(
                 val expected = q.multiply(pu).setScale(2, RoundingMode.HALF_UP)
                 val diff = expected.subtract(mt).abs()
                 val base = expected.abs().max(mt.abs()).max(BigDecimal.ONE)
-                if (diff.divide(base, 6, RoundingMode.HALF_UP) > tol) {
+                // Hybride absolu (rounding) + relatif strict (0.5%) pour ne pas
+                // confondre tolerance-cents et tolerance-%.
+                val limite = tol.max(base.multiply(tolPct))
+                if (diff > limite) {
                     val label = ligne.designation.take(60)
                     badLines += "Ligne ${idx + 1} \"$label\" : ${q} x ${pu} = ${expected}, trouve ${mt}"
                     r16bEvidences += evidence("trouve", "ligne${idx + 1}", "Ligne ${idx + 1}: $label",
@@ -984,7 +1292,10 @@ class ValidationEngine(
                     if (flPu != null && rl.prixUnitaireHt != null) {
                         val diff = flPu.subtract(rl.prixUnitaireHt).abs()
                         val base = rl.prixUnitaireHt.abs().max(BigDecimal.ONE)
-                        if (diff.divide(base, 6, RoundingMode.HALF_UP) > tol) {
+                        // Hybride absolu + relatif strict : 0.5% ou 5 centimes,
+                        // selon le plus permissif. Eviter `tol` seul comme % (laxiste).
+                        val limite = tol.max(base.multiply(tolPct))
+                        if (diff > limite) {
                             lineIssues += "PU facture=${flPu}, $refLabel=${rl.prixUnitaireHt}"
                         }
                     }
