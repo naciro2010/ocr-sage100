@@ -115,6 +115,9 @@ class DossierExportService(
     ): Document {
         val dossierId = requireNotNull(dossier.id) { "Dossier id is required for generated exports" }
         val existing = documentRepo.findByDossierIdAndTypeDocument(dossierId, type)
+        // Capture l'ancien pointeur AVANT toute mutation : `apply` ci-dessous
+        // reecrit `existing.cheminFichier` et perdrait l'info pour le cleanup.
+        val oldPointer = existing?.cheminFichier
         val newPointer = documentStorage.store(dossierId, fileName, bytes)
 
         return try {
@@ -129,7 +132,6 @@ class DossierExportService(
                 statutExtraction = StatutExtraction.EXTRAIT
             }
             documentRepo.save(updated).also {
-                val oldPointer = existing?.cheminFichier
                 if (!oldPointer.isNullOrBlank() && oldPointer != newPointer) {
                     documentStorage.delete(oldPointer)
                 }
