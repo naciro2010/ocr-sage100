@@ -132,7 +132,7 @@ class DossierService(
         // Build donneesExtraites map by type from documents (avoids loading 7 entity tables)
         val byType = documents.groupBy { it.typeDocument }
         fun extractedFor(type: TypeDocument): Map<String, Any?>? =
-            if (light) null else byType[type]?.firstOrNull()?.donneesExtraites
+            if (light) null else displayExtraction(byType[type]?.firstOrNull()?.donneesExtraites)
 
         val factureMaps = if (light) emptyList() else factures.map { factureToMap(it) }
 
@@ -162,7 +162,110 @@ class DossierService(
     fun getDocumentExtractedData(dossierId: UUID, documentId: UUID): Map<String, Any?>? {
         val doc = documentRepo.findById(documentId).orElseThrow { NoSuchElementException("Document not found") }
         require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
-        return doc.donneesExtraites
+        return displayExtraction(doc.donneesExtraites)
+    }
+
+    /**
+     * Met a jour un champ scalaire de l'extraction d'un document (correction
+     * humaine). La valeur saisie est persistee dans `Document.donneesExtraites`
+     * ET reportee sur l'entite typee correspondante (Facture / BonCommande /
+     * OrdrePaiement / ...) pour que la prochaine relance de la verification la
+     * prenne en compte sans la perdre.
+     *
+     * Garanties :
+     *  - les champs systeme/calcules (`_qr`, `_confidence`, `_warnings`, ...)
+     *    ne peuvent pas etre edites depuis l'UI ;
+     *  - les structures complexes (listes, objets imbriques) doivent etre
+     *    re-extraites, pas saisies a la main ;
+     *  - une rerun d'extraction ulterieure ecrase la correction (comportement
+     *    attendu : seul un nouveau passage OCR+IA peut ecraser une correction
+     *    humaine).
+     */
+    @Transactional
+    fun updateDocumentExtractedField(
+        dossierId: UUID,
+        documentId: UUID,
+        field: String,
+        value: Any?
+    ): Map<String, Any?> {
+        require(field.isNotBlank()) { "field obligatoire" }
+        require(!field.startsWith("_")) { "Champ systeme non editable: $field" }
+
+        val doc = documentRepo.findById(documentId)
+            .orElseThrow { NoSuchElementException("Document not found") }
+        require(doc.dossier.id == dossierId) { "Document does not belong to this dossier" }
+
+        val existing = doc.donneesExtraites?.toMutableMap() ?: mutableMapOf()
+        val previous = existing[field]
+        require(previous !is List<*> && previous !is Map<*, *>) {
+            "Champ structure non editable a la main: $field (relance l'extraction pour le corriger)"
+        }
+
+        val normalized = normalizeCorrectedValue(field, value, previous)
+        existing[field] = normalized
+        doc.donneesExtraites = existing.toMap()
+
+        // Re-aligne l'entite typee (Facture/BC/OP/...) avec la valeur corrigee.
+        // ValidationEngine lit en priorite sur ces entites typees, donc cette
+        // synchronisation est ce qui rend la correction "vivante" lors d'une
+        // relance des regles.
+        saveExtractedEntity(doc.dossier, doc, doc.typeDocument, doc.donneesExtraites!!)
+
+        audit(dossierId, "CORRECT_EXTRACTION",
+            "${doc.nomFichier} [${doc.typeDocument}] $field: ${previous ?: "-"} -> ${normalized ?: "-"}")
+        log.info("Correction extraction dossier={} doc={} champ={} {} -> {}",
+            doc.dossier.reference, doc.nomFichier, field, previous, normalized)
+
+        return displayExtraction(doc.donneesExtraites) ?: emptyMap()
+    }
+
+    /**
+     * Normalise la valeur corrigee selon le type detecte :
+     *  - on respecte le type d'origine quand il existe (Number reste Number,
+     *    String reste String, Boolean reste Boolean) ;
+     *  - sinon, on utilise des heuristiques sur le nom du champ pour parser
+     *    les montants et taux ;
+     *  - une chaine vide est interpretee comme un effacement (null).
+     */
+    private fun normalizeCorrectedValue(field: String, value: Any?, previous: Any?): Any? {
+        if (value == null) return null
+        val raw = when (value) {
+            is String -> value.trim()
+            is Number -> value.toString()
+            is Boolean -> value.toString()
+            else -> value.toString().trim()
+        }
+        if (raw.isBlank()) return null
+
+        val lower = field.lowercase()
+        val looksNumeric = previous is Number ||
+            lower.contains("montant") || lower.contains("ht") ||
+            lower.contains("ttc") || lower.contains("tva") ||
+            lower.contains("taux") || lower.contains("prix")
+
+        if (previous is Boolean) {
+            return when (raw.lowercase()) {
+                "true", "oui", "yes", "1" -> true
+                "false", "non", "no", "0" -> false
+                else -> raw
+            }
+        }
+        if (looksNumeric) {
+            parseMonetaryAmount(raw)?.let { return it }
+        }
+        return raw
+    }
+
+    /**
+     * Filtre les champs systeme/calcules (`_qr`, `_confidence`, `_warnings`,
+     * ...) avant d'envoyer l'extraction a l'UI : l'utilisateur ne doit voir que
+     * ce qui a ete reellement extrait, pas les metadonnees ni les controles
+     * derives. Les cles avec prefixe `_` sont conservees en base (audit) mais
+     * exclues de la reponse API.
+     */
+    private fun displayExtraction(data: Map<String, Any?>?): Map<String, Any?>? {
+        if (data == null) return null
+        return data.filterKeys { !it.startsWith("_") }
     }
 
     @Transactional(readOnly = true)
@@ -224,10 +327,10 @@ class DossierService(
     fun listDocumentsWithData(dossierId: UUID): Map<String, Any?> {
         val docs = documentRepo.findByDossierId(dossierId)
 
-        fun docData(type: TypeDocument) = docs.find { it.typeDocument == type }?.donneesExtraites
+        fun docData(type: TypeDocument) = displayExtraction(docs.find { it.typeDocument == type }?.donneesExtraites)
         val factureDocs = docs.filter { it.typeDocument == TypeDocument.FACTURE }
         val factureDataList = factureDocs.map { doc ->
-            val data = doc.donneesExtraites ?: emptyMap()
+            val data = displayExtraction(doc.donneesExtraites) ?: emptyMap()
             data + mapOf("documentId" to doc.id?.toString())
         }
 

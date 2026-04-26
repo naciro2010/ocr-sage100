@@ -417,6 +417,27 @@ export async function searchDossiers(params: {
   return handleResponse(res)
 }
 
+/**
+ * Persiste une correction humaine sur un champ extrait. Le backend met a jour
+ * `Document.donneesExtraites` ET l'entite typee correspondante (Facture / BC /
+ * OP / ...), donc une relance ulterieure des regles utilise la valeur corrigee.
+ * Seule une re-extraction (reprocess document) ecrase une correction.
+ */
+export async function updateExtractedField(
+  dossierId: string,
+  docId: string,
+  field: string,
+  value: string | number | boolean | null
+): Promise<Record<string, unknown>> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/documents/${docId}/extraction`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ field, value }),
+  })
+  return handleResponse(res)
+}
+
 export async function rerunValidationRule(dossierId: string, regle: string): Promise<ValidationResult[]> {
   invalidateCache(dossierId)
   const res = await apiFetch(`${BASE}/${dossierId}/validation/rerun/${regle}`, { method: 'POST' })

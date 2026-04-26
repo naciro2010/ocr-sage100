@@ -374,7 +374,13 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             {showExtracted && (
               <div style={{ padding: '0 18px 18px' }}>
                 {selectedDoc.statutExtraction === 'ERREUR' && <div className="alert alert-error mb-2"><XCircle size={14} /> {selectedDoc.erreurExtraction}</div>}
-                <ExtractedDataView data={getDataForType(selectedDoc.typeDocument, selectedDoc.id) || selectedDoc.donneesExtraites} docType={selectedDoc.typeDocument} />
+                <ExtractedDataView
+                  data={getDataForType(selectedDoc.typeDocument, selectedDoc.id) || selectedDoc.donneesExtraites}
+                  docType={selectedDoc.typeDocument}
+                  dossierId={id}
+                  docId={selectedDoc.id}
+                  onUpdated={onReload}
+                />
               </div>
             )}
           </div>

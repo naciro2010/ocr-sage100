@@ -207,7 +207,11 @@ fun Document.toResponse(includeExtractedData: Boolean = true): DocumentResponse 
     id = id!!, typeDocument = typeDocument, nomFichier = nomFichier,
     statutExtraction = statutExtraction, erreurExtraction = erreurExtraction,
     dateUpload = dateUpload,
-    donneesExtraites = if (includeExtractedData) donneesExtraites else null,
+    // L'UI ne doit afficher que les champs reellement extraits, pas les
+    // metadonnees / valeurs calculees prefixees par `_` (`_qr`, `_confidence`,
+    // `_warnings`, ...). Ces dernieres restent stockees en base pour l'audit
+    // et le moteur de regles.
+    donneesExtraites = if (includeExtractedData) donneesExtraites?.filterKeys { !it.startsWith("_") } else null,
     ocrEngine = ocrEngine, ocrConfidence = ocrConfidence,
     extractionConfidence = extractionConfidence,
     extractionWarnings = extractionWarnings?.split("||")?.filter { it.isNotBlank() } ?: emptyList()

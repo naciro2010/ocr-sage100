@@ -88,6 +88,28 @@ class DossierController(
             .body(data)
     }
 
+    /**
+     * Corrige une valeur extraite d'un document. La valeur est persistee dans
+     * `Document.donneesExtraites` ET dans l'entite typee correspondante, donc
+     * une relance de la verification (rerun rule / valider dossier) la prend en
+     * compte sans la perdre. Seule une re-extraction OCR+IA peut ecraser une
+     * correction humaine.
+     *
+     * Body: `{"field": "montantTTC", "value": "12345.00"}`.
+     */
+    @PatchMapping("/{id}/documents/{docId}/extraction")
+    fun updateDocumentExtractedField(
+        @PathVariable id: UUID,
+        @PathVariable docId: UUID,
+        @RequestBody body: Map<String, Any?>
+    ): ResponseEntity<Map<String, Any?>> {
+        val field = (body["field"] as? String)?.trim().orEmpty()
+        require(field.isNotEmpty()) { "field obligatoire" }
+        val value = body["value"]
+        val updated = dossierService.updateDocumentExtractedField(id, docId, field, value)
+        return ResponseEntity.ok(updated)
+    }
+
     @GetMapping("/{id}/documents/{docId}/ocr-text", produces = [MediaType.TEXT_PLAIN_VALUE])
     fun getDocumentOcrText(
         @PathVariable id: UUID,

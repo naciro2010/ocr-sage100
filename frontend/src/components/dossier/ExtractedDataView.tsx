@@ -1,10 +1,17 @@
-import { memo } from 'react'
+import { memo, useCallback, useState } from 'react'
 import { useToast } from '../Toast'
 import { rulesForField } from '../../config/validationRules'
+import { updateExtractedField } from '../../api/dossierApi'
 
 interface Props {
   data: Record<string, unknown> | null | undefined
   docType?: string
+  // Quand `dossierId` + `docId` sont fournis, l'edition inline persiste la
+  // correction via PATCH `/extraction` et notifie le parent (qui peut
+  // recharger le dossier pour rafraichir les valeurs cross-document).
+  dossierId?: string
+  docId?: string
+  onUpdated?: () => void
 }
 
 /**
@@ -76,17 +83,43 @@ function formatValue(key: string, value: unknown): string {
   return s
 }
 
-export default memo(function ExtractedDataView({ data, docType }: Props) {
+export default memo(function ExtractedDataView({ data, docType, dossierId, docId, onUpdated }: Props) {
   const { toast } = useToast()
-  if (!data) return <p style={{ color: 'var(--ink-30)', fontSize: 13 }}>Aucune donnee extraite</p>
+  const [pending, setPending] = useState<string | null>(null)
+
+  // Defense en profondeur: meme si le backend filtre deja les champs systeme
+  // (`_qr`, `_confidence`, `_warnings`, ...), on garantit cote UI qu'aucun
+  // champ calcule ne soit affichable / editable.
+  const cleanData = data
+    ? Object.fromEntries(Object.entries(data).filter(([k]) => !k.startsWith('_')))
+    : null
+
+  const editable = Boolean(dossierId && docId)
+
+  const persist = useCallback(async (field: string, oldValue: unknown, newRaw: string) => {
+    if (!dossierId || !docId) return
+    if (newRaw.trim() === String(oldValue ?? '').trim()) return
+    setPending(field)
+    try {
+      await updateExtractedField(dossierId, docId, field, newRaw.trim())
+      toast('success', `${FIELD_LABELS[field] || field} corrige (${newRaw.trim()})`)
+      onUpdated?.()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Echec de la correction')
+    } finally {
+      setPending(null)
+    }
+  }, [dossierId, docId, toast, onUpdated])
+
+  if (!cleanData) return <p style={{ color: 'var(--ink-30)', fontSize: 13 }}>Aucune donnee extraite</p>
 
   const isInvoice = docType === 'FACTURE'
   const isOP = docType === 'ORDRE_PAIEMENT'
   const sections = isInvoice ? INVOICE_SECTIONS : isOP ? OP_SECTIONS : null
 
-  const scalars = Object.entries(data).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object')
-  const lignes = (data['lignes'] as Array<Record<string, unknown>> | undefined) || []
-  const retenues = (data['retenues'] as Array<Record<string, unknown>> | undefined) || []
+  const scalars = Object.entries(cleanData).filter(([, v]) => v !== null && !Array.isArray(v) && typeof v !== 'object')
+  const lignes = (cleanData['lignes'] as Array<Record<string, unknown>> | undefined) || []
+  const retenues = (cleanData['retenues'] as Array<Record<string, unknown>> | undefined) || []
   const isLlmExtracted = scalars.length > 3
 
   if (sections) {
@@ -97,7 +130,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
       <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
         {sections.map(section => {
           const sectionFields = section.fields
-            .map(f => [f, data[f]] as const)
+            .map(f => [f, cleanData[f]] as const)
             .filter(([, v]) => v != null)
           if (sectionFields.length === 0) return null
 
@@ -126,11 +159,12 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
                     ) : (
                       <span
                         className={`edv-cell-value ${(section as { mono?: boolean }).mono ? 'mono' : ''}`}
-                        contentEditable suppressContentEditableWarning
-                        onBlur={e => {
-                          const newVal = e.currentTarget.textContent || ''
-                          if (newVal !== String(v)) toast('info', `${FIELD_LABELS[k] || k}: ${String(v)} \u2192 ${newVal}`)
-                        }}
+                        contentEditable={editable} suppressContentEditableWarning
+                        title={editable
+                          ? 'Cliquez pour corriger. La valeur est persistee et reprise par les regles a la prochaine relance.'
+                          : 'Lecture seule'}
+                        style={pending === k ? { opacity: 0.5 } : undefined}
+                        onBlur={e => persist(k, v, e.currentTarget.textContent || '')}
                       >
                         {formatValue(k, v)}
                       </span>
@@ -197,8 +231,13 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
                     {FIELD_LABELS[k] || k}
                     <RulesUsing field={k} />
                   </span>
-                  <span className="data-field-value" contentEditable suppressContentEditableWarning
-                    onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
+                  <span className="data-field-value"
+                    contentEditable={editable} suppressContentEditableWarning
+                    title={editable
+                      ? 'Cliquez pour corriger. La valeur est persistee et reprise par les regles a la prochaine relance.'
+                      : 'Lecture seule'}
+                    style={pending === k ? { opacity: 0.5 } : undefined}
+                    onBlur={e => persist(k, v, e.currentTarget.textContent || '')}>
                     {formatValue(k, v)}
                   </span>
                   <span className="data-field-source ai" title="Valeur extraite par Claude (IA)">IA</span>
@@ -208,7 +247,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           </div>
         )}
 
-        <SubSections data={data} />
+        <SubSections data={cleanData} />
       </div>
     )
   }
@@ -222,8 +261,13 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
               {FIELD_LABELS[k] || k}
               <RulesUsing field={k} />
             </span>
-            <span className="data-field-value" contentEditable suppressContentEditableWarning
-              onBlur={e => { const nv = e.currentTarget.textContent || ''; if (nv !== String(v)) toast('info', `${k}: ${String(v)} \u2192 ${nv}`) }}>
+            <span className="data-field-value"
+              contentEditable={editable} suppressContentEditableWarning
+              title={editable
+                ? 'Cliquez pour corriger. La valeur est persistee et reprise par les regles a la prochaine relance.'
+                : 'Lecture seule'}
+              style={pending === k ? { opacity: 0.5 } : undefined}
+              onBlur={e => persist(k, v, e.currentTarget.textContent || '')}>
               {formatValue(k, v)}
             </span>
             <span
@@ -235,7 +279,7 @@ export default memo(function ExtractedDataView({ data, docType }: Props) {
           </div>
         ))}
       </div>
-      <SubSections data={data} />
+      <SubSections data={cleanData} />
     </div>
   )
 })
