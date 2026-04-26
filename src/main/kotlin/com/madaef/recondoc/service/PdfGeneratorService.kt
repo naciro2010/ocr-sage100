@@ -82,7 +82,11 @@ class PdfGeneratorService {
         // Table rows — each point
         for ((i, pt) in request.points.withIndex()) {
             val descLines = wrapText("Point ${i + 1} : ${s(pt.description)}", 58)
-            val rowH = (descLines.size * 9f).coerceAtLeast(18f) + 6f
+            val obsLines = wrapText(s(pt.observation), 14)
+            val commentLines = wrapText(s(pt.commentaire ?: ""), 20)
+                .ifEmpty { listOf("") }
+            val rowLineCount = maxOf(descLines.size, obsLines.size, commentLines.size)
+            val rowH = (rowLineCount * 9f).coerceAtLeast(18f) + 6f
 
             // Page break
             if (y - rowH < 80f) {
@@ -103,12 +107,20 @@ class PdfGeneratorService {
                 ty -= 9f
             }
 
-            // Observation (centered in column)
-            drawText(cs, colObs + 10f, y - 10f, norm, 8f, s(pt.observation))
+            // Observation
+            ty = y - 10f
+            for (line in obsLines) {
+                drawText(cs, colObs + 2f, ty, norm, 7f, line)
+                ty -= 9f
+            }
 
             // Commentaire
+            ty = y - 10f
             if (!pt.commentaire.isNullOrBlank()) {
-                drawText(cs, colCom, y - 10f, norm, 7f, s(pt.commentaire.take(30)))
+                for (line in commentLines) {
+                    drawText(cs, colCom, ty, norm, 7f, line)
+                    ty -= 9f
+                }
             }
 
             // Row border
