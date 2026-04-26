@@ -132,4 +132,37 @@ class ExtractionSchemasTest {
                 "Nom d'outil '$n' doit suivre le pattern extract_<type>_data")
         }
     }
+
+    @Test
+    fun `schema CUSTOM_RULES_BATCH expose verdicts avec code, statut, needsMoreInfo requis`() {
+        val schema = ExtractionSchemas.CUSTOM_RULES_BATCH
+        assertEquals("evaluate_custom_rules_batch", schema.name)
+        @Suppress("UNCHECKED_CAST")
+        val properties = schema.inputSchema["properties"] as Map<String, Any>
+        assertTrue("verdicts" in properties.keys)
+        @Suppress("UNCHECKED_CAST")
+        val verdictsItems = (properties["verdicts"] as Map<String, Any>)["items"] as Map<String, Any>
+        @Suppress("UNCHECKED_CAST")
+        val itemRequired = verdictsItems["required"] as List<String>
+        assertTrue("code" in itemRequired, "Chaque verdict doit imposer 'code'")
+        assertTrue("statut" in itemRequired, "Chaque verdict doit imposer 'statut'")
+        assertTrue("needsMoreInfo" in itemRequired, "Chaque verdict doit imposer 'needsMoreInfo'")
+    }
+
+    @Test
+    fun `schema IDENTIFIER_VERIFICATION couvre ICE RIB IF avec patterns regex`() {
+        val schema = ExtractionSchemas.IDENTIFIER_VERIFICATION
+        assertEquals("verify_critical_identifiers", schema.name)
+        @Suppress("UNCHECKED_CAST")
+        val properties = schema.inputSchema["properties"] as Map<String, Any>
+        for (k in listOf("ice", "rib", "identifiantFiscal", "_confidence")) {
+            assertTrue(k in properties.keys, "Schema verify_critical_identifiers: '$k' manquant")
+        }
+        @Suppress("UNCHECKED_CAST")
+        val ice = properties["ice"] as Map<String, Any>
+        assertEquals("^\\d{15}$", ice["pattern"], "Pattern ICE doit etre 15 chiffres")
+        @Suppress("UNCHECKED_CAST")
+        val rib = properties["rib"] as Map<String, Any>
+        assertEquals("^\\d{24}$", rib["pattern"], "Pattern RIB doit etre 24 chiffres")
+    }
 }
