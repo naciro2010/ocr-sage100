@@ -330,6 +330,16 @@ class DossierController(
         return dossierService.rerunRule(id, regle).map { it.toResponse() }
     }
 
+    @PatchMapping("/{id}/attestation-fiscale/regularite")
+    fun updateAttestationRegularite(
+        @PathVariable id: UUID,
+        @RequestBody body: UpdateAttestationRegulariteRequest
+    ): List<ValidationResultResponse> {
+        return dossierService
+            .updateAttestationRegularite(id, body.estEnRegle, body.corrigePar)
+            .map { it.toResponse() }
+    }
+
     @PostMapping("/{id}/validation/{resultId}/correct-and-rerun")
     fun correctAndRerun(
         @PathVariable id: UUID, @PathVariable resultId: UUID,

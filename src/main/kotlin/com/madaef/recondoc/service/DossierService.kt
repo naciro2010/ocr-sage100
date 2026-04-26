@@ -1011,6 +1011,33 @@ class DossierService(
         return results
     }
 
+    /**
+     * Correction au niveau donnee : un operateur fixe `estEnRegle` directement
+     * sur l'attestation fiscale (cas case ambigue extraite a `null`). Met a
+     * jour l'entite, persiste, puis relance R23 et ses dependances (R18, R18b)
+     * pour propager le verdict aux controles concernes.
+     */
+    @Transactional
+    fun updateAttestationRegularite(
+        dossierId: UUID, estEnRegle: Boolean?, corrigePar: String?
+    ): List<ResultatValidation> {
+        val dossier = getDossierFull(dossierId)
+        val arf = dossier.attestationFiscale
+            ?: throw NoSuchElementException("Aucune attestation fiscale sur ce dossier")
+        val previous = arf.estEnRegle
+        if (previous == estEnRegle) {
+            return validationEngine.rerunRule(dossier, "R23")
+        }
+        arf.estEnRegle = estEnRegle
+        arfRepo.save(arf)
+        val human = corrigePar?.takeIf { it.isNotBlank() } ?: "operateur"
+        audit(
+            dossierId, "CORRECT_ATTESTATION",
+            "estEnRegle ${previous ?: "null"} -> ${estEnRegle ?: "null"} (par $human)"
+        )
+        return validationEngine.rerunRule(dossier, "R23")
+    }
+
     // --- Config des regles : delegue a DossierRuleConfigService ---
     // Les methodes restent exposees sur DossierService pour la compatibilite du
     // code client (CustomRuleController, tests). A deprecier une fois tous les

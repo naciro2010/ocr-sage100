@@ -83,6 +83,11 @@ data class UpdateRequiredDocumentsRequest(
     val selected: List<TypeDocument>? = null
 )
 
+data class UpdateAttestationRegulariteRequest(
+    val estEnRegle: Boolean?,
+    val corrigePar: String? = null
+)
+
 data class DossierResponse(
     val id: UUID,
     val reference: String,

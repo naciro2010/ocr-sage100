@@ -1,10 +1,11 @@
 import { memo, useRef, useState, useCallback, useEffect, useMemo } from 'react'
-import type { DossierDetail, DocumentInfo, TypeDocument } from '../../api/dossierTypes'
+import type { DossierDetail, DocumentInfo, TypeDocument, ValidationResult } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import { uploadDocuments, uploadZip, reprocessDocument, changeDocumentType, deleteDocument, getDocumentFileUrl, openWithAuth } from '../../api/dossierApi'
 import { useToast } from '../Toast'
 import DocumentPipeline from '../DocumentPipeline'
 import ExtractedDataView from './ExtractedDataView'
+import AttestationFiscalePanel from './AttestationFiscalePanel'
 import type { DocProgress } from '../../hooks/useDocumentEvents'
 import {
   FileText, Upload, RefreshCw, Loader2, Trash2, Eye, XCircle, Download, ExternalLink, ChevronDown, ChevronUp
@@ -16,9 +17,10 @@ interface Props {
   liveProgress: Record<string, DocProgress>
   onReload: () => void
   onReloadAudit: () => void
+  onValidationResultsUpdated?: (results: ValidationResult[]) => void
 }
 
-export default memo(function DocumentManager({ dossier, id, liveProgress, onReload, onReloadAudit }: Props) {
+export default memo(function DocumentManager({ dossier, id, liveProgress, onReload, onReloadAudit, onValidationResultsUpdated }: Props) {
   const { toast } = useToast()
   const inputRef = useRef<HTMLInputElement>(null)
   const zipInputRef = useRef<HTMLInputElement>(null)
@@ -341,6 +343,21 @@ export default memo(function DocumentManager({ dossier, id, liveProgress, onRelo
             </div>
             {showPdf && pdfBlobUrl && <div className="pdf-viewer"><iframe src={pdfBlobUrl} title={selectedDoc.nomFichier} /></div>}
           </div>
+
+          {/* Panel dedie attestation fiscale (R18, R18b, R19, R23) — apparait au-dessus
+               des donnees extraites pour donner un verdict d'un coup d'oeil. */}
+          {selectedDoc.typeDocument === 'ATTESTATION_FISCALE' && (
+            <AttestationFiscalePanel
+              dossierId={id}
+              attestation={dossier.attestationFiscale}
+              ordrePaiement={dossier.ordrePaiement}
+              validationResults={dossier.resultatsValidation || []}
+              onResultsUpdated={(results) => {
+                if (onValidationResultsUpdated) onValidationResultsUpdated(results)
+              }}
+              onReload={() => { onReload(); onReloadAudit() }}
+            />
+          )}
 
           {/* Extracted data — collapsible */}
           <div className="card" style={{ padding: 0, overflow: 'hidden' }}>

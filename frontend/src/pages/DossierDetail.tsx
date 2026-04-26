@@ -518,7 +518,8 @@ export default function DossierDetail() {
           <>
             <div id="dossier-section-documents" className="block-loaded" style={{ animationDelay: '0.15s' }}>
               <DocumentManager dossier={dossierCompat} id={id!} liveProgress={liveProgress}
-                onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit} />
+                onReload={() => { loadDocs(); loadSummary() }} onReloadAudit={loadAudit}
+                onValidationResultsUpdated={handleReplaceResults} />
             </div>
             <div className="block-loaded" style={{ animationDelay: '0.17s' }}>
               <RequiredDocumentsConfig dossierId={id!} onChanged={() => { loadValidation(); loadAudit() }} />

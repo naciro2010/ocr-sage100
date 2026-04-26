@@ -423,6 +423,20 @@ export async function rerunValidationRule(dossierId: string, regle: string): Pro
   return handleResponse(res)
 }
 
+export async function updateAttestationRegularite(
+  dossierId: string,
+  estEnRegle: boolean | null,
+  corrigePar?: string
+): Promise<ValidationResult[]> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/attestation-fiscale/regularite`, {
+    method: 'PATCH',
+    headers: { 'Content-Type': 'application/json' },
+    body: JSON.stringify({ estEnRegle, corrigePar }),
+  })
+  return handleResponse(res)
+}
+
 export async function correctAndRerun(
   dossierId: string, resultId: string,
   updates: { statut?: string; commentaire?: string; corrigePar?: string; valeurTrouvee?: string; valeurAttendue?: string; detail?: string; documentIds?: string }
