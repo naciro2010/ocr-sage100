@@ -2,6 +2,7 @@ package com.madaef.recondoc.service.validation
 
 import com.madaef.recondoc.entity.dossier.Document
 import com.madaef.recondoc.entity.dossier.DossierPaiement
+import com.madaef.recondoc.entity.dossier.Facture
 import com.madaef.recondoc.entity.dossier.ResultatValidation
 import com.madaef.recondoc.entity.dossier.StatutCheck
 import com.madaef.recondoc.entity.dossier.TypeDocument
@@ -242,6 +243,28 @@ fun mergeStatut(systemStatut: StatutCheck, checklistValide: Boolean?): StatutChe
     return if (systemStatut == StatutCheck.NON_CONFORME || ckStatut == StatutCheck.NON_CONFORME) StatutCheck.NON_CONFORME
     else if (systemStatut == StatutCheck.AVERTISSEMENT || ckStatut == StatutCheck.AVERTISSEMENT) StatutCheck.AVERTISSEMENT
     else StatutCheck.CONFORME
+}
+
+private val AVOIR_NUMERO_RE = Regex("\\b(avoir|annul|annulation|rectif|rectificatif|av-|cn-|credit\\s*note|note\\s*de\\s*credit)\\b", RegexOption.IGNORE_CASE)
+
+/**
+ * Detecte les factures qui sont en realite des avoirs / annulations /
+ * compensations : montant TTC negatif, libelle de numero contenant
+ * AVOIR / ANNUL / RECTIF / AV- / CN-, ou type de document explicitement
+ * marque comme tel dans `donneesExtraites`.
+ *
+ * Cette detection est utilisee par R21 pour ne pas confondre une
+ * compensation legitime (facture + avoir du meme montant) avec un
+ * doublon de facturation.
+ */
+fun isFactureAvoir(f: Facture): Boolean {
+    val ttc = f.montantTtc
+    if (ttc != null && ttc.signum() < 0) return true
+    val numero = f.numeroFacture
+    if (!numero.isNullOrBlank() && AVOIR_NUMERO_RE.containsMatchIn(numero)) return true
+    val typeFromJson = f.document.donneesExtraites?.get("typeFacture")?.toString()
+    if (!typeFromJson.isNullOrBlank() && AVOIR_NUMERO_RE.containsMatchIn(typeFromJson)) return true
+    return false
 }
 
 /** Parse la configuration CSV `app.required-documents` en liste de [TypeDocument]. */

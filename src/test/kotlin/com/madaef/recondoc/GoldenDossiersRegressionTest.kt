@@ -395,6 +395,176 @@ class GoldenDossiersRegressionTest {
     }
 
     @Test
+    fun `golden 16 R18 CONFORME le jour exact d'expiration (borne inclusive)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.now(); fournisseur = "X"; ice = "001"
+            identifiantFiscal = "IF-001"
+        })
+        // edition aujourd'hui - 6 mois pile : la borne est inclusive, donc CONFORME
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusMonths(6)
+            raisonSociale = "X"; ice = "001"; identifiantFiscal = "IF-001"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r18 = results.firstOrNull { it.regle == "R18" }
+        assertTrue(r18 != null, "R18 doit s'executer")
+        assertEquals(StatutCheck.CONFORME, r18.statut,
+            "R18 doit etre CONFORME le jour exact d'expiration (borne 6 mois inclusive)")
+    }
+
+    @Test
+    fun `golden 17 R17b NON_CONFORME si OP emis avant la facture (paiement antidate)`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val opDoc = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(fDoc, opDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 3, 15)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"
+            ice = "001"; identifiantFiscal = "IF-001"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = opDoc).apply {
+            numeroOp = "OP-1"; dateEmission = LocalDate.of(2026, 3, 1) // antidate
+            montantOperation = BigDecimal("1000.00")
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r17b = results.firstOrNull { it.regle == "R17b" }
+        assertTrue(r17b != null, "R17b doit s'executer")
+        assertEquals(StatutCheck.NON_CONFORME, r17b.statut,
+            "R17b doit etre NON_CONFORME quand OP precede la facture (paiement antidate)")
+    }
+
+    @Test
+    fun `golden 18 R17a NON_CONFORME si facture anterieure au BC`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val bcDoc = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        dossier.documents.addAll(listOf(fDoc, bcDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            numeroFacture = "F-1"; dateFacture = LocalDate.of(2026, 1, 15) // avant BC
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"
+            ice = "001"; identifiantFiscal = "IF-001"
+        })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = bcDoc).apply {
+            reference = "BC-1"; dateBc = LocalDate.of(2026, 3, 1)
+            montantTtc = BigDecimal("1000.00"); fournisseur = "X"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r17a = results.firstOrNull { it.regle == "R17a" }
+        assertTrue(r17a != null)
+        assertEquals(StatutCheck.NON_CONFORME, r17a.statut,
+            "R17a doit etre NON_CONFORME quand facture anterieure au BC")
+    }
+
+    @Test
+    fun `golden 19 R09 NON_CONFORME si facture sans ICE alors qu'attestation en a un`() {
+        val dossier = newDossier()
+        val fDoc = doc(dossier, TypeDocument.FACTURE)
+        val arfDoc = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        dossier.documents.addAll(listOf(fDoc, arfDoc))
+
+        dossier.factures.add(Facture(dossier = dossier, document = fDoc).apply {
+            dateFacture = LocalDate.now(); fournisseur = "X"
+            // Pas d'ICE sur la facture
+            identifiantFiscal = "IF-001"
+        })
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = arfDoc).apply {
+            dateEdition = LocalDate.now().minusDays(10)
+            raisonSociale = "X"; ice = "001509176000008"; identifiantFiscal = "IF-001"
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        val r09 = results.firstOrNull { it.regle == "R09" }
+        assertTrue(r09 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r09.statut,
+            "R09 doit etre NON_CONFORME : ICE manquant sur facture B2B Maroc")
+    }
+
+    @Test
+    fun `golden 20 R21 CONFORME pour compensation facture + avoir meme numero`() {
+        val sharedNumero = "F-COMPENSATE-${System.nanoTime()}"
+
+        // Dossier 1 : facture normale
+        val dossier1 = newDossier()
+        val fDoc1 = doc(dossier1, TypeDocument.FACTURE, "f1.pdf")
+        dossier1.documents.add(fDoc1)
+        dossier1.factures.add(Facture(dossier = dossier1, document = fDoc1).apply {
+            numeroFacture = sharedNumero
+            dateFacture = LocalDate.of(2026, 2, 1)
+            fournisseur = "ACME"
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.saveAndFlush(dossier1)
+
+        // Dossier 2 : avoir (montant negatif, meme numero) → compensation, pas un doublon
+        val dossier2 = newDossier()
+        val fDoc2 = doc(dossier2, TypeDocument.FACTURE, "av.pdf")
+        dossier2.documents.add(fDoc2)
+        dossier2.factures.add(Facture(dossier = dossier2, document = fDoc2).apply {
+            numeroFacture = sharedNumero
+            dateFacture = LocalDate.of(2026, 2, 15)
+            fournisseur = "ACME"
+            montantTtc = BigDecimal("-1000.00") // avoir
+        })
+        dossierRepo.saveAndFlush(dossier2)
+
+        val results = validationEngine.validate(dossier2)
+        val r21 = results.firstOrNull { it.regle == "R21" }
+        assertTrue(r21 != null)
+        assertEquals(StatutCheck.CONFORME, r21.statut,
+            "R21 doit etre CONFORME quand le 'doublon' est en realite un avoir (compensation legitime)")
+        assertTrue(r21.detail!!.lowercase().contains("compensation") || r21.detail!!.lowercase().contains("avoir"),
+            "Le detail doit mentionner la compensation : ${r21.detail}")
+    }
+
+    @Test
+    fun `golden 21 R21 NON_CONFORME pour vrai doublon (deux factures positives meme numero)`() {
+        val shared = "F-DUP2-${System.nanoTime()}"
+
+        val dossier1 = newDossier()
+        val fDoc1 = doc(dossier1, TypeDocument.FACTURE, "f1.pdf")
+        dossier1.documents.add(fDoc1)
+        dossier1.factures.add(Facture(dossier = dossier1, document = fDoc1).apply {
+            numeroFacture = shared
+            dateFacture = LocalDate.of(2026, 2, 1)
+            fournisseur = "ACME"
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.saveAndFlush(dossier1)
+
+        val dossier2 = newDossier()
+        val fDoc2 = doc(dossier2, TypeDocument.FACTURE, "f2.pdf")
+        dossier2.documents.add(fDoc2)
+        dossier2.factures.add(Facture(dossier = dossier2, document = fDoc2).apply {
+            numeroFacture = shared
+            dateFacture = LocalDate.of(2026, 3, 1)
+            fournisseur = "ACME"
+            montantTtc = BigDecimal("1000.00")
+        })
+        dossierRepo.saveAndFlush(dossier2)
+
+        val results = validationEngine.validate(dossier2)
+        val r21 = results.firstOrNull { it.regle == "R21" }
+        assertTrue(r21 != null)
+        assertEquals(StatutCheck.NON_CONFORME, r21.statut,
+            "R21 doit etre NON_CONFORME pour deux factures positives meme numero (vrai doublon)")
+    }
+
+    @Test
     fun `golden 15 R11 NON_CONFORME si RIB facture et OP differents`() {
         val dossier = newDossier()
         val fDoc = doc(dossier, TypeDocument.FACTURE)

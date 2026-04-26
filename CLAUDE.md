@@ -88,7 +88,7 @@ PDF/Image upload
 - RIB bancaire (24 digits)
 - Document types: FACTURE, BON_COMMANDE, CONTRAT_AVENANT, ORDRE_PAIEMENT, CHECKLIST_AUTOCONTROLE, TABLEAU_CONTROLE, PV_RECEPTION, ATTESTATION_FISCALE
 - Dossier statuses: BROUILLON → EN_VERIFICATION → VALIDE / REJETE
-- Montant tolerance for cross-document validation: configurable via `app.tolerance-montant` (default 5%)
+- Montant tolerance pour la comparaison cross-document : `app.tolerance-montant` = ecart absolu en MAD (defaut 0.05 = 5 centimes, pour l'arrondi TVA) et `app.tolerance-montant-pct` = ecart relatif pour les controles proportionnels lignes (R16b/R01g, defaut 0.005 = 0.5%). Hybride : limite = max(abs, base * pct).
 
 ## Key Environment Variables
 - `CLAUDE_API_KEY`: Required for AI extraction (classification + extraction structuree)
