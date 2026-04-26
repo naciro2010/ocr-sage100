@@ -192,9 +192,13 @@ body {
 }
 
 .main-content {
-  flex: 1; margin-left: 232px;
-  padding: 28px 36px;
-  max-width: 1300px;
+  flex: 1; min-width: 0;
+  margin-left: 232px;
+  padding: 28px clamp(20px, 2.4vw, 64px);
+  /* Pas de cap dur : sur grand ecran, le contenu doit pouvoir occuper l'espace
+     disponible (tables, grilles de controles, drilldown extraction). On garde
+     un cap large via la regle ultra-wide plus bas pour eviter les lignes
+     interminables. */
 }
 
 /* ===== Page Header ===== */
@@ -3619,6 +3623,36 @@ body {
   .login-card { width: calc(100vw - 32px); max-width: 380px; }
   .search-panel { width: calc(100vw - 32px); }
   .header-actions { flex-wrap: wrap; }
+}
+
+/* ===== Responsive: Large desktop (>=1440px) =====
+   On commence a avoir de la place : on elargit le rythme horizontal et on
+   densifie les grilles 3 colonnes en gardant la lecture confortable. */
+@media (min-width: 1440px) {
+  .main-content { padding: 32px 56px; }
+  .info-grid { grid-template-columns: repeat(4, 1fr); }
+  .engine-grid { grid-template-columns: repeat(4, 1fr); }
+}
+
+/* ===== Responsive: Wide desktop (>=1680px) =====
+   Ecrans QHD / portables 16-17". On donne plus d'air aux grilles principales
+   pour utiliser la moitie droite qui restait vide. */
+@media (min-width: 1680px) {
+  .main-content { padding: 36px clamp(56px, 4.5vw, 96px); }
+  .cards-row { grid-template-columns: repeat(3, 1fr); }
+  .stats-grid { gap: 14px; }
+  .stats-grid .stat-card { padding: 18px 22px; }
+}
+
+/* ===== Responsive: Ultra-wide (>=2200px) =====
+   Ecrans 27"+ / 4K / ultra-wide : on cap pour eviter les lignes
+   interminables tout en gardant le contenu centre dans l'espace dispo
+   (sidebar fixe a gauche, marge auto a droite). */
+@media (min-width: 2200px) {
+  .main-content {
+    max-width: calc(2200px - 232px);
+    margin-right: auto;
+  }
 }
 
 /* ============================================================
