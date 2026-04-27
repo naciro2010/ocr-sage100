@@ -8,6 +8,7 @@ import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
 import type { TypeDocument } from '../../api/dossierTypes'
 import { useToast } from '../Toast'
 import EvidenceList from './EvidenceList'
+import PdfFrame from './PdfFrame'
 import {
   ShieldCheck, Loader2,
   FileText, RefreshCw, Edit3, Save, X,
@@ -1013,8 +1014,7 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc, 
         {error && <div className="preview-error">Impossible de charger : {error}</div>}
         {blobUrl && !error && (
           isPdf ? (
-            <iframe src={`${blobUrl}#view=FitH`} title={activeDoc.nomFichier}
-              style={{ width: '100%', height: '100%', border: 'none', display: 'block' }} />
+            <PdfFrame blobUrl={blobUrl} title={activeDoc.nomFichier} docId={activeDoc.id} />
           ) : isImage ? (
             <div className="preview-image-wrap"><img src={blobUrl} alt={activeDoc.nomFichier} /></div>
           ) : (
