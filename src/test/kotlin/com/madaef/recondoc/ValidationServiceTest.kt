@@ -2,6 +2,7 @@ package com.madaef.recondoc
 
 import com.madaef.recondoc.entity.dossier.*
 import com.madaef.recondoc.repository.dossier.DossierRepository
+import com.madaef.recondoc.repository.dossier.ResultatValidationRepository
 import com.madaef.recondoc.service.validation.ValidationEngine
 import org.junit.jupiter.api.Test
 import org.springframework.beans.factory.annotation.Autowired
@@ -20,6 +21,7 @@ class ValidationServiceTest {
 
     @Autowired lateinit var validationEngine: ValidationEngine
     @Autowired lateinit var dossierRepo: DossierRepository
+    @Autowired lateinit var resultatRepo: ResultatValidationRepository
 
     private fun createDossier(type: DossierType = DossierType.BC): DossierPaiement {
         return dossierRepo.save(DossierPaiement(
@@ -375,5 +377,51 @@ class ValidationServiceTest {
 
         val results = validationEngine.validate(dossier)
         assertEquals(StatutCheck.CONFORME, results.first { it.regle == "R11" }.statut, "RIB should match after stripping spaces")
+    }
+
+    /**
+     * Regression : "Sauvegarder & relancer" doit preserver les valeurs corrigees
+     * manuellement (valeurTrouvee, valeurAttendue, documentIds, commentaire,
+     * statut). Avant le fix, rerunRule() supprimait les resultats, recalculait
+     * a partir des donnees extraites du document, puis ne re-applliquait que
+     * statut/commentaire/corrigePar/dateCorrection — les valeurs corrigees
+     * etaient ecrasees, donnant a l'operateur l'impression que son edit
+     * "Sauvegarder & relancer" n'avait pas fonctionne.
+     */
+    @Test
+    fun `rerunRule preserves manually corrected valeurTrouvee and valeurAttendue`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE)
+        val d2 = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        dossier.documents.addAll(listOf(d1, d2))
+        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
+            montantHt = BigDecimal("1000.00"); montantTva = BigDecimal("200.00"); montantTtc = BigDecimal("1200.00"); tauxTva = BigDecimal("20")
+        })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = d2).apply {
+            montantHt = BigDecimal("999.00"); montantTva = BigDecimal("199.80"); montantTtc = BigDecimal("1198.80"); tauxTva = BigDecimal("20")
+        }
+        dossierRepo.save(dossier)
+
+        validationEngine.validate(dossier)
+        val r01 = resultatRepo.findByDossierId(dossier.id!!).first { it.regle == "R01" }
+        // L'operateur ouvre Corriger, change le statut + le commentaire et
+        // surcharge les valeurs (par exemple parce que l'OCR a mal lu le BC).
+        r01.statutOriginal = r01.statut.name
+        r01.statut = StatutCheck.CONFORME
+        r01.valeurTrouvee = "1200.00 (corrige manuellement)"
+        r01.valeurAttendue = "1200.00 (corrige manuellement)"
+        r01.commentaire = "BC re-lu, montant correct"
+        r01.corrigePar = "operator@madaef.ma"
+        resultatRepo.save(r01)
+
+        // Sauvegarder & relancer : recalcule R01, mais doit preserver toute la
+        // correction puisque statutOriginal != null.
+        val rerun = validationEngine.rerunRule(dossier, "R01")
+        val r01After = rerun.first { it.regle == "R01" }
+        assertEquals(StatutCheck.CONFORME, r01After.statut, "statut corrige doit survivre au rerun")
+        assertEquals("1200.00 (corrige manuellement)", r01After.valeurTrouvee, "valeurTrouvee corrigee doit survivre")
+        assertEquals("1200.00 (corrige manuellement)", r01After.valeurAttendue, "valeurAttendue corrigee doit survivre")
+        assertEquals("BC re-lu, montant correct", r01After.commentaire)
+        assertEquals("operator@madaef.ma", r01After.corrigePar)
     }
 }
