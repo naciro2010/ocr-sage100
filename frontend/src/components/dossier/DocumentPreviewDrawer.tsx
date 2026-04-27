@@ -131,7 +131,7 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
           {error && <div className="preview-error">Impossible de charger le document : {error}</div>}
           {blobUrl && !error && (
             isPdf ? (
-              <PdfFrame blobUrl={blobUrl} title={activeDoc.nomFichier} docId={activeDoc.id} />
+              <PdfFrame key={activeDoc.id} blobUrl={blobUrl} title={activeDoc.nomFichier} />
             ) : isImage ? (
               <div className="preview-image-wrap">
                 <img src={blobUrl} alt={activeDoc.nomFichier} />

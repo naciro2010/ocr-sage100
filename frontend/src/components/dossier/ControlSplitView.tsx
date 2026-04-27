@@ -1014,7 +1014,7 @@ function RightPanel({ dossierId, docId, documents, highlightField, onChangeDoc, 
         {error && <div className="preview-error">Impossible de charger : {error}</div>}
         {blobUrl && !error && (
           isPdf ? (
-            <PdfFrame blobUrl={blobUrl} title={activeDoc.nomFichier} docId={activeDoc.id} />
+            <PdfFrame key={activeDoc.id} blobUrl={blobUrl} title={activeDoc.nomFichier} />
           ) : isImage ? (
             <div className="preview-image-wrap"><img src={blobUrl} alt={activeDoc.nomFichier} /></div>
           ) : (

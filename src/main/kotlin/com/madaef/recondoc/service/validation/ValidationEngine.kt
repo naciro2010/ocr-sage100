@@ -53,9 +53,6 @@ class ValidationEngine(
         val statut: StatutCheck, val statutOriginal: String?,
         val commentaire: String?, val corrigePar: String?,
         val dateCorrection: LocalDateTime?,
-        // Les valeurs corrigees manuellement doivent survivre au re-run, sinon
-        // l'operateur voit son edit "Sauvegarder & relancer" disparaitre car
-        // runAllRules les recalcule a partir des donnees extraites du document.
         val valeurTrouvee: String?, val valeurAttendue: String?,
         val documentIds: String?
     )
@@ -151,22 +148,15 @@ class ValidationEngine(
         val totalMs = (System.nanoTime() - t0) / 1_000_000
         allResults.forEach { r ->
             r.dateExecution = LocalDateTime.now()
-            val prev = corrected[r.regle]
-            if (prev != null) {
-                // L'operateur a corrige cette regle : on preserve TOUT son edit
-                // (statut + valeurs + commentaire + documentIds), pas seulement
-                // le statut. Sinon le re-run ecrase valeurTrouvee/valeurAttendue
-                // a partir des donnees extraites du dossier et l'operateur a
-                // l'impression que "Sauvegarder & relancer" ne fait rien.
-                r.statutOriginal = r.statut.name
-                r.statut = prev.statut
-                r.commentaire = prev.commentaire
-                r.corrigePar = prev.corrigePar
-                r.dateCorrection = prev.dateCorrection
-                r.valeurTrouvee = prev.valeurTrouvee
-                r.valeurAttendue = prev.valeurAttendue
-                r.documentIds = prev.documentIds
-            }
+            val prev = corrected[r.regle] ?: return@forEach
+            r.statutOriginal = r.statut.name
+            r.statut = prev.statut
+            r.commentaire = prev.commentaire
+            r.corrigePar = prev.corrigePar
+            r.dateCorrection = prev.dateCorrection
+            r.valeurTrouvee = prev.valeurTrouvee
+            r.valeurAttendue = prev.valeurAttendue
+            r.documentIds = prev.documentIds
         }
         resultatRepository.saveAll(allResults)
         log.info("Rerun rule {} on dossier {}: {} results ({}ms)", regle, dossier.reference, allResults.size, totalMs)
