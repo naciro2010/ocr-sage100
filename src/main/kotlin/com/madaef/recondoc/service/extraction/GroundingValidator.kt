@@ -45,10 +45,20 @@ class GroundingValidator {
         val minLen: Int
     )
 
+    // RIB Maroc = 24 chiffres exacts. minLen=20 chiffres (compte + cle + une marge
+    // OCR sur le code banque) reduit la collision quasi-garantie de l'ancien
+    // minLen=12 : un document qui cite plusieurs RIBs partage souvent le code
+    // banque (premiers chiffres) ET la cle (derniers chiffres). Avec 12 derniers
+    // chiffres, Claude peut composer un RIB hybride (debut RIB-A + fin RIB-B)
+    // qui passe le grounding parce que les 12 derniers correspondent a RIB-B.
+    // Avec 20 chiffres exiges, l'hybride est detecte (les 20 derniers ne
+    // correspondent a aucun RIB pur du texte).
+    private val ribMinLen = 20
+
     private val checks: Map<TypeDocument, List<Check>> = mapOf(
         TypeDocument.FACTURE to listOf(
             Check("ice", Kind.DIGITS, critical = true, minLen = 10),
-            Check("rib", Kind.DIGITS, critical = false, minLen = 12),
+            Check("rib", Kind.DIGITS, critical = false, minLen = ribMinLen),
             Check("identifiantFiscal", Kind.DIGITS, critical = false, minLen = 5),
             Check("numeroFacture", Kind.ALNUM, critical = true, minLen = 4)
         ),
@@ -57,7 +67,7 @@ class GroundingValidator {
         ),
         TypeDocument.ORDRE_PAIEMENT to listOf(
             Check("numeroOp", Kind.ALNUM, critical = true, minLen = 4),
-            Check("rib", Kind.DIGITS, critical = false, minLen = 12),
+            Check("rib", Kind.DIGITS, critical = false, minLen = ribMinLen),
             Check("referenceFacture", Kind.ALNUM, critical = false, minLen = 4)
         ),
         TypeDocument.CONTRAT_AVENANT to listOf(
