@@ -213,16 +213,22 @@ fun Document.toResponse(includeExtractedData: Boolean = true): DocumentResponse 
     extractionWarnings = extractionWarnings?.split("||")?.filter { it.isNotBlank() } ?: emptyList()
 )
 
-fun ResultatValidation.toResponse(): ValidationResultResponse = ValidationResultResponse(
-    id = id?.toString(), regle = regle, libelle = libelle, statut = statut,
-    detail = detail, valeurAttendue = valeurAttendue, valeurTrouvee = valeurTrouvee,
-    source = source, commentaire = commentaire, corrigePar = corrigePar,
-    statutOriginal = statutOriginal,
-    documentIds = documentIds?.split(",")?.filter { it.isNotBlank() },
-    evidences = evidences?.map { ValidationEvidenceResponse(
-        role = it.role, champ = it.champ, libelle = it.libelle,
-        documentId = it.documentId, documentType = it.documentType,
-        valeur = it.valeur, page = it.page
-    ) },
-    dateExecution = dateExecution
-)
+fun ResultatValidation.toResponse(): ValidationResultResponse {
+    val docIds = documentIds
+        ?.split(",")
+        ?.filter { it.isNotBlank() }
+        ?.distinct()
+    return ValidationResultResponse(
+        id = id?.toString(), regle = regle, libelle = libelle, statut = statut,
+        detail = detail, valeurAttendue = valeurAttendue, valeurTrouvee = valeurTrouvee,
+        source = source, commentaire = commentaire, corrigePar = corrigePar,
+        statutOriginal = statutOriginal,
+        documentIds = docIds,
+        evidences = evidences?.map { ValidationEvidenceResponse(
+            role = it.role, champ = it.champ, libelle = it.libelle,
+            documentId = it.documentId, documentType = it.documentType,
+            valeur = it.valeur, page = it.page
+        ) },
+        dateExecution = dateExecution
+    )
+}
