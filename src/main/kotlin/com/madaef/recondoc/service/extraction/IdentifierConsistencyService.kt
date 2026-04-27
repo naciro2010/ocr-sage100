@@ -127,7 +127,9 @@ class IdentifierConsistencyService(
 
     private fun runSecondPass(rawText: String): Map<String, Any?> {
         val schema = ExtractionSchemas.IDENTIFIER_VERIFICATION
-        // Pseudonymisation des PII (RIB notamment) avant le second envoi.
+        // Pseudonymisation des PII (emails / telephones / noms) avant le
+        // second envoi. ICE / IF / RIB ne sont PAS masques : Claude doit
+        // voir leur structure numerique pour pouvoir reconfirmer la valeur.
         val plainContext = "<document_content>\n$rawText\n</document_content>"
         val (wrapped, mapping) = pseudonymizationService.tokenize(plainContext)
         val temperature = appSettings.getIdentifierConsistencyTemperature().coerceIn(0.0, 1.0)
@@ -135,9 +137,9 @@ class IdentifierConsistencyService(
             VERIFY_PROMPT, wrapped, schema.name, schema.inputSchema,
             CallKind.EXTRACTION, temperature
         )
-        // Detokenize l'input de l'outil (les valeurs string peuvent contenir des
-        // tokens [RIB_N] / [EMAIL_N] si le RIB lu par Claude est passe par la
-        // pseudonymisation).
+        // Detokenize l'input de l'outil (les valeurs string peuvent contenir
+        // des tokens [EMAIL_N] / [PHONE_N] / [PERSON_N] si le champ extrait
+        // est passe par la pseudonymisation).
         @Suppress("UNCHECKED_CAST")
         val detok = pseudonymizationService.detokenize(resp.toolInput, mapping) as Map<String, Any?>
         return detok

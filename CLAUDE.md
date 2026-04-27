@@ -108,10 +108,10 @@ PDF/Image upload
 | Mistral OCR (`api.mistral.ai`) | Image/PDF complet des scans | France / UE | ~30 j (ZDR possible B2B) |
 | Anthropic Claude (`api.anthropic.com`) | Texte OCR **pseudonymise** + prompts + few-shots synthetiques | USA (AWS, DPF UE-US) | 30 j par defaut, ZDR via contrat entreprise |
 
-Nature des PII originales : emails, telephones MA, RIB 24 chiffres, noms precedes de civilite, ICE/IF/RC (B2B), raison sociale fournisseurs, signatures manuscrites sur PV.
+Nature des PII originales : emails, telephones MA, noms precedes de civilite (personnes physiques au sens Loi 09-08 art. 1). Les identifiants B2B (ICE, IF, RC, CNSS, RIB d'entreprise) et raisons sociales fournisseurs ne sont pas des donnees a caractere personnel : ils designent des entites juridiques.
 
 ### Protections en place
-- **Pseudonymisation automatique avant Claude** (`PseudonymizationService`, actif par defaut via `ai.pseudonymization.enabled=true`) : emails, telephones MA, RIB 24 chiffres, noms avec civilite remplaces par tokens opaques `[EMAIL_N]` / `[PHONE_N]` / `[RIB_N]` / `[PERSON_N]`. ICE / IF / RC / montants / raisons sociales non masques (identifiants B2B publics / necessaires aux regles R09-R14). Mapping in-memory uniquement, jamais persiste. Detokenisation appliquee AVANT grounding + stockage : les donnees reelles ne quittent jamais le SI Maroc.
+- **Pseudonymisation automatique avant Claude** (`PseudonymizationService`, actif par defaut via `ai.pseudonymization.enabled=true`) : emails, telephones MA, noms avec civilite remplaces par tokens opaques `[EMAIL_N]` / `[PHONE_N]` / `[PERSON_N]`. ICE / IF / RC / RIB / montants / raisons sociales **non masques** : identifiants B2B (entites juridiques au sens Loi 09-08 art. 1) ; necessaires aux regles R09-R14 ; et indispensables a Claude pour distinguer plusieurs RIBs dans un OP (beneficiaire vs ordonnateur) ou auto-confirmer en self-consistency. OBJECTIF #1 fiabilite 100% > masquage cosmetique. Mapping in-memory uniquement, jamais persiste. Detokenisation appliquee AVANT grounding + stockage : les donnees reelles ne quittent jamais le SI Maroc.
 - Cache OCR SHA-256 (evite re-envois Mistral)
 - Logs applicatifs sans contenu OCR
 - Prompt caching : seulement few-shots synthetiques, jamais de donnees clients

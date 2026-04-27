@@ -943,8 +943,8 @@ class DossierService(
                     if (data != null) {
                         // Detokenize avant validation : le grounding validator compare
                         // les valeurs extraites au rawText (non masque). Si on lui
-                        // passe des tokens [EMAIL_N] / [RIB_N], il les rejette comme
-                        // absents du texte -> faux critical violations.
+                        // passe des tokens [EMAIL_N] / [PHONE_N] / [PERSON_N], il les
+                        // rejette comme absents du texte -> faux critical violations.
                         @Suppress("UNCHECKED_CAST")
                         val restoredData = pseudonymizationService.detokenize(data, piiMapping) as Map<String, Any?>
                         val (groundedData, criticalViolations) = validateAndGround(doc, detectedType, restoredData, rawText)
