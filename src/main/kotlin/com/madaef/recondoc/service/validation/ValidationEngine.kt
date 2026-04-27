@@ -988,10 +988,16 @@ class ValidationEngine(
         }
 
         // R26 : plafond legal de paiement en especes (CGI art. 193-ter +
-        // Loi de finances 2019, maintenu en 2026). Tout paiement > 5 000 MAD
-        // hors circuit bancaire est non deductible et expose le fournisseur
-        // a une amende de 6 % (art. 193-ter §II). On detecte le paiement en
-        // especes via op.natureOperation et op.donneesExtraites.modePaiement.
+        // Loi de finances 2019, maintenu en 2026). Toute "operation imposable"
+        // > 5 000 MAD TTC reglee en especes est non deductible et expose le
+        // fournisseur a une amende de 6 % (art. 193-ter §II).
+        // Le seuil legal s'applique au TTC de la prestation (montant brut
+        // facture), PAS au net paye apres retenues TVA/IR. On comparait
+        // jusqu'ici op.montantOperation (= NET apres retenues d'apres le
+        // schema d'extraction), donc une facture TTC 6 500 MAD avec retenue
+        // TVA 75% (4 875 MAD reverses au Tresor) reglee en especes pour
+        // 1 625 MAD de net passait CONFORME (1625 < 5000) alors meme que
+        // l'operation imposable depasse le plafond legal.
         if (isEnabled("R26") && op != null) {
             // Detection en 2 temps :
             //   1. champ type op.modePaiement (cf. PR #2d) : signal le plus
@@ -1004,23 +1010,38 @@ class ValidationEngine(
             val isCash = typedMode == "ESPECES"
                 || listOf("especes", "espèce", "espece", "cash", "comptant", "liquide")
                     .any { it in nature || it in modeText }
-            val montant = op.montantOperation ?: docAmount(opDoc, "montantOperation", "montant")
-            if (isCash && montant != null) {
+            val montantNet = op.montantOperation ?: docAmount(opDoc, "montantOperation", "montant")
+            // Priorite : montantBrut OP (extrait par Claude) > TTC facture liee
+            // > montantNet (rare, dossier ancien sans champ brut). On veut le
+            // montant TTC de l'operation imposable, pas le net apres retenues.
+            val montantBrutOp = docAmount(opDoc, "montantBrut")
+            val montantBrutFacture = facture?.montantTtc ?: docAmount(fDoc, "montantTTC")
+            val montantBrut = montantBrutOp ?: montantBrutFacture ?: montantNet
+            if (isCash && montantBrut != null) {
                 val plafond = BigDecimal("5000")
-                val depasse = montant.compareTo(plafond) > 0
+                val depasse = montantBrut.compareTo(plafond) > 0
+                val sourceBrut = when {
+                    montantBrutOp != null -> "montantBrut OP"
+                    montantBrutFacture != null -> "TTC facture"
+                    else -> "montantOperation OP (net, fallback)"
+                }
                 results += ResultatValidation(
                     dossier = dossier, regle = "R26",
                     libelle = "Plafond paiement especes (CGI art. 193-ter)",
                     statut = if (depasse) StatutCheck.NON_CONFORME else StatutCheck.CONFORME,
                     detail = if (depasse)
-                        "Paiement especes ${montant} MAD > plafond legal 5 000 MAD : non deductible (CGI art. 193-ter), amende 6 % encourue par le fournisseur."
+                        "Paiement especes ${montantBrut} MAD ($sourceBrut) > plafond legal 5 000 MAD : non deductible (CGI art. 193-ter), amende 6 % encourue par le fournisseur."
                     else
-                        "Paiement especes ${montant} MAD <= plafond 5 000 MAD",
-                    valeurAttendue = "<= 5 000 MAD si especes",
-                    valeurTrouvee = "${montant} MAD (especes)",
+                        "Paiement especes ${montantBrut} MAD ($sourceBrut) <= plafond 5 000 MAD",
+                    valeurAttendue = "<= 5 000 MAD TTC si especes",
+                    valeurTrouvee = "${montantBrut} MAD ($sourceBrut, especes)",
                     evidences = listOfNotNull(
                         evidence("source", "modePaiement", "Mode de reglement OP", opDoc, typedMode ?: op.natureOperation ?: nature),
-                        evidence("source", "montantOperation", "Montant de l'OP", opDoc, montant)
+                        montantBrutOp?.let { evidence("source", "montantBrut", "Montant brut OP (TTC avant retenues)", opDoc, it) },
+                        if (montantBrutOp == null && montantBrutFacture != null && fDoc != null)
+                            evidence("source", "montantTTC", "Montant TTC facture rattachee", fDoc, montantBrutFacture)
+                        else null,
+                        montantNet?.let { evidence("source", "montantOperation", "Montant net OP (apres retenues)", opDoc, it) }
                     )
                 )
             }

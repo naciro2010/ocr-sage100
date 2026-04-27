@@ -548,6 +548,92 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R26 NON_CONFORME especes quand le brut depasse 5000 meme si le net est inferieur`() {
+        // Bug observe : R26 comparait montantOperation (= NET apres retenues
+        // d'apres le schema d'extraction). Une facture TTC 6 500 reglee en
+        // especes avec une retenue TVA 75% (4 875 reverses au Tresor) donnait
+        // un net OP de 1 625 < 5 000 et passait CONFORME, alors meme que la
+        // prestation imposable (6 500 TTC) depasse le plafond CGI art. 193-ter.
+        val dossier = createDossier()
+        val df = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf").apply {
+            donneesExtraites = mapOf("montantBrut" to 6500)
+        }
+        dossier.documents.addAll(listOf(df, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df).apply {
+            montantTtc = BigDecimal("6500.00")
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            modePaiement = "ESPECES"
+            montantOperation = BigDecimal("1625.00") // net apres retenue TVA 75%
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.NON_CONFORME, r26.statut,
+            "Le seuil legal s'applique au brut TTC, pas au net apres retenues")
+        assertTrue(r26.detail!!.contains("6500"), "Le detail doit montrer le brut")
+    }
+
+    @Test
+    fun `R26 fallback sur TTC facture quand montantBrut OP absent`() {
+        val dossier = createDossier()
+        val df = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(df, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df).apply {
+            montantTtc = BigDecimal("8000.00")
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            modePaiement = "ESPECES"
+            montantOperation = BigDecimal("2000.00")
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.NON_CONFORME, r26.statut)
+        assertTrue(r26.detail!!.contains("TTC facture"),
+            "Le detail doit indiquer la source du montant utilise")
+    }
+
+    @Test
+    fun `R26 CONFORME especes quand le brut est sous le plafond`() {
+        val dossier = createDossier()
+        val df = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf").apply {
+            donneesExtraites = mapOf("montantBrut" to 4500)
+        }
+        dossier.documents.addAll(listOf(df, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df).apply {
+            montantTtc = BigDecimal("4500.00")
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            modePaiement = "ESPECES"
+            montantOperation = BigDecimal("4500.00")
+        }
+        dossierRepo.save(dossier)
+
+        val r26 = validationEngine.validate(dossier).first { it.regle == "R26" }
+        assertEquals(StatutCheck.CONFORME, r26.statut)
+    }
+
+    @Test
+    fun `R26 ne se declenche pas pour un virement`() {
+        val dossier = createDossier()
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.add(dop)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            modePaiement = "VIREMENT"
+            montantOperation = BigDecimal("100000.00") // gros montant mais virement
+        }
+        dossierRepo.save(dossier)
+
+        val results = validationEngine.validate(dossier)
+        assertTrue(results.none { it.regle == "R26" },
+            "R26 ne doit pas se declencher si modePaiement != ESPECES")
+    }
+
+    @Test
     fun `rerunRule preserves manually corrected valeurTrouvee and valeurAttendue`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE)
