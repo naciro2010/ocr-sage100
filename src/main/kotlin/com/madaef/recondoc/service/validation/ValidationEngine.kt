@@ -758,29 +758,6 @@ class ValidationEngine(
                         }
                     }
 
-                    // Detection intra-dossier : les requetes repo excluent le
-                    // dossier courant (excludeDossierId) donc deux factures
-                    // identiques chargees dans le MEME dossier (cas frequent :
-                    // re-upload sans remplacement) ne sont jamais comparees.
-                    // On compare manuellement aux autres factures du dossier.
-                    val others = allFactures.filter { it !== f }
-                    if (numero != null) {
-                        others.filter { it.numeroFacture?.equals(numero, ignoreCase = true) == true }
-                            .forEach { o ->
-                                val oIsAvoir = isFactureAvoir(o)
-                                if (isCurrentAvoir != oIsAvoir) {
-                                    compensations += "Compensation intra-dossier : '${numero}' lie a un avoir"
-                                    r21Evidences += evidence("compensation", "numeroFacture",
-                                        "Avoir/compensation intra-dossier", f.document, numero)
-                                } else {
-                                    doublons += "Doublon intra-dossier : meme numero '${numero}'" +
-                                        (o.dateFacture?.let { " du ${it}" } ?: "")
-                                    r21Evidences += evidence("doublon", "numeroFacture",
-                                        "Doublon intra-dossier par numero", f.document, numero)
-                                }
-                            }
-                    }
-
                     val ttc = f.montantTtc
                     val date = f.dateFacture
                     val canonId = f.fournisseurCanonique?.id
@@ -810,29 +787,6 @@ class ValidationEngine(
                                 doublons += "${via}, montant/date (+/- ${antiDoublonDateToleranceDays}j) dans dossier ${d.dossier.reference}"
                                 r21Evidences += evidence("doublon", "combo",
                                     "Doublon fournisseur+montant+date - dossier ${d.dossier.reference}",
-                                    f.document, "${fournisseur ?: f.fournisseurCanonique?.nomCanonique} / ${ttc} / ${date}")
-                            }
-
-                        // Combo intra-dossier (meme fournisseur + montant proche + date proche).
-                        others
-                            .filter { it.numeroFacture?.equals(numero, ignoreCase = true) != true }
-                            .filter { !isFactureAvoir(it) }
-                            .filter { o ->
-                                val oTtc = o.montantTtc ?: return@filter false
-                                val oDate = o.dateFacture ?: return@filter false
-                                val oCanon = o.fournisseurCanonique?.id
-                                val sameFournisseur = when {
-                                    canonId != null && oCanon != null -> canonId == oCanon
-                                    fournisseur != null -> o.fournisseur?.equals(fournisseur, ignoreCase = true) == true
-                                    else -> false
-                                }
-                                sameFournisseur && oTtc in mMin..mMax &&
-                                    !oDate.isBefore(dMin) && !oDate.isAfter(dMax)
-                            }
-                            .forEach { o ->
-                                doublons += "Doublon intra-dossier : meme fournisseur, montant/date (+/- ${antiDoublonDateToleranceDays}j)"
-                                r21Evidences += evidence("doublon", "combo",
-                                    "Doublon intra-dossier fournisseur+montant+date",
                                     f.document, "${fournisseur ?: f.fournisseurCanonique?.nomCanonique} / ${ttc} / ${date}")
                             }
                     }

@@ -118,50 +118,6 @@ class ValidationServiceTest {
     }
 
     @Test
-    fun `R21 NON_CONFORME quand 2 factures identiques sont dans le meme dossier`() {
-        // Audit critique : avant le fix, R21 utilisait excludeDossierId dans le
-        // repo et ne comparait jamais les factures du dossier courant entre
-        // elles. Re-upload sans remplacement = doublon intra-dossier invisible.
-        val dossier = createDossier()
-        val d1 = doc(dossier, TypeDocument.FACTURE, "f1.pdf")
-        val d2 = doc(dossier, TypeDocument.FACTURE, "f2.pdf")
-        dossier.documents.addAll(listOf(d1, d2))
-        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
-            numeroFacture = "F-2026-001"; montantTtc = BigDecimal("10000.00"); dateFacture = LocalDate.of(2026, 4, 15)
-        })
-        dossier.factures.add(Facture(dossier = dossier, document = d2).apply {
-            numeroFacture = "F-2026-001"; montantTtc = BigDecimal("10000.00"); dateFacture = LocalDate.of(2026, 4, 15)
-        })
-        dossierRepo.save(dossier)
-
-        val r21Results = validationEngine.validate(dossier).filter { it.regle == "R21" }
-        assertTrue(r21Results.any { it.statut == StatutCheck.NON_CONFORME },
-            "Doublon intra-dossier (meme numero) doit declencher NON_CONFORME")
-        assertTrue(r21Results.any { it.detail!!.contains("intra-dossier") })
-    }
-
-    @Test
-    fun `R21 NON_CONFORME quand 2 factures meme fournisseur+montant+date dans meme dossier (sans meme numero)`() {
-        val dossier = createDossier()
-        val d1 = doc(dossier, TypeDocument.FACTURE, "f1.pdf")
-        val d2 = doc(dossier, TypeDocument.FACTURE, "f2.pdf")
-        dossier.documents.addAll(listOf(d1, d2))
-        dossier.factures.add(Facture(dossier = dossier, document = d1).apply {
-            numeroFacture = "F-2026-001"; fournisseur = "ACME SARL"
-            montantTtc = BigDecimal("10000.00"); dateFacture = LocalDate.of(2026, 4, 15)
-        })
-        dossier.factures.add(Facture(dossier = dossier, document = d2).apply {
-            numeroFacture = "F-2026-002"; fournisseur = "ACME SARL"
-            montantTtc = BigDecimal("10000.00"); dateFacture = LocalDate.of(2026, 4, 16)
-        })
-        dossierRepo.save(dossier)
-
-        val r21Results = validationEngine.validate(dossier).filter { it.regle == "R21" }
-        assertTrue(r21Results.any { it.statut == StatutCheck.NON_CONFORME },
-            "Combo intra-dossier doit declencher NON_CONFORME")
-    }
-
-    @Test
     fun `R09 NON_CONFORME quand BC porte un ICE different de la facture (substitution fournisseur)`() {
         // Audit critique : avant le fix, R09 ne comparait que facture <-> attestation.
         // Une substitution de fournisseur dans le BC (ICE different) passait CONFORME.
