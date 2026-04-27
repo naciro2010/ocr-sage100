@@ -95,4 +95,30 @@ class AppSettingsServiceTest {
         assertEquals(512, svc.getAiMaxTokens("classification"))
         assertEquals(8192, svc.getAiMaxTokens("extraction"))
     }
+
+    @Test
+    fun `retry_extraction_temperature default is 0_3`() {
+        val svc = buildService(emptyMap())
+        assertEquals(0.3, svc.getRetryExtractionTemperature())
+    }
+
+    @Test
+    fun `retry_extraction_temperature override is honored`() {
+        val svc = buildService(mapOf("ai.retry_extraction.temperature" to "0.6"))
+        assertEquals(0.6, svc.getRetryExtractionTemperature())
+    }
+
+    @Test
+    fun `retry_extraction_temperature is clamped to range 0_to_1`() {
+        val tooHigh = buildService(mapOf("ai.retry_extraction.temperature" to "1.7"))
+        assertEquals(1.0, tooHigh.getRetryExtractionTemperature())
+        val negative = buildService(mapOf("ai.retry_extraction.temperature" to "-0.4"))
+        assertEquals(0.0, negative.getRetryExtractionTemperature())
+    }
+
+    @Test
+    fun `retry_extraction_temperature falls back to default on garbage`() {
+        val svc = buildService(mapOf("ai.retry_extraction.temperature" to "abc"))
+        assertEquals(0.3, svc.getRetryExtractionTemperature())
+    }
 }

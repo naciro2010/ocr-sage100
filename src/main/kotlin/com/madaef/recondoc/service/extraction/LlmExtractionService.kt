@@ -217,6 +217,27 @@ class LlmExtractionService(
         temperatureOverride: Double
     ): ClaudeToolResponse = executeClaudeToolCall(null, systemPrompt, userContent, toolName, inputSchema, kind, null, temperatureOverride)
 
+    /**
+     * Variante combinant le cache prefixe stable + un override de temperature.
+     * Utilisee pour les RE-extractions (retry low-confidence, retry quality
+     * score) : on conserve le cache TTL 1h des few-shots / schema (sinon on
+     * pulverise le cache cross-document), tout en permettant a Claude
+     * d'explorer une lecture differente. Temperature 0 sur le retry est
+     * inutile car Claude reproduirait a l'identique le premier appel.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolCachedTemperatureFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    fun callClaudeToolCachedWithTemperature(
+        stableSystemPrefix: String?,
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        kind: CallKind,
+        temperatureOverride: Double
+    ): ClaudeToolResponse = executeClaudeToolCall(stableSystemPrefix, systemPrompt, userContent, toolName, inputSchema, kind, null, temperatureOverride)
+
     private fun executeClaudeToolCall(
         stableSystemPrefix: String?,
         systemPrompt: String,
@@ -525,6 +546,16 @@ class LlmExtractionService(
     private fun claudeToolTemperatureFallback(
         systemPrompt: String, userContent: String, toolName: String,
         inputSchema: Map<String, Any>, kind: CallKind,
+        temperatureOverride: Double, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t)
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolCachedTemperatureFallback(
+        stableSystemPrefix: String?, systemPrompt: String, userContent: String,
+        toolName: String, inputSchema: Map<String, Any>, kind: CallKind,
         temperatureOverride: Double, t: Throwable
     ): ClaudeToolResponse {
         fallbackMessage(t)

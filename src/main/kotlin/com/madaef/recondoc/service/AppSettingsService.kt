@@ -171,6 +171,20 @@ class AppSettingsService(
         return get("ai.identifier_consistency.temperature")?.toDoubleOrNull() ?: 0.5
     }
 
+    /**
+     * Temperature des re-extractions (retry low-confidence + retry quality
+     * score < seuil). Le run principal tourne a temperature 0 pour le
+     * determinisme. Si Claude renvoie une extraction avec _confidence < 0.7
+     * ou un score qualite faible, refaire le meme appel a temperature 0
+     * reproduit a l'identique le meme resultat — donc le retry est inutile.
+     * On utilise une temperature > 0 (defaut 0.3) sur les retries pour
+     * laisser Claude explorer une autre lecture du document. Le grounding
+     * post-extraction filtre les hallucinations introduites par la variance.
+     */
+    fun getRetryExtractionTemperature(): Double {
+        return get("ai.retry_extraction.temperature")?.toDoubleOrNull()?.coerceIn(0.0, 1.0) ?: 0.3
+    }
+
     // --- Claude pricing ($ per 1M tokens). Defaults match Anthropic public pricing
     // at the time of writing. Override per-model via keys ai.price.<model>.in / .out
     // so finance can update rates when the contract changes, without a redeploy.
