@@ -50,9 +50,14 @@ spring:
     # En cas d'echec mid-migration, l'entree `Failed` dans flyway_schema_history
     # bloquerait les boots suivants — c'est `FlywayConfig.flywayMigrationStrategy`
     # qui appelle `repair()` avant `migrate()` pour auto-recuperer.
+    #
+    # IMPORTANT: une seule entree avec les deux SET separes par `;`. Spring Boot
+    # joint la liste `init-sqls` avec `\n` puis passe le resultat a
+    # `Statement.execute()`. Postgres ne reconnait PAS le newline comme
+    # separateur de statements (il faut `;`), donc deux entrees distinctes
+    # provoquaient `ERROR: syntax error at or near "SET"` au boot Railway.
     init-sqls:
-      - "SET statement_timeout = 0"
-      - "SET lock_timeout = 60000"
+      - "SET statement_timeout = 0; SET lock_timeout = 60000"
   servlet:
     multipart:
       max-file-size: 50MB
