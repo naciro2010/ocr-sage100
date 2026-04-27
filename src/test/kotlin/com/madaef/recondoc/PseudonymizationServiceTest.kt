@@ -56,14 +56,19 @@ class PseudonymizationServiceTest {
     }
 
     @Test
-    fun `masque les RIB 24 chiffres`() {
+    fun `ne masque pas les RIB - identifiants de comptes B2B necessaires a Claude`() {
+        // Le RIB d'entreprise est un compte bancaire B2B, pas une donnee a
+        // caractere personnel au sens Loi 09-08 art. 1. Le masquer cassait
+        // l'extraction (Claude voit [RIB_1] au lieu de 24 chiffres et perd
+        // toute capacite de distinguer plusieurs RIBs dans un OP/facture)
+        // et la self-consistency (run2 ne pouvait pas reconfirmer un token
+        // opaque). OBJECTIF #1 fiabilite 100% > masquage cosmetique.
         val (masked, mapping) = service.tokenize(
             "RIB : 007810000112345678901234. Autre RIB : 011 780 0001234567890123 45"
         )
-        assertTrue(masked.contains("[RIB_1]"))
-        assertTrue(masked.contains("[RIB_2]"))
-        assertFalse(masked.contains("007810000112345678901234"))
-        assertEquals(2, mapping.backward.size)
+        assertEquals(0, mapping.backward.size)
+        assertTrue(masked.contains("007810000112345678901234"))
+        assertTrue(masked.contains("011 780 0001234567890123 45"))
     }
 
     @Test
@@ -195,7 +200,7 @@ class PseudonymizationServiceTest {
         val mockSettings = mock(AppSettingsService::class.java)
         `when`(mockSettings.isPseudonymizationEnabled()).thenReturn(false)
         val disabledService = PseudonymizationService(mockSettings)
-        val plain = "Email : sensitive@acme.ma, tel +212 612 34 56 78, RIB 007810000112345678901234"
+        val plain = "Email : sensitive@acme.ma, tel +212 612 34 56 78, signe par M. Karim El-Amrani"
         val (masked, mapping) = disabledService.tokenize(plain)
         assertEquals(plain, masked)
         assertTrue(mapping.isEmpty)

@@ -4,15 +4,22 @@ import com.madaef.recondoc.service.AppSettingsService
 import org.springframework.stereotype.Service
 
 /**
- * Masque les PII (emails, telephones MA, RIB 24 chiffres, noms de personnes
- * precedes d'une civilite) avant tout envoi du texte a Claude (USA).
+ * Masque les PII (emails, telephones MA, noms de personnes precedes d'une
+ * civilite) avant tout envoi du texte a Claude (USA).
  *
  * Objectif : conformite Loi 09-08 / CNDP (souverainete Maroc) + RGPD. Les
- * identifiants B2B publics (ICE, IF, RC, CNSS) et les raisons sociales
+ * identifiants B2B (ICE, IF, RC, CNSS, RIB) et les raisons sociales
  * d'entreprise ne sont volontairement PAS masques car :
  *   - l'ICE est un registre public marocain
  *   - IF/RC/CNSS sont des identifiants d'entite juridique, pas de personne
  *     physique
+ *   - le RIB d'entreprise est un compte bancaire B2B, pas une donnee a
+ *     caractere personnel au sens Loi 09-08 art. 1 (qui vise une "personne
+ *     physique identifiee ou identifiable"). Masquer le RIB casse en plus
+ *     l'extraction (Claude ne peut plus distinguer RIB beneficiaire vs
+ *     RIB ordonnateur quand un OP en cite plusieurs) et la self-consistency
+ *     (run2 ne peut pas reconfirmer un identifiant qu'il voit comme un
+ *     token opaque). OBJECTIF #1 fiabilite 100% > masquage cosmetique.
  *   - les raisons sociales fournisseur sont des identifiants business
  *     necessaires aux regles de validation metier (R14)
  *
@@ -42,7 +49,6 @@ class PseudonymizationService(
 
     enum class PiiKind(val prefix: String) {
         EMAIL("EMAIL"),
-        RIB("RIB"),
         PHONE("PHONE"),
         PERSON("PERSON")
     }
@@ -69,9 +75,7 @@ class PseudonymizationService(
         }.toMutableMap()
 
         var current = text
-        // Ordre : Email -> RIB -> Phone -> Person. Les patterns numeriques
-        // longs avant les courts evitent qu'un RIB soit partiellement avale
-        // par le pattern telephone.
+        // Ordre : Email -> Phone -> Person.
         for (kind in PiiKind.values()) {
             current = maskKind(current, kind, forward, backward, counters)
         }
@@ -97,7 +101,6 @@ class PseudonymizationService(
 
     private fun patternFor(kind: PiiKind): Regex = when (kind) {
         PiiKind.EMAIL -> EMAIL_RE
-        PiiKind.RIB -> RIB_RE
         PiiKind.PHONE -> PHONE_MA_RE
         PiiKind.PERSON -> PERSON_RE
     }
@@ -129,11 +132,6 @@ class PseudonymizationService(
 
     companion object {
         private val EMAIL_RE = Regex("\\b[A-Za-z0-9._%+\\-]+@[A-Za-z0-9.\\-]+\\.[A-Za-z]{2,}\\b")
-
-        // RIB marocain : 24 chiffres au total. Accepte :
-        //   - 24 chiffres consecutifs
-        //   - format usuel 3+3+16+2 separes par un espace
-        private val RIB_RE = Regex("(?<![\\d])(?:\\d{3}\\s\\d{3}\\s\\d{16}\\s\\d{2}|\\d{24})(?![\\d])")
 
         // Telephone Maroc :
         //   - mobile/fixe : +212 suivi de 5/6/7 puis 8 chiffres (avec separateurs
