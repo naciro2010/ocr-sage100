@@ -194,13 +194,7 @@ body {
 .main-content {
   flex: 1; min-width: 0;
   margin-left: 232px;
-  /* Padding qui scale jusqu'a 120px : sur grand ecran (2K/4K) on respire
-     vraiment au lieu de coller le contenu au bord de la sidebar. */
   padding: 28px clamp(20px, 3vw, 120px);
-  /* Pas de cap dur en dessous de 2400px : le contenu doit pouvoir occuper
-     l'espace disponible (tables, grilles de controles). Au-dela, on centre
-     proprement (cf media query ultra-wide plus bas) pour eviter les lignes
-     interminables ET pour ne plus coller a gauche. */
 }
 
 /* ===== Page Header ===== */
@@ -242,8 +236,6 @@ body {
 .card h2 svg { color: var(--accent); opacity: 0.6; }
 
 /* ===== Stats Grid ===== */
-/* Auto-fit : 4 cards en confortable, mais ajoute des colonnes (5+) sur tres
-   grand ecran et descend a 2-3 sur tablette sans avoir besoin de media query. */
 .stats-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .stat-card {
   background: #fff;
@@ -299,8 +291,6 @@ body {
   font-weight: 600; font-family: var(--font-mono);
 }
 
-/* Auto-fit : 2 cards a partir de ~860px, 3 a partir de ~1300px, 4 a partir
-   de ~1740px. Pas besoin de media queries pour la 3eme colonne sur QHD. */
 .cards-row { display: grid; grid-template-columns: repeat(auto-fit, minmax(420px, 1fr)); gap: 12px; }
 
 /* ===== Buttons ===== */
@@ -338,9 +328,8 @@ body {
 .btn-sm { padding: 4px 10px; font-size: 11px; }
 
 /* ===== Table ===== */
-/* min-width assure que les colonnes restent lisibles meme sur tablette etroite ;
-   le wrapper `.card:has(.data-table)` declenche un scroll horizontal automatique
-   plutot que de tronquer les colonnes de droite (STATUT, DATE). */
+/* min-width + parent overflow-x:auto (cf .card:has(.data-table)) garantit
+   que les colonnes ne sont jamais tronquees, on scrolle a la place. */
 .data-table { width: 100%; min-width: 720px; border-collapse: collapse; }
 .data-table th {
   text-align: left; padding: 8px 12px;
@@ -573,8 +562,6 @@ body {
 .dossier-row:hover { background: var(--accent-muted); }
 
 /* ===== Info Grid ===== */
-/* Auto-fit : 3 colonnes en standard, 4-5 sur grand ecran, 2 sur tablette,
-   1 sur mobile sans media query supplementaire. */
 .info-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(220px, 1fr)); gap: 20px; }
 .info-block-label { font-size: 9px; font-weight: 700; color: var(--ink-30); text-transform: uppercase; letter-spacing: 1px; margin-bottom: 5px; font-family: var(--font-mono); }
 .info-block-value { font-weight: 700; color: var(--ink); font-size: 14px; }
@@ -1077,7 +1064,6 @@ body {
   background: none; border: none; cursor: pointer; color: var(--ink-40); padding: 2px;
 }
 .form-input-icon:focus-visible { outline: 2px solid var(--accent); outline-offset: 2px; }
-/* Auto-fit : suit l'espace dispo, 1 col sur mobile, 2 sur tablette, 3+ sur desktop. */
 .engine-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(280px, 1fr)); gap: 12px; }
 .engine-header {
   display: flex; justify-content: space-between;
@@ -3230,43 +3216,18 @@ body {
 .preview-unsupported { padding: 20px; font-size: 12px; color: var(--ink-60); }
 .preview-unsupported a { margin-left: 8px; }
 
-/* ===== PdfFrame — toolbar zoom au-dessus de l'iframe PDF =====
-   La toolbar est sticky en haut du viewer. L'iframe occupe le reste de
-   l'espace. Le zoom est gere via le hash `#zoom=` du viewer interne du
-   browser (Chrome/Edge/Firefox), donc rendu net + pan natif gratuits. */
 .pdf-frame {
   display: flex; flex-direction: column;
   width: 100%; height: 100%;
   background: var(--ink-02);
 }
 .pdf-frame-toolbar {
-  display: flex; align-items: center; gap: 4px;
+  display: flex; align-items: center; gap: 6px;
   padding: 6px 10px;
   background: #fff;
   border-bottom: 1px solid var(--ink-10);
   flex-shrink: 0;
-  font-family: var(--font-display);
-  font-size: 11px;
 }
-.pdf-frame-btn {
-  display: inline-flex; align-items: center; gap: 5px;
-  height: 26px; padding: 0 8px;
-  background: transparent;
-  border: 1px solid var(--ink-10);
-  border-radius: 5px;
-  color: var(--ink-60);
-  font-size: 11px; font-weight: 600;
-  cursor: pointer;
-  transition: all 0.12s;
-}
-.pdf-frame-btn:hover {
-  background: var(--accent-muted);
-  border-color: var(--accent);
-  color: var(--accent-deep);
-}
-.pdf-frame-btn:active { transform: scale(0.96); transition-duration: 0.05s; }
-.pdf-frame-btn-label { font-size: 10.5px; }
-.pdf-frame-btn-reset { color: var(--ink-40); }
 .pdf-frame-zoom-label {
   min-width: 60px; text-align: center;
   font-family: var(--font-mono);
@@ -3284,7 +3245,6 @@ body {
   margin-left: auto;
   font-size: 10px; color: var(--ink-40);
   font-family: var(--font-mono);
-  letter-spacing: 0.2px;
 }
 .pdf-frame-iframe {
   flex: 1; min-height: 0;
@@ -3294,7 +3254,7 @@ body {
   background: #fff;
 }
 @media (max-width: 768px) {
-  .pdf-frame-btn-label { display: none; }
+  .pdf-frame-toolbar .btn span { display: none; }
   .pdf-frame-hint { display: none; }
 }
 
@@ -3304,8 +3264,6 @@ body {
 [data-theme="dark"] .preview-body { background: #0c1018; }
 [data-theme="dark"] .pdf-frame { background: #0c1018; }
 [data-theme="dark"] .pdf-frame-toolbar { background: #131927; border-color: #1c2333; }
-[data-theme="dark"] .pdf-frame-btn { border-color: #1c2333; color: #c9cdd5; }
-[data-theme="dark"] .pdf-frame-btn:hover { background: rgba(16,185,129,0.12); border-color: var(--accent); }
 [data-theme="dark"] .pdf-frame-iframe { background: #1c2333; }
 
 /* ===== Finalize Extracted ===== */
@@ -3669,11 +3627,7 @@ body {
 [data-theme="dark"] .data-field:hover { background: #0c1018; }
 [data-theme="dark"] .provenance-pop { background: rgba(19, 25, 39, 0.96); }
 
-/* ===== Responsive: Tablet (<=1024px) =====
-   Les grilles principales (stats-grid, cards-row, info-grid, engine-grid)
-   sont en auto-fit minmax() : elles s'adaptent toutes seules. On ne garde
-   ici que les overrides specifiques qui ne peuvent pas etre auto-fit (split,
-   formulaires, finalize) et le padding mobile. */
+/* ===== Responsive: Tablet (<=1024px) ===== */
 @media (max-width: 1024px) {
   .main-content { padding: 20px 24px; }
   .finalize-op-grid { grid-template-columns: 1fr 1fr; }
@@ -3706,19 +3660,15 @@ body {
   .header-actions { flex-wrap: wrap; }
 }
 
-/* ===== Responsive: Wide desktop (>=1680px) =====
-   Petite densification visuelle (gap + padding cards). Les grilles n'ont
-   pas besoin d'override : auto-fit ajoute des colonnes naturellement. */
+/* ===== Responsive: Wide desktop (>=1680px) — densification cards ===== */
 @media (min-width: 1680px) {
   .stats-grid { gap: 14px; }
   .stats-grid .stat-card { padding: 18px 22px; }
 }
 
-/* ===== Responsive: Ultra-wide (>=2400px) =====
-   Ecrans 27"+ / 4K / ultra-wide : on cap a 2400-232=2168px pour eviter les
-   lignes interminables. ATTENTION : margin-left ET margin-right en auto pour
-   CENTRER le contenu dans l'espace dispo (sinon il colle a gauche, ce qui
-   donnait l'impression d'une UI "decalee a gauche" sur tous les grands ecrans). */
+/* ===== Responsive: Ultra-wide (>=2400px) — cap centre =====
+   margin-left + margin-right en auto pour CENTRER (sinon le contenu colle
+   a gauche du fait de la sidebar fixe et laisse une bande blanche a droite). */
 @media (min-width: 2400px) {
   .main-content {
     max-width: calc(2400px - 232px);
@@ -3727,9 +3677,6 @@ body {
   }
 }
 
-/* ===== Tables responsives =====
-   Les `.data-table` peuvent deborder horizontalement sur mobile / tablette
-   etroite. On rend leur conteneur scrollable sans casser le layout grid. */
 .card:has(> .data-table),
 .card:has(> .table-wrap > .data-table) { overflow-x: auto; }
 
