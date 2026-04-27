@@ -3,6 +3,7 @@ import { X, ExternalLink, FileText, ChevronLeft, ChevronRight, Download } from '
 import { getDocumentFileUrl, downloadWithAuth } from '../../api/dossierApi'
 import type { DocumentInfo } from '../../api/dossierTypes'
 import { TYPE_DOCUMENT_LABELS } from '../../api/dossierTypes'
+import PdfFrame from './PdfFrame'
 
 interface Props {
   dossierId: string
@@ -130,11 +131,7 @@ export default function DocumentPreviewDrawer({ dossierId, documents, activeDocI
           {error && <div className="preview-error">Impossible de charger le document : {error}</div>}
           {blobUrl && !error && (
             isPdf ? (
-              <iframe
-                src={`${blobUrl}#view=FitH`}
-                title={activeDoc.nomFichier}
-                style={{ width: '100%', height: '100%', border: 'none', display: 'block' }}
-              />
+              <PdfFrame blobUrl={blobUrl} title={activeDoc.nomFichier} docId={activeDoc.id} />
             ) : isImage ? (
               <div className="preview-image-wrap">
                 <img src={blobUrl} alt={activeDoc.nomFichier} />
