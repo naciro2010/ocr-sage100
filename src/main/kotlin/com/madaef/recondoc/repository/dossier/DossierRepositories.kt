@@ -227,11 +227,17 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
     fun deleteByDossierId(dossierId: UUID)
     fun deleteByRegle(regle: String)
 
-    @Modifying
+    // flushAutomatically + clearAutomatically : sans ces flags, le bulk DELETE
+    // JPQL ne notifie pas le contexte de persistence Hibernate. Si le code
+    // appelant a deja chargé des ResultatValidation dans la session (typique
+    // sur un re-validate qui hydrate avant de purger), Hibernate tente de
+    // re-deleter l'entite managed apres notre DELETE -> StaleObjectStateException.
+    // Vu sur DossierIntegrationTest.idempotent : 2e POST /valider remontait 500.
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("DELETE FROM ResultatValidation r WHERE r.dossier.id = :dossierId AND r.regle NOT LIKE 'CUSTOM-%'")
     fun deleteSystemByDossierId(@Param("dossierId") dossierId: UUID)
 
-    @Modifying
+    @Modifying(flushAutomatically = true, clearAutomatically = true)
     @Query("DELETE FROM ResultatValidation r WHERE r.dossier.id = :dossierId AND r.regle LIKE 'CUSTOM-%'")
     fun deleteCustomByDossierId(@Param("dossierId") dossierId: UUID)
 
