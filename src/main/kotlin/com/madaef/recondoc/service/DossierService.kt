@@ -904,9 +904,16 @@ class DossierService(
                             var retryStopReason: String? = null
                             if (schema != null) {
                                 try {
-                                    val retryTool = llmService.callClaudeToolCached(
+                                    // Temperature > 0 sur le retry : le 1er appel est deterministe
+                                    // (T=0). Sans casser ce determinisme, Claude reproduirait a
+                                    // l'identique sa premiere lecture et le retry serait inutile.
+                                    // Le grounding post-extraction filtre les hallucinations
+                                    // introduites par la variance.
+                                    val retryTemperature = appSettingsService.getRetryExtractionTemperature()
+                                    val retryTool = llmService.callClaudeToolCachedWithTemperature(
                                         stableCommonPrefix, specificPrompt, retryUser,
-                                        schema.name, schema.inputSchema, CallKind.EXTRACTION
+                                        schema.name, schema.inputSchema, CallKind.EXTRACTION,
+                                        retryTemperature
                                     )
                                     retryData = retryTool.toolInput
                                     retryStopReason = retryTool.stopReason
@@ -1187,9 +1194,16 @@ class DossierService(
             val stableBase = ExtractionPrompts.STABLE_COMMON_PREFIX.takeIf { specificBase !== basePrompt }
             val retryDataMasked: Map<String, Any?> = if (schema != null) {
                 try {
-                    llmService.callClaudeToolCached(
+                    // Cf. retry low-confidence : temperature > 0 sur la 2e passe
+                    // pour briser le determinisme local et donner une chance a
+                    // Claude de produire une lecture differente. Sans cela, le
+                    // retry quality consomme le budget sans corriger les
+                    // extractions degradees du 1er essai.
+                    val retryTemperature = appSettingsService.getRetryExtractionTemperature()
+                    llmService.callClaudeToolCachedWithTemperature(
                         stableBase, specificBase, retryUser,
-                        schema.name, schema.inputSchema, CallKind.EXTRACTION
+                        schema.name, schema.inputSchema, CallKind.EXTRACTION,
+                        retryTemperature
                     ).toolInput
                 } catch (e: Exception) {
                     log.warn("Reinforced retry tool_use failed for {} ({}), falling back to text: {}",
