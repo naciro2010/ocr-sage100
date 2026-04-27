@@ -128,11 +128,11 @@ class CustomRuleService(
         if (rules.size == 1) return listOf(evaluate(rules.first(), dossier))
 
         val (applicable, notApplicable) = rules.partition { it.isApplicableTo(dossier.type) }
-        val skipped = notApplicable.map { nonApplicableResult(it, dossier, "CUSTOM") }
+        val skipped = notApplicable.map { nonApplicableResult(it, dossier, "CUSTOM_BATCH") }
         if (applicable.isEmpty()) return skipped
 
         if (!llm.isAvailable) {
-            return skipped + applicable.map { missingKeyResult(it, dossier, "CUSTOM") }
+            return skipped + applicable.map { missingKeyResult(it, dossier, "CUSTOM_BATCH") }
         }
 
         // Restrict the shared payload to document types actually referenced by at least
@@ -174,7 +174,7 @@ class CustomRuleService(
                         dossier = dossier, regle = rule.code, libelle = rule.libelle,
                         statut = StatutCheck.AVERTISSEMENT,
                         detail = "Verdict manquant dans la reponse IA groupee. Relancer ou corriger manuellement.",
-                        source = "CUSTOM",
+                        source = "CUSTOM_BATCH",
                         documentIds = involvedIds.joinToString(",").ifBlank { null }
                     )
             }
@@ -486,7 +486,7 @@ $payloadJson
                 dossier = dossier, regle = rule.code, libelle = rule.libelle,
                 statut = StatutCheck.NON_APPLICABLE,
                 detail = needsMoreInfoDetail(v.detail, v.questions),
-                source = "CUSTOM",
+                source = "CUSTOM_BATCH",
                 documentIds = docIdsCsv
             )
         }
@@ -494,7 +494,7 @@ $payloadJson
             dossier = dossier, regle = rule.code, libelle = rule.libelle,
             statut = parseStatut(v.statutNode, rule),
             detail = v.detail,
-            source = "CUSTOM",
+            source = "CUSTOM_BATCH",
             evidences = v.evidences,
             documentIds = (v.documentIds ?: fallbackDocIds).joinToString(",").ifBlank { null }
         )
