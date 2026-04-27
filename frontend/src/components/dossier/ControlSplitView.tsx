@@ -788,7 +788,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
           <div className="ctrl-detail-section">
             <div className="ctrl-detail-section-title">Documents source</div>
             <div className="ctrl-docs-chips">
-              {r.documentIds.map(docId => {
+              {Array.from(new Set(r.documentIds)).map(docId => {
                 const doc = dossier.documents.find(d => d.id === docId)
                 if (!doc) return null
                 return (

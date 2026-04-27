@@ -548,6 +548,83 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R11 NON_CONFORME quand l'OP contient un RIB frauduleux additionnel`() {
+        // Cas d'attaque: l'OP liste 2 RIBs - l'un legitime (matche la facture),
+        // l'autre est un RIB attaquant glisse dans l'extraction. L'ancien code
+        // (any) acceptait des qu'UN seul RIB OP matchait, ignorant le RIB sup
+        // potentiellement utilise pour une partie du paiement. Le fix verifie
+        // que TOUS les RIBs OP sont reconnus dans les RIBs des factures.
+        val dossier = createDossier()
+        val df = doc(dossier, TypeDocument.FACTURE)
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf").apply {
+            donneesExtraites = mapOf(
+                "rib" to "022810000150002775637823",
+                "ribs" to listOf("022810000150002775637823", "999888777666555444333222")
+            )
+        }
+        dossier.documents.addAll(listOf(df, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df).apply {
+            rib = "022810000150002775637823"
+        })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            rib = "022810000150002775637823"
+        }
+        dossierRepo.save(dossier)
+
+        val r11 = validationEngine.validate(dossier).first { it.regle == "R11" }
+        assertEquals(StatutCheck.NON_CONFORME, r11.statut,
+            "Un RIB OP additionnel non present dans les factures doit etre signale")
+        assertTrue(r11.detail!!.contains("999888777666555444333222"),
+            "Le detail doit nommer le RIB suspect")
+    }
+
+    @Test
+    fun `R11 CONFORME quand l'OP liste les 2 RIBs des 2 factures du dossier`() {
+        // Cas legitime : 2 factures du meme fournisseur sur 2 comptes differents,
+        // l'OP regroupe le paiement et liste les 2 RIBs. Les 2 RIBs OP sont
+        // reconnus dans les RIBs facture -> CONFORME.
+        val dossier = createDossier()
+        val df1 = doc(dossier, TypeDocument.FACTURE, "f1.pdf")
+        val df2 = doc(dossier, TypeDocument.FACTURE, "f2.pdf")
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf").apply {
+            donneesExtraites = mapOf(
+                "rib" to "022810000150002775637823",
+                "ribs" to listOf("022810000150002775637823", "022810000150002775637824")
+            )
+        }
+        dossier.documents.addAll(listOf(df1, df2, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df1).apply { rib = "022810000150002775637823" })
+        dossier.factures.add(Facture(dossier = dossier, document = df2).apply { rib = "022810000150002775637824" })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            rib = "022810000150002775637823"
+        }
+        dossierRepo.save(dossier)
+
+        val r11 = validationEngine.validate(dossier).first { it.regle == "R11" }
+        assertEquals(StatutCheck.CONFORME, r11.statut,
+            "2 RIBs OP correspondant aux 2 RIBs facture = legitime")
+    }
+
+    @Test
+    fun `R11 NON_CONFORME quand aucun RIB OP ne correspond a la facture`() {
+        // Substitution complete de beneficiaire : tous les RIBs OP sont inconnus.
+        val dossier = createDossier()
+        val df = doc(dossier, TypeDocument.FACTURE)
+        val dop = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dossier.documents.addAll(listOf(df, dop))
+        dossier.factures.add(Facture(dossier = dossier, document = df).apply { rib = "022810000150002775637823" })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dop).apply {
+            rib = "999888777666555444333222"
+        }
+        dossierRepo.save(dossier)
+
+        val r11 = validationEngine.validate(dossier).first { it.regle == "R11" }
+        assertEquals(StatutCheck.NON_CONFORME, r11.statut)
+        assertTrue(r11.detail!!.contains("Aucun RIB"),
+            "Le detail doit indiquer qu'aucun RIB ne matche")
+    }
+
+    @Test
     fun `rerunRule preserves manually corrected valeurTrouvee and valeurAttendue`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE)
