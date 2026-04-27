@@ -224,6 +224,12 @@ export async function validateDossier(id: string): Promise<ValidationResult[]> {
   return handleResponse(res)
 }
 
+export async function validateDossierCustomRules(id: string): Promise<ValidationResult[]> {
+  invalidateCache(id)
+  const res = await apiFetch(`${BASE}/${id}/valider-ia`, { method: 'POST' })
+  return handleResponse(res)
+}
+
 export async function getValidationResults(id: string): Promise<ValidationResult[]> {
   return cachedFetch(`${BASE}/${id}/resultats-validation`, 3000)
 }

@@ -3,7 +3,7 @@ import { useParams } from 'react-router-dom'
 
 const EMPTY_DOCS: never[] = []
 const EMPTY_RESULTS: never[] = []
-import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
+import { getDossierSummary, getDocumentsWithData, getValidationResults, validateDossier, validateDossierCustomRules, changeStatut, getAuditLog, rerunValidationRule, getRuleConfig, updateRuleConfig, getCascadeScope } from '../api/dossierApi'
 import { listCustomRules, type CustomRule } from '../api/customRulesApi'
 import type { DossierSummary, DocumentsWithData } from '../api/dossierApi'
 import type { ValidationResult, AuditEntry } from '../api/dossierTypes'
@@ -156,6 +156,7 @@ export default function DossierDetail() {
   const [cascadeScope, setCascadeScope] = useState<Record<string, string[]>>({})
   // UI states
   const [validating, setValidating] = useState(false)
+  const [validatingIa, setValidatingIa] = useState(false)
   const [actionLoading, setActionLoading] = useState(false)
   const [rejectModal, setRejectModal] = useState(false)
   const [motifRejet, setMotifRejet] = useState('')
@@ -232,16 +233,31 @@ export default function DossierDetail() {
     if (!id) return
     setValidating(true)
     try {
-      const results = await validateDossier(id)
-      setValidationResults(results)
-      toast('success', 'Verification terminee')
-      // Refresh summary for updated check counts, audit for new entry
+      await validateDossier(id)
+      // /valider ne renvoie que les regles systeme : on recharge la matrice
+      // complete pour conserver les CUSTOM-XX persistees.
+      await loadValidation()
+      toast('success', 'Controles systeme termines')
       loadSummary()
       loadAudit()
     } catch (e: unknown) {
       toast('error', e instanceof Error ? e.message : 'Validation failed')
     } finally { setValidating(false) }
-  }, [id, loadSummary, loadAudit, toast])
+  }, [id, loadSummary, loadAudit, loadValidation, toast])
+
+  const handleValidateIa = useCallback(async () => {
+    if (!id) return
+    setValidatingIa(true)
+    try {
+      await validateDossierCustomRules(id)
+      await loadValidation()
+      toast('success', 'Regles IA terminees')
+      loadSummary()
+      loadAudit()
+    } catch (e: unknown) {
+      toast('error', e instanceof Error ? e.message : 'Validation IA failed')
+    } finally { setValidatingIa(false) }
+  }, [id, loadSummary, loadAudit, loadValidation, toast])
 
   const handleStatut = useCallback(async (statut: string) => {
     if (!id || !summary) return
@@ -422,12 +438,14 @@ export default function DossierDetail() {
                 <DossierHeader
                   dossier={dossierCompat!} id={id!}
                   hasProcessing={hasProcessing} validating={validating}
+                  validatingIa={validatingIa}
                   actionLoading={actionLoading}
                   editing={editing} nbNonConformes={nbNonConformes}
                   showCompare={showCompare}
                   onLoad={reloadAll} onStartEdit={() => setEditing(true)}
                   onToggleCompare={() => setShowCompare(!showCompare)}
                   onValidate={handleValidate}
+                  onValidateIa={handleValidateIa}
                   onValider={() => handleStatut('VALIDE')}
                   onRejeter={() => setRejectModal(true)}
                   onReouvrir={() => handleStatut('BROUILLON')}

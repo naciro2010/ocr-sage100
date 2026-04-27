@@ -1031,7 +1031,16 @@ class DossierService(
         val dossier = getDossierFull(dossierId)
         dossier.statut = StatutDossier.EN_VERIFICATION
         val results = validationEngine.validate(dossier)
-        audit(dossierId, "VALIDATION", "${results.size} regles executees")
+        audit(dossierId, "VALIDATION", "${results.size} regles systeme executees")
+        return results
+    }
+
+    @Transactional
+    fun validateDossierCustomRules(dossierId: UUID): List<ResultatValidation> {
+        val dossier = getDossierFull(dossierId)
+        dossier.statut = StatutDossier.EN_VERIFICATION
+        val results = validationEngine.validateCustomOnly(dossier)
+        audit(dossierId, "VALIDATION_IA", "${results.size} regles IA executees")
         return results
     }
 
