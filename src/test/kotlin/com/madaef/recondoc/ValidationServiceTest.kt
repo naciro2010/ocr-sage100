@@ -118,6 +118,61 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R09 NON_CONFORME quand BC porte un ICE different de la facture (substitution fournisseur)`() {
+        // Audit critique : avant le fix, R09 ne comparait que facture <-> attestation.
+        // Une substitution de fournisseur dans le BC (ICE different) passait CONFORME.
+        val dossier = createDossier()
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dBc = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        dBc.donneesExtraites = mutableMapOf<String, Any?>("ice" to "001509176000099")
+        dossier.documents.addAll(listOf(dF, dBc))
+        dossier.factures.add(Facture(dossier = dossier, document = dF).apply { ice = "001509176000008" })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = dBc)
+        dossierRepo.save(dossier)
+
+        val r09 = validationEngine.validate(dossier).first { it.regle == "R09" }
+        assertEquals(StatutCheck.NON_CONFORME, r09.statut, "ICE BC different doit declencher NON_CONFORME")
+        assertTrue(r09.detail!!.contains("BC=001509176000099"), "detail doit mentionner BC")
+    }
+
+    @Test
+    fun `R09 NON_CONFORME quand OP porte un ICE different de la facture`() {
+        val dossier = createDossier()
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dOp = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        dOp.donneesExtraites = mutableMapOf<String, Any?>("ice" to "001509176000099")
+        dossier.documents.addAll(listOf(dF, dOp))
+        dossier.factures.add(Facture(dossier = dossier, document = dF).apply { ice = "001509176000008" })
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dOp)
+        dossierRepo.save(dossier)
+
+        val r09 = validationEngine.validate(dossier).first { it.regle == "R09" }
+        assertEquals(StatutCheck.NON_CONFORME, r09.statut)
+        assertTrue(r09.detail!!.contains("OP=001509176000099"))
+    }
+
+    @Test
+    fun `R09 CONFORME quand BC + OP + Facture + Attestation portent le meme ICE`() {
+        val dossier = createDossier()
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dBc = doc(dossier, TypeDocument.BON_COMMANDE, "bc.pdf")
+        val dOp = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val dArf = doc(dossier, TypeDocument.ATTESTATION_FISCALE, "arf.pdf")
+        val sameIce = "001509176000008"
+        dBc.donneesExtraites = mutableMapOf<String, Any?>("ice" to sameIce)
+        dOp.donneesExtraites = mutableMapOf<String, Any?>("ice" to sameIce)
+        dossier.documents.addAll(listOf(dF, dBc, dOp, dArf))
+        dossier.factures.add(Facture(dossier = dossier, document = dF).apply { ice = sameIce })
+        dossier.bonCommande = BonCommande(dossier = dossier, document = dBc)
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dOp)
+        dossier.attestationFiscale = AttestationFiscale(dossier = dossier, document = dArf).apply { ice = sameIce }
+        dossierRepo.save(dossier)
+
+        val r09 = validationEngine.validate(dossier).first { it.regle == "R09" }
+        assertEquals(StatutCheck.CONFORME, r09.statut)
+    }
+
+    @Test
     fun `R04 CONFORME when OP equals TTC without retenues`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE)

@@ -448,41 +448,53 @@ class ValidationEngine(
         if (isEnabled("R09")) {
             val iceFacture = (facture?.ice ?: docStr(fDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
             val iceArf = (arf?.ice ?: docStr(arfDoc, "ice"))?.trim()?.takeIf { it.isNotBlank() }
+            // BC et OP n'ont pas de champ ice typee (legacy schema), mais les
+            // documents extraits peuvent porter un ICE dans donneesExtraites.
+            // Si present, il DOIT correspondre a la facture sinon c'est une
+            // substitution de fournisseur (cas frequent de fraude).
+            val iceBc = docStr(bcDoc, "ice")?.trim()?.takeIf { it.isNotBlank() }
+            val iceOp = docStr(opDoc, "ice")?.trim()?.takeIf { it.isNotBlank() }
             // ICE = 15 chiffres significatifs (decret 2-11-13 OMPIC). On NE retire
             // PAS les zeros de tete : `001509176000008` est l'ICE legal d'une
             // entreprise, distinct de `1509176000008` (13 chiffres = ICE invalide
             // ou autre entreprise). `normalizeId` aurait fait matcher les deux.
-            val normalizedIces = listOfNotNull(iceFacture, iceArf).mapNotNull { normalizeIce(it) }.distinct()
-            // ICE est obligatoire sur toute facture B2B au Maroc. Une facture
-            // existante sans ICE = NON_CONFORME systematique. L'attestation
-            // fiscale est facultative dans le scope R09 : si elle existe, son
-            // ICE doit etre coherent avec la facture.
+            val allIces = listOfNotNull(iceFacture, iceArf, iceBc, iceOp)
+            val normalizedIces = allIces.mapNotNull { normalizeIce(it) }.distinct()
             val statut = when {
-                facture == null && arf == null -> StatutCheck.AVERTISSEMENT
+                facture == null && arf == null && iceBc == null && iceOp == null -> StatutCheck.AVERTISSEMENT
                 facture != null && iceFacture == null -> StatutCheck.NON_CONFORME
                 arf != null && iceArf == null && facture == null -> StatutCheck.AVERTISSEMENT
                 arf != null && iceArf == null -> StatutCheck.NON_CONFORME
-                iceFacture != null && iceArf != null && normalizedIces.size != 1 -> StatutCheck.NON_CONFORME
+                normalizedIces.size > 1 -> StatutCheck.NON_CONFORME
                 else -> StatutCheck.CONFORME
+            }
+            val sources = buildList {
+                if (iceFacture != null) add("facture=$iceFacture")
+                if (iceArf != null) add("attestation=$iceArf")
+                if (iceBc != null) add("BC=$iceBc")
+                if (iceOp != null) add("OP=$iceOp")
             }
             results += ResultatValidation(
                 dossier = dossier, regle = "R09",
                 libelle = "Coherence ICE fournisseur entre documents",
                 statut = statut,
                 valeurAttendue = iceFacture ?: "Absent de la facture",
-                valeurTrouvee = iceArf ?: "Absent de l'attestation fiscale",
+                valeurTrouvee = listOfNotNull(iceArf, iceBc, iceOp).firstOrNull() ?: "Absent",
                 detail = when (statut) {
                     StatutCheck.AVERTISSEMENT -> "ICE non disponible (sources documentaires insuffisantes)"
                     StatutCheck.NON_CONFORME -> when {
                         facture != null && iceFacture == null -> "ICE manquant sur la facture (obligation B2B Maroc)"
                         arf != null && iceArf == null -> "ICE manquant sur l'attestation fiscale alors que la facture en mentionne un ($iceFacture)"
-                        else -> "ICE differents : facture=$iceFacture, attestation=$iceArf"
+                        normalizedIces.size > 1 -> "ICE differents entre documents : ${sources.joinToString(", ")}"
+                        else -> "ICE incoherent : ${sources.joinToString(", ")}"
                     }
-                    else -> "ICE identiques"
+                    else -> "ICE identiques (${sources.joinToString(", ")})"
                 },
-                evidences = listOf(
+                evidences = listOfNotNull(
                     evidence("source", "ice", "ICE sur la facture", fDoc, iceFacture),
-                    evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf)
+                    evidence("source", "ice", "ICE sur l'attestation fiscale", arfDoc, iceArf),
+                    iceBc?.let { evidence("source", "ice", "ICE sur le bon de commande", bcDoc, it) },
+                    iceOp?.let { evidence("source", "ice", "ICE sur l'ordre de paiement", opDoc, it) }
                 )
             )
         }
