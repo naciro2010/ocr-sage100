@@ -162,6 +162,75 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R22 AVERTISSEMENT quand seule periodeFin est presente sur le PV (pas de fallback dangereux)`() {
+        // Audit critique : avant le fix, R22 fallback sur pv.periodeFin si
+        // dateReception etait null. Un PV trimestriel signe en realite apres
+        // sa periode (ex: PV periodeFin=30/06 signe le 05/07) acceptait un OP
+        // date du 30/06 comme CONFORME, alors que le paiement precedait la
+        // signature effective. Le fix supprime le fallback : sans dateReception,
+        // R22 -> AVERTISSEMENT (pas CONFORME silencieux).
+        val dossier = createDossier(DossierType.CONTRACTUEL)
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dOp = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val dPv = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(dF, dOp, dPv))
+        dossier.factures.add(Facture(dossier = dossier, document = dF))
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dOp).apply {
+            dateEmission = LocalDate.of(2026, 6, 30)
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = dPv).apply {
+            // dateReception NULL volontairement, periodeFin renseigne
+            periodeFin = LocalDate.of(2026, 6, 30)
+        }
+        dossierRepo.save(dossier)
+
+        val r22 = validationEngine.validate(dossier).first { it.regle == "R22" }
+        assertEquals(StatutCheck.AVERTISSEMENT, r22.statut,
+            "Sans dateReception, R22 doit lever AVERTISSEMENT au lieu de CONFORME silencieux")
+        assertTrue(r22.detail!!.contains("date de reception du PV manquante"))
+    }
+
+    @Test
+    fun `R22 NON_CONFORME quand OP est avant dateReception du PV`() {
+        val dossier = createDossier(DossierType.CONTRACTUEL)
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dOp = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val dPv = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(dF, dOp, dPv))
+        dossier.factures.add(Facture(dossier = dossier, document = dF))
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dOp).apply {
+            dateEmission = LocalDate.of(2026, 6, 30)
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = dPv).apply {
+            dateReception = LocalDate.of(2026, 7, 5)
+        }
+        dossierRepo.save(dossier)
+
+        val r22 = validationEngine.validate(dossier).first { it.regle == "R22" }
+        assertEquals(StatutCheck.NON_CONFORME, r22.statut)
+    }
+
+    @Test
+    fun `R22 CONFORME quand OP est apres dateReception du PV`() {
+        val dossier = createDossier(DossierType.CONTRACTUEL)
+        val dF = doc(dossier, TypeDocument.FACTURE)
+        val dOp = doc(dossier, TypeDocument.ORDRE_PAIEMENT, "op.pdf")
+        val dPv = doc(dossier, TypeDocument.PV_RECEPTION, "pv.pdf")
+        dossier.documents.addAll(listOf(dF, dOp, dPv))
+        dossier.factures.add(Facture(dossier = dossier, document = dF))
+        dossier.ordrePaiement = OrdrePaiement(dossier = dossier, document = dOp).apply {
+            dateEmission = LocalDate.of(2026, 7, 10)
+        }
+        dossier.pvReception = PvReception(dossier = dossier, document = dPv).apply {
+            dateReception = LocalDate.of(2026, 7, 5)
+        }
+        dossierRepo.save(dossier)
+
+        val r22 = validationEngine.validate(dossier).first { it.regle == "R22" }
+        assertEquals(StatutCheck.CONFORME, r22.statut)
+    }
+
+    @Test
     fun `R09 NON_CONFORME quand BC porte un ICE different de la facture (substitution fournisseur)`() {
         // Audit critique : avant le fix, R09 ne comparait que facture <-> attestation.
         // Une substitution de fournisseur dans le BC (ICE different) passait CONFORME.

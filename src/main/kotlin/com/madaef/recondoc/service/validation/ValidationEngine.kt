@@ -874,17 +874,30 @@ class ValidationEngine(
 
         if (isEnabled("R22") && op != null && pv != null) {
             measureRule("R22", results) {
-                val dateReception = pv.dateReception ?: pv.periodeFin
+                // On utilise STRICTEMENT pv.dateReception (date a laquelle le service
+                // a ete reconnu recu et l'attestation signee). Auparavant, le code
+                // fallback sur pv.periodeFin si dateReception etait null — c'etait
+                // dangereux : un PV trimestriel a periodeFin=30/06 mais signe le
+                // 05/07 acceptait un OP date du 30/06 (paiement avant signature
+                // effective du PV). Sans dateReception, R22 ne peut pas trancher
+                // -> AVERTISSEMENT pour forcer une revue humaine plutot qu'un
+                // CONFORME silencieux base sur une date de fin de periode.
+                val dateReception = pv.dateReception
                 val dateOp = op.dateEmission
                 val opDocLocal = opDoc
                 val pvDocLocal = pv.document
                 when {
                     dateReception == null || dateOp == null -> {
+                        val cause = when {
+                            dateOp == null && dateReception == null -> "date OP et date de reception du PV manquantes"
+                            dateOp == null -> "date d'emission de l'OP manquante"
+                            else -> "date de reception du PV manquante (periodeFin n'est pas un substitut fiable : un PV trimestriel peut etre signe apres sa periode)"
+                        }
                         results += ResultatValidation(
                             dossier = dossier, regle = "R22",
                             libelle = "Paiement posterieur a la reception",
                             statut = StatutCheck.AVERTISSEMENT,
-                            detail = "Date OP (${dateOp}) ou date reception (${dateReception}) manquante"
+                            detail = "Impossible de verifier R22 : $cause"
                         )
                     }
                     dateOp.isBefore(dateReception) -> {
