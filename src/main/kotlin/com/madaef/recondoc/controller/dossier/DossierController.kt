@@ -9,6 +9,7 @@ import com.madaef.recondoc.service.DocumentSearchService
 import com.madaef.recondoc.service.DossierService
 import com.madaef.recondoc.service.ExcelExportService
 import com.madaef.recondoc.service.FinalizeRequest
+import com.madaef.recondoc.service.dossier.DocumentCorrectionService
 import com.madaef.recondoc.service.dossier.DossierExportService
 import com.madaef.recondoc.service.dossier.DossierRuleConfigService
 import com.madaef.recondoc.service.validation.RuleCatalog
@@ -36,7 +37,8 @@ class DossierController(
     private val documentSearchService: DocumentSearchService,
     private val excelExportService: ExcelExportService,
     private val dossierRuleConfigService: DossierRuleConfigService,
-    private val dossierExportService: DossierExportService
+    private val dossierExportService: DossierExportService,
+    private val documentCorrectionService: DocumentCorrectionService
 ) {
 
     private val log = LoggerFactory.getLogger(javaClass)
@@ -342,6 +344,41 @@ class DossierController(
     ): List<ValidationResultResponse> {
         return dossierService.correctAndRerun(id, resultId, body).map { it.toResponse() }
     }
+
+    @GetMapping("/{id}/documents/{docId}/corrections")
+    fun listCorrections(@PathVariable id: UUID, @PathVariable docId: UUID): List<DocumentCorrectionResponse> {
+        return documentCorrectionService.listForDocument(docId).map { c ->
+            DocumentCorrectionResponse(
+                id = c.id!!,
+                documentId = c.document.id!!,
+                champ = c.champ,
+                valeurOriginale = c.valeurOriginale,
+                valeurCorrigee = c.valeurCorrigee,
+                regle = c.regle,
+                motif = c.motif,
+                corrigePar = c.corrigePar,
+                dateCorrection = c.dateCorrection.toString()
+            )
+        }
+    }
+
+    @DeleteMapping("/{id}/documents/{docId}/corrections/{champ}")
+    @ResponseStatus(HttpStatus.NO_CONTENT)
+    fun deleteCorrection(@PathVariable id: UUID, @PathVariable docId: UUID, @PathVariable champ: String) {
+        documentCorrectionService.delete(docId, champ)
+    }
+
+    data class DocumentCorrectionResponse(
+        val id: UUID,
+        val documentId: UUID,
+        val champ: String,
+        val valeurOriginale: String?,
+        val valeurCorrigee: String?,
+        val regle: String?,
+        val motif: String?,
+        val corrigePar: String?,
+        val dateCorrection: String
+    )
 
     @GetMapping("/validation/cascade/{regle}")
     fun getCascadeScope(@PathVariable regle: String): ResponseEntity<Map<String, Any>> {

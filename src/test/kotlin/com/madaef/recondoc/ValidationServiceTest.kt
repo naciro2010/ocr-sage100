@@ -519,6 +519,95 @@ class ValidationServiceTest {
     }
 
     @Test
+    fun `R16c CONFORME when sum of HT lines equals facture HT`() {
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        val facture = Facture(dossier = dossier, document = d1).apply {
+            montantHt = BigDecimal("1496.66")
+            montantTva = BigDecimal("299.34")
+            montantTtc = BigDecimal("1796.00")
+            tauxTva = BigDecimal("20")
+        }
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article A", montantTotalHt = BigDecimal("800.00")))
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article B", montantTotalHt = BigDecimal("696.66")))
+        dossier.factures.add(facture)
+        dossierRepo.save(dossier)
+
+        val r16c = validationEngine.validate(dossier).first { it.regle == "R16c" }
+        assertEquals(StatutCheck.CONFORME, r16c.statut, r16c.detail)
+    }
+
+    @Test
+    fun `R16c AVERTISSEMENT when sum of lines matches TTC (no HT column on lines)`() {
+        // Reproduit le faux-positif observe : facture sans colonne HT, l'extracteur
+        // a place les valeurs TTC dans montantTotalHt → somme = TTC, pas HT.
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        val facture = Facture(dossier = dossier, document = d1).apply {
+            montantHt = BigDecimal("1496.66")
+            montantTva = BigDecimal("299.34")
+            montantTtc = BigDecimal("1796.00")
+            tauxTva = BigDecimal("20")
+        }
+        // 11 lignes dont la somme TTC = 1796.00 (= TTC facture, ratio 1.20 vs HT)
+        repeat(10) {
+            facture.lignes.add(LigneFacture(facture = facture, designation = "Article ${it + 1}", montantTotalHt = BigDecimal("160.00")))
+        }
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article 11", montantTotalHt = BigDecimal("196.00")))
+        dossier.factures.add(facture)
+        dossierRepo.save(dossier)
+
+        val r16c = validationEngine.validate(dossier).first { it.regle == "R16c" }
+        assertEquals(StatutCheck.AVERTISSEMENT, r16c.statut, r16c.detail)
+        assertTrue(r16c.detail!!.contains("TTC"), "Le detail doit signaler la confusion TTC/HT : ${r16c.detail}")
+    }
+
+    @Test
+    fun `R16c AVERTISSEMENT when sum equals HT inflated by legal TVA rate even if TTC missing`() {
+        // Meme symptome mais sans montantTTC renseigne sur la facture : on detecte
+        // grace au ratio sum/HT ≈ 1 + taux TVA legal.
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        val facture = Facture(dossier = dossier, document = d1).apply {
+            montantHt = BigDecimal("1000.00")
+            tauxTva = BigDecimal("14")
+        }
+        // somme = 1140.00 = 1000 × 1.14
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article A", montantTotalHt = BigDecimal("570.00")))
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article B", montantTotalHt = BigDecimal("570.00")))
+        dossier.factures.add(facture)
+        dossierRepo.save(dossier)
+
+        val r16c = validationEngine.validate(dossier).first { it.regle == "R16c" }
+        assertEquals(StatutCheck.AVERTISSEMENT, r16c.statut, r16c.detail)
+        assertTrue(r16c.detail!!.contains("14"), "Le detail doit citer le taux TVA detecte : ${r16c.detail}")
+    }
+
+    @Test
+    fun `R16c stays NON_CONFORME when sum diverges and TTC suspicion fails`() {
+        // Vrai NON_CONFORME : lignes manquees par l'OCR, ecart non explicable
+        // par une inflation TVA.
+        val dossier = createDossier()
+        val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")
+        dossier.documents.add(d1)
+        val facture = Facture(dossier = dossier, document = d1).apply {
+            montantHt = BigDecimal("1000.00")
+            montantTtc = BigDecimal("1200.00")
+            tauxTva = BigDecimal("20")
+        }
+        // somme = 750 → ni TTC (1200), ni 1+TVA legal × 1000.
+        facture.lignes.add(LigneFacture(facture = facture, designation = "Article A", montantTotalHt = BigDecimal("750.00")))
+        dossier.factures.add(facture)
+        dossierRepo.save(dossier)
+
+        val r16c = validationEngine.validate(dossier).first { it.regle == "R16c" }
+        assertEquals(StatutCheck.NON_CONFORME, r16c.statut, r16c.detail)
+    }
+
+    @Test
     fun `R24 skipped for small invoice below threshold`() {
         val dossier = createDossier()
         val d1 = doc(dossier, TypeDocument.FACTURE, "f.pdf")

@@ -2787,6 +2787,76 @@ body {
 }
 .ctrl-edit-buttons { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 4px; }
 
+/* Mode "edition par evidence" : la donnee source est editable directement,
+   l'override verdict-only est cache derriere une case a cocher. */
+.ctrl-edit-help {
+  font-size: 12px; line-height: 1.5;
+  color: var(--ink-50);
+  padding: 8px 10px; border-radius: 6px;
+  background: var(--ink-02); border: 1px solid var(--ink-05);
+}
+.ctrl-edit-help-warn {
+  background: #fff7ed; border-color: #fed7aa; color: #9a3412;
+}
+[data-theme="dark"] .ctrl-edit-help { background: #131927; border-color: #1c2333; color: var(--ink-50); }
+[data-theme="dark"] .ctrl-edit-help-warn { background: rgba(249,115,22,0.08); border-color: rgba(249,115,22,0.3); color: #fdba74; }
+
+.ctrl-edit-row-label {
+  display: flex; flex-wrap: wrap; align-items: center; gap: 6px;
+  font-family: var(--font-display); font-size: 11px; font-weight: 500;
+  color: var(--ink-60);
+}
+.ctrl-edit-role {
+  display: inline-flex; align-items: center;
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+  letter-spacing: 0.3px;
+  background: var(--ink-05); color: var(--ink-60);
+}
+.ctrl-edit-role.role-attendu { background: #ecfdf5; color: #047857; }
+.ctrl-edit-role.role-trouve { background: #eff6ff; color: #1d4ed8; }
+.ctrl-edit-role.role-source { background: #f5f3ff; color: #6d28d9; }
+.ctrl-edit-role.role-calcule { background: #fef3c7; color: #b45309; }
+[data-theme="dark"] .ctrl-edit-role.role-attendu { background: rgba(16,185,129,0.12); color: #6ee7b7; }
+[data-theme="dark"] .ctrl-edit-role.role-trouve { background: rgba(59,130,246,0.12); color: #93c5fd; }
+[data-theme="dark"] .ctrl-edit-role.role-source { background: rgba(139,92,246,0.12); color: #c4b5fd; }
+[data-theme="dark"] .ctrl-edit-role.role-calcule { background: rgba(245,158,11,0.12); color: #fcd34d; }
+
+.ctrl-edit-field {
+  font-family: var(--font-display); font-weight: 600;
+  color: var(--ink); font-size: 12px;
+}
+.ctrl-edit-source {
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-display); font-size: 11px; font-weight: 500;
+  color: var(--ink-50);
+}
+.ctrl-edit-dirty {
+  font-family: var(--font-mono); font-size: 10px; font-weight: 600;
+  padding: 1px 6px; border-radius: 3px; text-transform: uppercase;
+  background: #fef3c7; color: #92400e;
+  letter-spacing: 0.3px;
+}
+[data-theme="dark"] .ctrl-edit-dirty { background: rgba(245,158,11,0.15); color: #fcd34d; }
+
+.ctrl-edit-reset {
+  align-self: flex-start;
+  display: inline-flex; align-items: center; gap: 3px;
+  font-family: var(--font-display); font-size: 11px; font-weight: 500;
+  color: var(--ink-50);
+  background: transparent; border: none; padding: 4px 0;
+  cursor: pointer;
+}
+.ctrl-edit-reset:hover { color: var(--ink); }
+
+.ctrl-edit-mode-row { padding-top: 4px; border-top: 1px dashed var(--ink-05); }
+.ctrl-edit-mode-toggle {
+  display: flex; align-items: center; gap: 8px;
+  font-family: var(--font-display); font-size: 12px; font-weight: 500;
+  color: var(--ink-60); cursor: pointer;
+}
+.ctrl-edit-mode-toggle input[type="checkbox"] { accent-color: #f97316; }
+
 /* Meta — plain definition list, no pills */
 .ctrl-detail-meta {
   display: flex; flex-wrap: wrap; gap: 24px;
@@ -3227,6 +3297,7 @@ body {
   background: #fff;
   border-bottom: 1px solid var(--ink-10);
   flex-shrink: 0;
+  flex-wrap: wrap;
 }
 .pdf-frame-zoom-label {
   min-width: 60px; text-align: center;
@@ -3245,6 +3316,13 @@ body {
   margin-left: auto;
   font-size: 10px; color: var(--ink-40);
   font-family: var(--font-mono);
+  letter-spacing: 0.2px;
+}
+.pdf-frame-stage {
+  position: relative;
+  flex: 1; min-height: 0;
+  display: flex;
+  overflow: hidden;
 }
 .pdf-frame-iframe {
   flex: 1; min-height: 0;
@@ -3253,6 +3331,121 @@ body {
   display: block;
   background: #fff;
 }
+
+/* Toggle (Loupe / Plein ecran) — etat actif */
+.pdf-frame-toggle {
+  display: inline-flex; align-items: center; gap: 6px;
+  transition: background 140ms ease, color 140ms ease, border-color 140ms ease, box-shadow 140ms ease;
+}
+.pdf-frame-toggle-on {
+  background: var(--accent-glow);
+  color: var(--accent-deep);
+  border: 1px solid rgba(16,185,129,0.35);
+  box-shadow: inset 0 0 0 1px rgba(16,185,129,0.08), 0 0 0 3px rgba(16,185,129,0.08);
+}
+.pdf-frame-toggle-on:hover:not(:disabled) {
+  background: rgba(16,185,129,0.16);
+  color: var(--accent-deep);
+  border-color: rgba(16,185,129,0.45);
+}
+
+/* Loupe — capteur transparent au-dessus de l'iframe pour intercepter le mousemove
+   (l'iframe absorbe normalement les evenements souris). */
+.pdf-frame-catcher {
+  position: absolute; inset: 0;
+  z-index: 4;
+  cursor: zoom-in;
+  background: transparent;
+}
+.pdf-frame-loupe-on .pdf-frame-stage { cursor: zoom-in; }
+
+/* Loupe — disque magnifiant. L'inner contient un clone iframe positionne en
+   miroir de l'iframe principale ; transform-origin = position curseur dans
+   l'espace stage, scale agrandit autour de ce point. */
+.pdf-frame-lens {
+  position: absolute;
+  z-index: 6;
+  border-radius: 50%;
+  overflow: hidden;
+  pointer-events: none;
+  box-shadow:
+    0 0 0 2px rgba(16,185,129,0.55),
+    0 0 0 6px rgba(16,185,129,0.12),
+    0 18px 40px rgba(15,23,42,0.28),
+    0 4px 10px rgba(15,23,42,0.18);
+  background: #fff;
+  animation: pdfLensIn 140ms ease-out;
+  will-change: left, top;
+}
+@keyframes pdfLensIn {
+  from { opacity: 0; transform: scale(0.92); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.pdf-frame-lens-inner {
+  position: absolute;
+  pointer-events: none;
+}
+.pdf-frame-lens-iframe {
+  width: 100%; height: 100%;
+  border: none;
+  background: #fff;
+  pointer-events: none;
+}
+/* Reflet vitre + cercle : finition "instrument optique" */
+.pdf-frame-lens-glass {
+  position: absolute; inset: 0;
+  border-radius: 50%;
+  pointer-events: none;
+  background:
+    radial-gradient(circle at 30% 25%, rgba(255,255,255,0.45), rgba(255,255,255,0) 38%),
+    radial-gradient(circle at 50% 50%, rgba(16,185,129,0) 60%, rgba(16,185,129,0.06) 100%);
+  box-shadow: inset 0 0 0 1px rgba(255,255,255,0.35);
+  mix-blend-mode: screen;
+}
+
+/* Plein ecran — sortie du drawer, occupe tout le viewport. */
+.pdf-frame-fullscreen {
+  position: fixed;
+  inset: 0;
+  z-index: 1100;
+  background: var(--ink-02);
+  animation: pdfFsIn 200ms ease-out;
+  box-shadow: 0 0 0 100vmax rgba(15,23,42,0.45);
+}
+@keyframes pdfFsIn {
+  from { opacity: 0; transform: scale(0.985); }
+  to   { opacity: 1; transform: scale(1); }
+}
+.pdf-frame-fs-hint {
+  position: absolute;
+  bottom: 18px; right: 22px;
+  z-index: 5;
+  font-size: 11px;
+  color: var(--ink-50);
+  font-family: var(--font-mono);
+  background: rgba(255,255,255,0.92);
+  border: 1px solid var(--ink-10);
+  border-radius: 999px;
+  padding: 6px 12px;
+  display: inline-flex; align-items: center; gap: 8px;
+  box-shadow: 0 4px 14px rgba(15,23,42,0.12);
+  backdrop-filter: blur(4px);
+  pointer-events: none;
+  letter-spacing: 0.2px;
+}
+.pdf-frame-fs-hint kbd {
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 700;
+  color: var(--ink-80);
+  background: var(--ink-05);
+  border: 1px solid var(--ink-10);
+  border-bottom-width: 2px;
+  border-radius: 4px;
+  padding: 1px 6px;
+  letter-spacing: 0.5px;
+}
+
 @media (max-width: 768px) {
   .pdf-frame-toolbar .btn span { display: none; }
   .pdf-frame-hint { display: none; }
@@ -3265,6 +3458,34 @@ body {
 [data-theme="dark"] .pdf-frame { background: #0c1018; }
 [data-theme="dark"] .pdf-frame-toolbar { background: #131927; border-color: #1c2333; }
 [data-theme="dark"] .pdf-frame-iframe { background: #1c2333; }
+[data-theme="dark"] .pdf-frame-lens {
+  box-shadow:
+    0 0 0 2px rgba(16,185,129,0.7),
+    0 0 0 6px rgba(16,185,129,0.18),
+    0 18px 40px rgba(0,0,0,0.55),
+    0 4px 10px rgba(0,0,0,0.35);
+  background: #1c2333;
+}
+[data-theme="dark"] .pdf-frame-lens-iframe { background: #1c2333; }
+[data-theme="dark"] .pdf-frame-fullscreen {
+  background: #0c1018;
+  box-shadow: 0 0 0 100vmax rgba(0,0,0,0.7);
+}
+[data-theme="dark"] .pdf-frame-fs-hint {
+  background: rgba(28,35,51,0.92);
+  border-color: #2a3142;
+  color: var(--ink-30);
+}
+[data-theme="dark"] .pdf-frame-fs-hint kbd {
+  color: var(--ink-10);
+  background: #2a3142;
+  border-color: #3d4556;
+}
+[data-theme="dark"] .pdf-frame-toggle-on {
+  background: rgba(16,185,129,0.18);
+  color: #34d399;
+  border-color: rgba(16,185,129,0.45);
+}
 
 /* ===== Finalize Extracted ===== */
 .finalize-meta { font-size: 11px; color: var(--ink-40); font-family: var(--font-mono); }

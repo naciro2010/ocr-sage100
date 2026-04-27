@@ -317,6 +317,75 @@ fun checkMontantWithFraction(
 }
 
 /**
+ * Resultat de la detection "lignes facture vraisemblablement extraites en TTC
+ * alors que la facture ne possede pas de colonne HT distincte".
+ *
+ * - [ratioLabel] : ratio textuel `sum/HT ≈ 1.20` pour traçabilite UI.
+ * - [detail] : segment de phrase a inserer dans le message du verdict.
+ */
+data class LignesTtcSuspicion(
+    val ratioLabel: String,
+    val detail: String
+)
+
+/**
+ * Taux TVA legaux marocains (CGI 2026, art. 87-100) — utilises pour detecter
+ * un ratio sum/HT compatible avec une inflation TVA plutot qu'un vrai ecart.
+ */
+private val LEGAL_TVA_RATES_PCT = listOf(
+    BigDecimal("7"),
+    BigDecimal("10"),
+    BigDecimal("14"),
+    BigDecimal("20")
+)
+
+/**
+ * Detecte si la somme des lignes (qui ne colle pas au HT facture) correspond
+ * en realite au TTC ou a une inflation par un taux TVA legal — symptomatique
+ * d'une facture sans colonne HT distincte ou l'extracteur a place les valeurs
+ * TTC dans `montantTotalHt`.
+ *
+ * Retourne `null` si l'ecart n'est pas explique par cette confusion (vrai
+ * NON_CONFORME, ex: lignes manquees par l'OCR).
+ *
+ * Heuristiques :
+ * 1. somme ≈ TTC facture (tolerance absolue [tol] ou relative [tolPct])
+ * 2. somme / HT ≈ 1 + taux_legal (TVA 7/10/14/20%) a ±0.5%
+ */
+fun detectLignesTtcSuspectees(
+    sumLignes: BigDecimal,
+    fHt: BigDecimal,
+    fTtc: BigDecimal?,
+    tol: BigDecimal,
+    tolPct: BigDecimal
+): LignesTtcSuspicion? {
+    if (fHt.signum() <= 0) return null
+
+    if (fTtc != null && fTtc.signum() > 0) {
+        val gapTtc = sumLignes.subtract(fTtc).abs()
+        val limiteTtc = tol.max(fTtc.abs().multiply(tolPct))
+        if (gapTtc <= limiteTtc) {
+            return LignesTtcSuspicion(
+                ratioLabel = "somme ≈ TTC (${fTtc.toPlainString()})",
+                detail = "= TTC facture (${fTtc.toPlainString()}, ecart ${gapTtc.toPlainString()})"
+            )
+        }
+    }
+
+    val ratio = sumLignes.divide(fHt, 4, RoundingMode.HALF_UP)
+    for (rate in LEGAL_TVA_RATES_PCT) {
+        val expected = BigDecimal.ONE.add(rate.divide(BigDecimal(100), 4, RoundingMode.HALF_UP))
+        if (ratio.subtract(expected).abs() <= BigDecimal("0.005")) {
+            return LignesTtcSuspicion(
+                ratioLabel = "somme / HT = ${ratio.toPlainString()} ≈ 1 + ${rate.toPlainString()}% TVA",
+                detail = "≈ HT × (1 + ${rate.toPlainString()}% TVA), donc en TTC"
+            )
+        }
+    }
+    return null
+}
+
+/**
  * Fusionne le verdict systeme avec la validation manuelle d'un point de checklist.
  * Si l'operateur declare "non conforme", on degrade le verdict meme si le systeme l'avait OK.
  */
