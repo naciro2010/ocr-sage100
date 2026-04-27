@@ -5,7 +5,9 @@ import org.springframework.data.domain.Page
 import org.springframework.data.domain.Pageable
 import org.springframework.data.jpa.repository.EntityGraph
 import org.springframework.data.jpa.repository.JpaRepository
+import org.springframework.data.jpa.repository.Modifying
 import org.springframework.data.jpa.repository.Query
+import org.springframework.data.repository.query.Param
 import java.util.Optional
 import java.util.UUID
 
@@ -224,6 +226,14 @@ interface ResultatValidationRepository : JpaRepository<ResultatValidation, UUID>
     fun countByDossierIdAndStatut(dossierId: UUID, statut: StatutCheck): Long
     fun deleteByDossierId(dossierId: UUID)
     fun deleteByRegle(regle: String)
+
+    @Modifying
+    @Query("DELETE FROM ResultatValidation r WHERE r.dossier.id = :dossierId AND r.regle NOT LIKE 'CUSTOM-%'")
+    fun deleteSystemByDossierId(@Param("dossierId") dossierId: UUID)
+
+    @Modifying
+    @Query("DELETE FROM ResultatValidation r WHERE r.dossier.id = :dossierId AND r.regle LIKE 'CUSTOM-%'")
+    fun deleteCustomByDossierId(@Param("dossierId") dossierId: UUID)
 
     @Query("""
         SELECT r.regle,

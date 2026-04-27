@@ -171,6 +171,11 @@ class DossierController(
         return dossierService.validateDossier(id).map { it.toResponse() }
     }
 
+    @PostMapping("/{id}/valider-ia")
+    fun validateCustomRules(@PathVariable id: UUID): List<ValidationResultResponse> {
+        return dossierService.validateDossierCustomRules(id).map { it.toResponse() }
+    }
+
     @GetMapping("/{id}/resultats-validation")
     fun getValidationResults(@PathVariable id: UUID): ResponseEntity<List<ValidationResultResponse>> {
         return ResponseEntity.ok()

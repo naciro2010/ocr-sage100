@@ -4,7 +4,7 @@ import type { DossierDetail } from '../../api/dossierTypes'
 import { STATUT_CONFIG } from '../../api/dossierTypes'
 import {
   ArrowLeft, RefreshCw, Loader2, ShieldCheck, CheckCircle, Ban,
-  FileText, Pencil, Columns2, Copy
+  FileText, Pencil, Columns2, Copy, Sparkles
 } from 'lucide-react'
 
 interface Props {
@@ -12,6 +12,7 @@ interface Props {
   id: string
   hasProcessing: boolean
   validating: boolean
+  validatingIa?: boolean
   actionLoading?: boolean
   editing: boolean
   nbNonConformes: number
@@ -20,6 +21,7 @@ interface Props {
   onStartEdit: () => void
   onToggleCompare: () => void
   onValidate: () => void
+  onValidateIa?: () => void
   onValider: () => void
   onRejeter: () => void
   onReouvrir: () => void
@@ -27,8 +29,8 @@ interface Props {
 }
 
 export default memo(function DossierHeader({
-  dossier, id, hasProcessing, validating, actionLoading, editing, nbNonConformes, showCompare,
-  onLoad, onStartEdit, onToggleCompare, onValidate, onValider, onRejeter, onReouvrir, onCopyRef,
+  dossier, id, hasProcessing, validating, validatingIa, actionLoading, editing, nbNonConformes, showCompare,
+  onLoad, onStartEdit, onToggleCompare, onValidate, onValidateIa, onValider, onRejeter, onReouvrir, onCopyRef,
 }: Props) {
   const cfg = STATUT_CONFIG[dossier.statut]
 
@@ -55,10 +57,20 @@ export default memo(function DossierHeader({
             className="btn btn-primary"
             onClick={onValidate}
             disabled={validating}
-            title="Re-execute les regles R01-R30 + CUSTOM-XX. Ne change pas le statut du dossier."
+            title="Re-execute les regles SYSTEME (R01-R30 + engagement). Rapide, &lt;1s. Ne change pas le statut."
           >
             {validating ? <><Loader2 size={15} className="spin" /> Re-execution...</> : <><ShieldCheck size={15} /> Relancer les controles</>}
           </button>
+          {onValidateIa && (
+            <button
+              className="btn btn-secondary"
+              onClick={onValidateIa}
+              disabled={validatingIa}
+              title="Re-execute les regles CUSTOM-XX (Claude IA). Bloquant ~20s sur l'appel LLM. Conserve les verdicts systeme."
+            >
+              {validatingIa ? <><Loader2 size={15} className="spin" /> IA en cours...</> : <><Sparkles size={15} /> Regles IA</>}
+            </button>
+          )}
           {dossier.statut !== 'VALIDE' && (
             // Validation bloquee tant qu'il reste des verdicts NON_CONFORME :
             // l'operateur doit d'abord corriger le controle (panneau Corriger

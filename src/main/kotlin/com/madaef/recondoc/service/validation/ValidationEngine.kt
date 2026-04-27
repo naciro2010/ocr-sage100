@@ -89,14 +89,14 @@ class ValidationEngine(
 
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
-        log.info("Running validation for dossier {}", dossier.reference)
-        dossier.resultatsValidation.clear()
-        resultatRepository.deleteByDossierId(dossier.id!!)
+        log.info("Running system validation for dossier {}", dossier.reference)
+        resultatRepository.deleteSystemByDossierId(dossier.id!!)
         resultatRepository.flush()
+        dossier.resultatsValidation.removeIf { !it.regle.startsWith("CUSTOM-") }
 
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
-        val results = runAllRules(dossier, isEnabled).toMutableList()
+        val results = runAllRules(dossier, isEnabled, includeCustom = false).toMutableList()
 
         // Couche engagement (R-E/R-M/R-B/R-C) : no-op si dossier non rattache
         results += engagementDispatcher.validate(dossier)
@@ -107,7 +107,29 @@ class ValidationEngine(
 
         val conformes = results.count { it.statut == StatutCheck.CONFORME }
         val nonConformes = results.count { it.statut == StatutCheck.NON_CONFORME }
-        log.info("Validation complete for {}: {}/{} conforme, {} non-conforme (total {}ms)",
+        log.info("System validation complete for {}: {}/{} conforme, {} non-conforme (total {}ms)",
+            dossier.reference, conformes, results.size, nonConformes, totalMs)
+
+        return results
+    }
+
+    @Transactional
+    fun validateCustomOnly(dossier: DossierPaiement): List<ResultatValidation> {
+        log.info("Running custom (LLM) validation for dossier {}", dossier.reference)
+        resultatRepository.deleteCustomByDossierId(dossier.id!!)
+        resultatRepository.flush()
+        dossier.resultatsValidation.removeIf { it.regle.startsWith("CUSTOM-") }
+
+        val isEnabled = loadEnabledRules(dossier.id!!)
+        val t0 = System.nanoTime()
+        val results = runCustomRules(dossier, isEnabled)
+        val totalMs = (System.nanoTime() - t0) / 1_000_000
+        results.forEach { it.dateExecution = LocalDateTime.now() }
+        resultatRepository.saveAll(results)
+
+        val conformes = results.count { it.statut == StatutCheck.CONFORME }
+        val nonConformes = results.count { it.statut == StatutCheck.NON_CONFORME }
+        log.info("Custom validation complete for {}: {}/{} conforme, {} non-conforme (total {}ms)",
             dossier.reference, conformes, results.size, nonConformes, totalMs)
 
         return results
@@ -178,7 +200,11 @@ class ValidationEngine(
         return out
     }
 
-    private fun runAllRules(dossier: DossierPaiement, isEnabled: (String) -> Boolean): List<ResultatValidation> {
+    private fun runAllRules(
+        dossier: DossierPaiement,
+        isEnabled: (String) -> Boolean,
+        includeCustom: Boolean = true,
+    ): List<ResultatValidation> {
         val results = mutableListOf<ResultatValidation>()
         // tol  = tolerance absolue en MAD (5 centimes par defaut) pour comparer
         //        deux totaux issus de documents differents (ecart d'arrondi).
@@ -1585,7 +1611,9 @@ class ValidationEngine(
             }
         }
 
-        runCustomRules(dossier, isEnabled).let { results += it }
+        if (includeCustom) {
+            runCustomRules(dossier, isEnabled).let { results += it }
+        }
 
         return results
     }
