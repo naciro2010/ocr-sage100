@@ -52,7 +52,12 @@ class ValidationEngine(
     private data class CorrectionSnapshot(
         val statut: StatutCheck, val statutOriginal: String?,
         val commentaire: String?, val corrigePar: String?,
-        val dateCorrection: LocalDateTime?
+        val dateCorrection: LocalDateTime?,
+        // Les valeurs corrigees manuellement doivent survivre au re-run, sinon
+        // l'operateur voit son edit "Sauvegarder & relancer" disparaitre car
+        // runAllRules les recalcule a partir des donnees extraites du document.
+        val valeurTrouvee: String?, val valeurAttendue: String?,
+        val documentIds: String?
     )
 
     private fun loadEnabledRules(dossierId: UUID): (String) -> Boolean {
@@ -123,7 +128,18 @@ class ValidationEngine(
         val existingResults = resultatRepository.findByDossierId(dossier.id!!)
         val corrected = existingResults
             .filter { it.regle in rulesToRun && it.statutOriginal != null }
-            .associate { it.regle to CorrectionSnapshot(it.statut, it.statutOriginal, it.commentaire, it.corrigePar, it.dateCorrection) }
+            .associate {
+                it.regle to CorrectionSnapshot(
+                    statut = it.statut,
+                    statutOriginal = it.statutOriginal,
+                    commentaire = it.commentaire,
+                    corrigePar = it.corrigePar,
+                    dateCorrection = it.dateCorrection,
+                    valeurTrouvee = it.valeurTrouvee,
+                    valeurAttendue = it.valeurAttendue,
+                    documentIds = it.documentIds,
+                )
+            }
 
         val toDelete = existingResults.filter { it.regle in rulesToRun }
         resultatRepository.deleteAll(toDelete)
@@ -137,11 +153,19 @@ class ValidationEngine(
             r.dateExecution = LocalDateTime.now()
             val prev = corrected[r.regle]
             if (prev != null) {
+                // L'operateur a corrige cette regle : on preserve TOUT son edit
+                // (statut + valeurs + commentaire + documentIds), pas seulement
+                // le statut. Sinon le re-run ecrase valeurTrouvee/valeurAttendue
+                // a partir des donnees extraites du dossier et l'operateur a
+                // l'impression que "Sauvegarder & relancer" ne fait rien.
                 r.statutOriginal = r.statut.name
                 r.statut = prev.statut
                 r.commentaire = prev.commentaire
                 r.corrigePar = prev.corrigePar
                 r.dateCorrection = prev.dateCorrection
+                r.valeurTrouvee = prev.valeurTrouvee
+                r.valeurAttendue = prev.valeurAttendue
+                r.documentIds = prev.documentIds
             }
         }
         resultatRepository.saveAll(allResults)
