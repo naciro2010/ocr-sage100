@@ -95,13 +95,26 @@ class IdentifierConsistencyService(
 
         val cleaned = firstRunData.toMutableMap()
         for (d in discrepancies) {
-            cleaned[d.field] = null
-            log.warn("Identifier consistency discrepancy on {}.{}: run1='{}' run2='{}' ({}) -> stripped",
-                type, d.field, d.firstRun, d.secondRun, d.reason)
+            // Strip uniquement les divergences franches (run2 != null != run1).
+            // Le cas "run2 null + run1 non-null" leve un warning sans strip
+            // (signal de doute, pas certitude d'hallucination).
+            val isStrippable = d.secondRun != null
+            if (isStrippable) {
+                cleaned[d.field] = null
+                log.warn("Identifier consistency discrepancy on {}.{}: run1='{}' run2='{}' ({}) -> stripped",
+                    type, d.field, d.firstRun, d.secondRun, d.reason)
+            } else {
+                log.warn("Identifier consistency unconfirmed on {}.{}: run1='{}' run2=null ({}) -> warning only",
+                    type, d.field, d.firstRun, d.reason)
+            }
         }
         val existing = (firstRunData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
         val added = discrepancies.map { d ->
-            "Self-consistency violation on ${d.field}: run1='${d.firstRun}' vs run2='${d.secondRun}' (${d.reason})"
+            if (d.secondRun != null) {
+                "Self-consistency violation on ${d.field}: run1='${d.firstRun}' vs run2='${d.secondRun}' (${d.reason})"
+            } else {
+                "Self-consistency unconfirmed on ${d.field}: run1='${d.firstRun}' non confirme par 2e passe (${d.reason})"
+            }
         }
         cleaned["_warnings"] = existing + added
 
@@ -137,10 +150,16 @@ class IdentifierConsistencyService(
         run2: String?,
         normalizer: (String) -> String
     ): Discrepancy? {
-        // Si run2 est null, on ne stripe PAS run1 : Claude a peut-etre vu le
-        // document differemment a temperature 0.5 (rate aleatoire) sans pour
-        // autant dire "halluciné". On ne penalise que sur divergence NON-NULL.
-        if (run1 == null || run2 == null) return null
+        // run1 == null : la 1ere passe n'a rien extrait, rien a confirmer.
+        if (run1 == null) return null
+        // run2 == null : la 2e passe n'a pas reconfirme. C'est un signal fort
+        // d'hallucination potentielle (Claude n'a pas su retrouver la valeur
+        // a temperature differente). On retourne une Discrepancy "douteuse"
+        // (secondRun=null) qui declenchera un warning sans strip.
+        if (run2 == null) return Discrepancy(
+            field = field, firstRun = run1, secondRun = null,
+            reason = "2e passe n'a pas confirme la valeur"
+        )
         val n1 = normalizer(run1)
         val n2 = normalizer(run2)
         if (n1.isEmpty() || n2.isEmpty()) return null
