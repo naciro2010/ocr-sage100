@@ -14,6 +14,7 @@ import com.madaef.recondoc.service.extraction.GroundingValidator
 import com.madaef.recondoc.service.extraction.ExtractionSchemas
 import com.madaef.recondoc.service.extraction.FieldViolation
 import com.madaef.recondoc.service.extraction.LlmExtractionService
+import com.madaef.recondoc.service.extraction.LlmJsonUtils
 import com.madaef.recondoc.service.fournisseur.FournisseurMatchingService
 import com.madaef.recondoc.service.storage.DocumentStorage
 import com.madaef.recondoc.service.storage.ExtractStorage
@@ -1244,13 +1245,23 @@ class DossierService(
             return objectMapper.readValue(jsonText, Map::class.java) as Map<String, Any?>
         } catch (_: Exception) {}
 
-        // Extract JSON from text (LLM sometimes wraps JSON in explanation)
-        val jsonMatch = Regex("\\{[\\s\\S]*\\}").find(jsonText)
-        if (jsonMatch != null) {
+        // Extract JSON from text (LLM sometimes wraps JSON in explanation).
+        // L'ancienne version utilisait Regex("\\{[\\s\\S]*\\}") (greedy), qui
+        // matchait du PREMIER `{` jusqu'au DERNIER `}`. Quand Claude renvoie
+        // plusieurs blocs JSON encadres de texte (cas connus : `Voici le JSON
+        // de la facture: {...} et voici la verification : {...}`), le regex
+        // capturait `{...} et voici la verification : {...}` qui n'est pas un
+        // JSON valide -> parse echoue silencieusement et la 1ere extraction
+        // remontait `null`. Avec un scanner balanced (compte les accolades en
+        // respectant les strings), on prend le PREMIER objet bien forme.
+        val firstObject = LlmJsonUtils.extractFirstJsonObject(jsonText)
+        if (firstObject != null) {
             try {
                 @Suppress("UNCHECKED_CAST")
-                return objectMapper.readValue(jsonMatch.value, Map::class.java) as Map<String, Any?>
-            } catch (_: Exception) {}
+                return objectMapper.readValue(firstObject, Map::class.java) as Map<String, Any?>
+            } catch (e: Exception) {
+                log.error("Found a balanced JSON object but it failed to parse: {}", e.message)
+            }
         }
 
         log.error("Failed to parse LLM JSON: no valid JSON found in response ({} chars)", jsonText.length)
