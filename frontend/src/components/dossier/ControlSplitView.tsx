@@ -1,6 +1,7 @@
 import { useState, useMemo, useCallback, useEffect, useRef, memo } from 'react'
 import type { DossierDetail, ValidationResult, DocumentInfo } from '../../api/dossierTypes'
 import { updateValidationResult, correctAndRerun, getDocumentFileUrl, downloadWithAuth } from '../../api/dossierApi'
+import type { DocumentCorrectionInput } from '../../api/dossierApi'
 import { getActiveRules, DOC_CATEGORIES, DOC_CATEGORY_LABEL, ALL_RULES } from '../../config/validationRules'
 import type { CustomRule } from '../../api/customRulesApi'
 import { parseChecklistPoints, STATUS_DISPLAY, STATUT_OPTIONS, statutToItemStatus, estValideToItemStatus, type ItemStatus } from '../../config/checklistUtils'
@@ -539,6 +540,12 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
   const [editValues, setEditValues] = useState({ valeurTrouvee: '', valeurAttendue: '', commentaire: '' })
   const [editDocIds, setEditDocIds] = useState<string[]>([])
   const [saving, setSaving] = useState(false)
+  // Corrections de champs source : pour chaque (documentId|champ), la valeur
+  // saisie par l'operateur. Persistee comme DocumentCorrection cote backend
+  // et appliquee AVANT le rerun pour que le verdict reflete vraiment la
+  // valeur corrigee (cf. V38 + DocumentCorrectionApplier).
+  const [editFields, setEditFields] = useState<Record<string, string>>({})
+  const [verdictOnly, setVerdictOnly] = useState(false)
 
   const r = item?.result
   const provenance = r ? verdictProvenance(r) : null
@@ -556,6 +563,18 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     setEditing(true)
     setEditValues({ valeurTrouvee: r.valeurTrouvee || '', valeurAttendue: r.valeurAttendue || '', commentaire: r.commentaire || '' })
     setEditDocIds(r.documentIds ? [...r.documentIds] : [])
+    // Pre-remplit les champs editables avec les valeurs des evidences (la
+    // donnee SOURCE qui a ete lue pour produire le verdict). C'est ce que
+    // l'operateur voit dans la section "Preuves" — il l'edite directement.
+    const initial: Record<string, string> = {}
+    for (const e of r.evidences || []) {
+      if (!e.documentId || !e.champ) continue
+      // Une seule entree par (docId, champ) — si plusieurs evidences pointent
+      // vers le meme couple (rare), on garde la derniere.
+      initial[`${e.documentId}|${e.champ}`] = e.valeur ?? ''
+    }
+    setEditFields(initial)
+    setVerdictOnly(false)
   }, [r])
 
   const addEditDoc = useCallback((docId: string) => {
@@ -565,24 +584,73 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     setEditDocIds(prev => prev.filter(id => id !== docId))
   }, [])
 
+  // Construit la liste des corrections de champs SOURCE qui ont change par
+  // rapport a l'evidence d'origine. C'est ce qui sera envoye au backend pour
+  // mettre a jour `Document.donneesExtraites` + entites typees, garantissant
+  // qu'un rerun voit la nouvelle valeur (et non l'ancienne extraction OCR/IA).
+  const fieldCorrections = useMemo<DocumentCorrectionInput[]>(() => {
+    if (!r?.evidences) return []
+    const seen = new Set<string>()
+    const items: DocumentCorrectionInput[] = []
+    for (const e of r.evidences) {
+      if (!e.documentId || !e.champ) continue
+      const key = `${e.documentId}|${e.champ}`
+      if (seen.has(key)) continue
+      seen.add(key)
+      const current = editFields[key]
+      if (current === undefined) continue
+      const original = e.valeur ?? ''
+      if (current === original) continue
+      items.push({
+        documentId: e.documentId,
+        champ: e.champ,
+        valeur: current.trim() === '' ? null : current
+      })
+    }
+    return items
+  }, [r, editFields])
+
   const saveEdit = useCallback(async (alsoRerun: boolean) => {
     if (!r?.id) return
     setSaving(true)
     try {
       const originalIds = (r.documentIds || []).join(',')
       const nextIds = editDocIds.join(',')
-      const updates: Parameters<typeof updateValidationResult>[2] = {
-        valeurTrouvee: editValues.valeurTrouvee || undefined,
-        valeurAttendue: editValues.valeurAttendue || undefined,
+      const updates: Parameters<typeof correctAndRerun>[2] = {
         commentaire: editValues.commentaire || undefined,
+      }
+      // Mode "verdict-only" (override texte libre, pas de correction de
+      // donnee source) : on envoie valeurTrouvee/valeurAttendue libres.
+      // Mode normal : on s'appuie SEULEMENT sur les corrections par evidence.
+      if (verdictOnly) {
+        updates.valeurTrouvee = editValues.valeurTrouvee || undefined
+        updates.valeurAttendue = editValues.valeurAttendue || undefined
+      } else if (fieldCorrections.length > 0) {
+        updates.corrections = fieldCorrections
       }
       if (nextIds !== originalIds) updates.documentIds = nextIds
       if (alsoRerun) {
         const results = await correctAndRerun(dossierId, r.id, updates)
         if (onReplaceResults) onReplaceResults(results)
-        toast('success', `Corrige et ${results.length} controle(s) relance(s)`)
+        const corrCount = updates.corrections?.length ?? 0
+        toast('success',
+          corrCount > 0
+            ? `${corrCount} champ(s) corrige(s), ${results.length} controle(s) relance(s)`
+            : `Corrige et ${results.length} controle(s) relance(s)`)
       } else {
-        await updateValidationResult(dossierId, r.id, updates)
+        // Sauvegarde sans rerun : on n'envoie que la mise a jour verdict-only
+        // sur la ResultatValidation. Les corrections de champs N'ONT PAS DE
+        // SENS sans rerun (le verdict afficherait toujours l'ancienne valeur).
+        if (!verdictOnly && fieldCorrections.length > 0) {
+          toast('error', 'Sauvegarde sans relance impossible avec des corrections de champs (utilisez "Sauvegarder & relancer").')
+          return
+        }
+        await updateValidationResult(dossierId, r.id, {
+          valeurTrouvee: updates.valeurTrouvee,
+          valeurAttendue: updates.valeurAttendue,
+          commentaire: updates.commentaire,
+          documentIds: updates.documentIds,
+        })
         toast('success', 'Corrige')
         if (onRefreshResults) onRefreshResults()
       }
@@ -590,7 +658,7 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
     } catch (e) {
       toast('error', e instanceof Error ? e.message : 'Erreur')
     } finally { setSaving(false) }
-  }, [r, dossierId, editValues, editDocIds, onReplaceResults, onRefreshResults, toast])
+  }, [r, dossierId, editValues, editDocIds, fieldCorrections, verdictOnly, onReplaceResults, onRefreshResults, toast])
 
   const handleRerun = useCallback(async () => {
     if (!item || !onRerunRule) return
@@ -809,16 +877,90 @@ function CenterPanel({ item, dossier, dossierId, onRefreshResults, onReplaceResu
           <div className="ctrl-detail-section">
             <div className="ctrl-detail-section-title">Correction manuelle</div>
             <div className="ctrl-edit-panel">
-              <div className="ctrl-edit-row">
-                <label>Valeur attendue</label>
-                <input className="form-input" value={editValues.valeurAttendue}
-                  onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))} />
-              </div>
-              <div className="ctrl-edit-row">
-                <label>Valeur trouvee</label>
-                <input className="form-input" value={editValues.valeurTrouvee}
-                  onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))} />
-              </div>
+              {/* Edition par evidence (champ source). Quand l'operateur change
+                  une valeur ici, elle est persistee comme DocumentCorrection :
+                  le moteur la voit AVANT chaque rerun, donc le verdict
+                  reflete bien la valeur corrigee. */}
+              {!verdictOnly && r?.evidences && r.evidences.length > 0 && (
+                <>
+                  <div className="ctrl-edit-help">
+                    Editez la valeur lue sur chaque document. La donnee corrigee est
+                    enregistree au niveau du document : toutes les regles qui s'appuient
+                    dessus seront re-evaluees automatiquement.
+                  </div>
+                  {(() => {
+                    const seen = new Set<string>()
+                    return r.evidences.flatMap((e, idx) => {
+                      if (!e.documentId || !e.champ) return []
+                      const key = `${e.documentId}|${e.champ}`
+                      if (seen.has(key)) return []
+                      seen.add(key)
+                      const doc = dossier.documents.find(d => d.id === e.documentId)
+                      const docLabel = doc
+                        ? (TYPE_DOCUMENT_LABELS[doc.typeDocument as TypeDocument] || doc.typeDocument)
+                        : 'Document'
+                      const original = e.valeur ?? ''
+                      const current = editFields[key] ?? original
+                      const dirty = current !== original
+                      return [(
+                        <div key={`edit-${idx}-${key}`} className="ctrl-edit-row">
+                          <label className="ctrl-edit-row-label">
+                            <span className={`ctrl-edit-role role-${e.role}`}>{e.role}</span>
+                            <span className="ctrl-edit-field">{e.libelle ?? e.champ}</span>
+                            <span className="ctrl-edit-source">
+                              <FileText size={10} /> {docLabel}
+                            </span>
+                            {dirty && <span className="ctrl-edit-dirty" title="Valeur modifiee">modifiee</span>}
+                          </label>
+                          <input className="form-input"
+                            value={current}
+                            placeholder={original || '—'}
+                            onChange={ev => setEditFields(prev => ({ ...prev, [key]: ev.target.value }))} />
+                          {dirty && (
+                            <button type="button" className="ctrl-edit-reset"
+                              onClick={() => setEditFields(prev => ({ ...prev, [key]: original }))}
+                              title="Annuler la modification">
+                              <X size={11} /> Annuler
+                            </button>
+                          )}
+                        </div>
+                      )]
+                    })
+                  })()}
+                </>
+              )}
+              {/* Fallback verdict-only : pas d'evidence editable, ou l'operateur
+                  a explicitement choisi un override de verdict (saisie libre).
+                  Important : ce mode ne change PAS la donnee source — il
+                  marque juste le verdict cote ResultatValidation. */}
+              {(verdictOnly || !r?.evidences || r.evidences.length === 0) && (
+                <>
+                  <div className="ctrl-edit-help ctrl-edit-help-warn">
+                    Mode "override verdict" : les valeurs saisies seront stockees
+                    sur le controle, mais la donnee source ne sera PAS modifiee.
+                    A reserver aux cas ou aucune evidence n'est rattachee.
+                  </div>
+                  <div className="ctrl-edit-row">
+                    <label>Valeur attendue</label>
+                    <input className="form-input" value={editValues.valeurAttendue}
+                      onChange={e => setEditValues(v => ({ ...v, valeurAttendue: e.target.value }))} />
+                  </div>
+                  <div className="ctrl-edit-row">
+                    <label>Valeur trouvee</label>
+                    <input className="form-input" value={editValues.valeurTrouvee}
+                      onChange={e => setEditValues(v => ({ ...v, valeurTrouvee: e.target.value }))} />
+                  </div>
+                </>
+              )}
+              {r?.evidences && r.evidences.length > 0 && (
+                <div className="ctrl-edit-row ctrl-edit-mode-row">
+                  <label className="ctrl-edit-mode-toggle">
+                    <input type="checkbox" checked={verdictOnly}
+                      onChange={e => setVerdictOnly(e.target.checked)} />
+                    <span>Override verdict (sans toucher a la donnee source)</span>
+                  </label>
+                </div>
+              )}
               <div className="ctrl-edit-row">
                 <label><MessageSquare size={11} /> Commentaire</label>
                 <input className="form-input" value={editValues.commentaire}

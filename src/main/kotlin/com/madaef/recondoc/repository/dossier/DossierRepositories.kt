@@ -138,6 +138,13 @@ interface DocumentRepository : JpaRepository<Document, UUID> {
     fun findFirstByDossierIdAndFileHash(dossierId: UUID, fileHash: String): Document?
 }
 
+interface DocumentCorrectionRepository : JpaRepository<DocumentCorrection, UUID> {
+    fun findByDocumentId(documentId: UUID): List<DocumentCorrection>
+    fun findByDocumentIdIn(documentIds: Collection<UUID>): List<DocumentCorrection>
+    fun findByDocumentIdAndChamp(documentId: UUID, champ: String): DocumentCorrection?
+    fun deleteByDocumentIdAndChamp(documentId: UUID, champ: String)
+}
+
 interface FactureRepository : JpaRepository<Facture, UUID> {
     fun findByDossierId(dossierId: UUID): Facture?
     fun findAllByDossierId(dossierId: UUID): List<Facture>

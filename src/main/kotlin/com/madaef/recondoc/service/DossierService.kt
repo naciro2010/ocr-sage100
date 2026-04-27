@@ -77,6 +77,7 @@ class DossierService(
     private val engagementExtractionService: com.madaef.recondoc.service.engagement.EngagementExtractionService,
     private val dossierRuleConfigService: com.madaef.recondoc.service.dossier.DossierRuleConfigService,
     private val dossierExportService: com.madaef.recondoc.service.dossier.DossierExportService,
+    private val documentCorrectionService: com.madaef.recondoc.service.dossier.DocumentCorrectionService,
     @Value("\${storage.upload-dir:uploads}") private val uploadDir: String,
     @Value("\${extraction.min-quality-score:70}") private val minQualityScore: Int,
     @Value("\${extraction.human-review-threshold:60}") private val humanReviewThreshold: Int,
@@ -1110,16 +1111,80 @@ class DossierService(
     /**
      * Atomic: correct a result (valeurs/commentaire/statut), then re-run its rule
      * and dependencies so impacted controls are re-evaluated in one round-trip.
+     *
+     * Si [body] contient une cle "corrections" (JSON serialise par le frontend
+     * sous la forme `[{"documentId":"...","champ":"...","valeur":"..."}]`), les
+     * corrections sont d'abord persistees au niveau du document source via
+     * DocumentCorrectionService. Le moteur les appliquera systematiquement avant
+     * d'evaluer la regle, garantissant qu'un changement de valeur produit un
+     * verdict frais (et non un statut force qui dissimule la donnee fausse).
      */
     @Transactional
-    fun correctAndRerun(dossierId: UUID, resultId: UUID, updates: Map<String, String>): List<ResultatValidation> {
+    fun correctAndRerun(dossierId: UUID, resultId: UUID, body: Map<String, String>): List<ResultatValidation> {
         val result = resultatRepo.findById(resultId).orElseThrow { NoSuchElementException("Result not found") }
         val regle = result.regle
-        updateValidationResult(resultId, updates)
+
+        // 1) Corrections de champs source (optionnelles).
+        val correctionsJson = body["corrections"]
+        val rulesWithFreshData = mutableSetOf<String>()
+        if (!correctionsJson.isNullOrBlank()) {
+            val corrigePar = body["corrigePar"]
+            val motif = body["commentaire"]?.takeIf { it.isNotBlank() }
+            val items = parseCorrections(correctionsJson)
+            if (items.isNotEmpty()) {
+                documentCorrectionService.upsertAll(
+                    items.map { item ->
+                        com.madaef.recondoc.service.dossier.DocumentCorrectionService.CorrectionInput(
+                            documentId = item.documentId,
+                            champ = item.champ,
+                            valeurCorrigee = item.valeur,
+                            motif = motif,
+                            regle = regle,
+                            corrigePar = corrigePar
+                        )
+                    }
+                )
+                rulesWithFreshData += regle
+                rulesWithFreshData += validationEngine.getCascadeScope(regle)
+                audit(dossierId, "CORRECTION_FIELDS",
+                    "${items.size} champ(s) corrige(s) [${items.joinToString(", ") { "${it.champ}=${it.valeur}" }}]")
+            }
+        }
+
+        // 2) Override verdict-only (legacy : statut/valeurs/commentaire stockes
+        //    sur la ResultatValidation). On ne touche a rien si seules des
+        //    corrections ont ete envoyees.
+        val resultUpdates = body
+            .filterKeys { it != "corrections" }
+            .mapValues { it.value }
+        if (resultUpdates.isNotEmpty()) updateValidationResult(resultId, resultUpdates)
+
+        // 3) Rerun avec drop-snapshot pour les regles dont les donnees ont ete
+        //    rafraichies (sinon on replayrait l'ancien override en ecrasant le
+        //    nouveau verdict).
         val dossier = getDossierFull(dossierId)
-        val rerun = validationEngine.rerunRule(dossier, regle)
+        val rerun = validationEngine.rerunRule(dossier, regle, rulesWithFreshData)
         audit(dossierId, "CORRECT_RERUN", "Regle $regle corrigee et relancee (${rerun.size} resultats)")
         return rerun
+    }
+
+    private data class CorrectionRequestItem(val documentId: UUID, val champ: String, val valeur: String?)
+
+    private fun parseCorrections(json: String): List<CorrectionRequestItem> {
+        return try {
+            val node = objectMapper.readTree(json)
+            if (!node.isArray) return emptyList()
+            node.mapNotNull { item ->
+                val docIdStr = item.get("documentId")?.asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val champ = item.get("champ")?.asText()?.takeIf { it.isNotBlank() } ?: return@mapNotNull null
+                val valeurNode = item.get("valeur")
+                val valeur = if (valeurNode == null || valeurNode.isNull) null else valeurNode.asText()
+                CorrectionRequestItem(documentId = UUID.fromString(docIdStr), champ = champ, valeur = valeur)
+            }
+        } catch (e: Exception) {
+            log.warn("Could not parse 'corrections' payload: {}", e.message)
+            emptyList()
+        }
     }
 
     /**

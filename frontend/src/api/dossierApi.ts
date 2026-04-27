@@ -429,17 +429,75 @@ export async function rerunValidationRule(dossierId: string, regle: string): Pro
   return handleResponse(res)
 }
 
+/**
+ * Correction of a single field on a source document. The backend persists the
+ * override in `document_correction` and re-applies it before every rule
+ * evaluation, so the verdict reflects the corrected value (and not just the
+ * verdict-only patch on `valeurTrouvee`).
+ */
+export type DocumentCorrectionInput = {
+  documentId: string
+  champ: string
+  valeur: string | null
+}
+
+export type DocumentCorrection = {
+  id: string
+  documentId: string
+  champ: string
+  valeurOriginale: string | null
+  valeurCorrigee: string | null
+  regle: string | null
+  motif: string | null
+  corrigePar: string | null
+  dateCorrection: string
+}
+
 export async function correctAndRerun(
   dossierId: string, resultId: string,
-  updates: { statut?: string; commentaire?: string; corrigePar?: string; valeurTrouvee?: string; valeurAttendue?: string; detail?: string; documentIds?: string }
+  updates: {
+    statut?: string
+    commentaire?: string
+    corrigePar?: string
+    valeurTrouvee?: string
+    valeurAttendue?: string
+    detail?: string
+    documentIds?: string
+    /**
+     * Source-data corrections. Persisted as DocumentCorrection rows. The rule
+     * is then re-run against the corrected data: a verdict flip from
+     * NON_CONFORME → CONFORME means the correction "stuck".
+     */
+    corrections?: DocumentCorrectionInput[]
+  }
 ): Promise<ValidationResult[]> {
   invalidateCache(dossierId)
+  // Le backend prend body: Map<String,String>. On serialise donc le tableau
+  // de corrections en JSON sous la clef "corrections".
+  const { corrections, ...rest } = updates
+  const payload: Record<string, string> = { ...rest } as Record<string, string>
+  if (corrections && corrections.length > 0) {
+    payload.corrections = JSON.stringify(corrections)
+  }
   const res = await apiFetch(`${BASE}/${dossierId}/validation/${resultId}/correct-and-rerun`, {
     method: 'POST',
     headers: { 'Content-Type': 'application/json' },
-    body: JSON.stringify(updates),
+    body: JSON.stringify(payload),
   })
   return handleResponse(res)
+}
+
+export async function listDocumentCorrections(dossierId: string, docId: string): Promise<DocumentCorrection[]> {
+  const res = await apiFetch(`${BASE}/${dossierId}/documents/${docId}/corrections`)
+  return handleResponse(res)
+}
+
+export async function deleteDocumentCorrection(dossierId: string, docId: string, champ: string): Promise<void> {
+  invalidateCache(dossierId)
+  const res = await apiFetch(`${BASE}/${dossierId}/documents/${docId}/corrections/${encodeURIComponent(champ)}`, {
+    method: 'DELETE',
+  })
+  if (!res.ok) throw new Error(`HTTP ${res.status}`)
 }
 
 export async function getCascadeScope(regle: string): Promise<{ regle: string; cascade: string[]; count: number }> {

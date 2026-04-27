@@ -26,6 +26,7 @@ class ValidationEngine(
     private val factureRepository: com.madaef.recondoc.repository.dossier.FactureRepository,
     private val fournisseurMatchingService: com.madaef.recondoc.service.fournisseur.FournisseurMatchingService,
     private val engagementDispatcher: com.madaef.recondoc.service.validation.engagement.EngagementValidationDispatcher,
+    private val correctionApplier: com.madaef.recondoc.service.dossier.DocumentCorrectionApplier,
     @Value("\${app.tolerance-montant:0.05}") private val toleranceMontant: String,
     @Value("\${app.tolerance-montant-pct:0.005}") private val toleranceMontantPct: String,
     @Value("\${app.anti-doublon.lookback-months:12}") private val antiDoublonLookbackMonths: Long,
@@ -98,6 +99,12 @@ class ValidationEngine(
         dossier.resultatsValidation.removeAll(toDelete.toSet())
         resultatRepository.flush()
 
+        // Applique les corrections humaines persistees (DocumentCorrection)
+        // sur le dossier en memoire AVANT l'evaluation : c'est ce qui garantit
+        // qu'un "Corrige & relance" sur la valeur d'un champ source produit un
+        // verdict aligne sur la donnee corrigee (cf. V38 + DocumentCorrectionApplier).
+        correctionApplier.apply(dossier)
+
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
         val results = runAllRules(dossier, isEnabled, includeCustom = false).toMutableList()
@@ -125,6 +132,9 @@ class ValidationEngine(
         dossier.resultatsValidation.removeAll(toDelete.toSet())
         resultatRepository.flush()
 
+        // Memes corrections humaines appliquees pour la couche IA.
+        correctionApplier.apply(dossier)
+
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
         val results = runCustomRules(dossier, isEnabled)
@@ -141,7 +151,11 @@ class ValidationEngine(
     }
 
     @Transactional
-    fun rerunRule(dossier: DossierPaiement, regle: String): List<ResultatValidation> {
+    fun rerunRule(
+        dossier: DossierPaiement,
+        regle: String,
+        rulesWithFreshData: Set<String> = emptySet()
+    ): List<ResultatValidation> {
         val rulesToRun = mutableSetOf(regle)
         RULE_DEPENDENCIES[regle]?.let { rulesToRun.addAll(it) }
         if (regle == "R12" || regle.startsWith("R12.")) {
@@ -150,8 +164,13 @@ class ValidationEngine(
         }
 
         val existingResults = resultatRepository.findByDossierId(dossier.id!!)
+        // Snapshot des overrides "verdict-only" (l'operateur a force le statut
+        // sans toucher aux donnees source). On les replaye apres calcul, SAUF
+        // pour les regles dont les donnees viennent d'etre corrigees via
+        // DocumentCorrection — pour celles-la, le verdict frais doit s'imposer
+        // (sinon une correction de valeur n'a aucun effet visible sur le statut).
         val corrected = existingResults
-            .filter { it.regle in rulesToRun && it.statutOriginal != null }
+            .filter { it.regle in rulesToRun && it.statutOriginal != null && it.regle !in rulesWithFreshData }
             .associate {
                 it.regle to CorrectionSnapshot(
                     statut = it.statut,
@@ -168,6 +187,11 @@ class ValidationEngine(
         val toDelete = existingResults.filter { it.regle in rulesToRun }
         resultatRepository.deleteAll(toDelete)
         resultatRepository.flush()
+
+        // Applique les corrections humaines AVANT le re-run : sans ca, le
+        // moteur relit `Facture.montantTtc` / `donneesExtraites` non corriges
+        // et reproduit le verdict d'origine. Voir aussi V38.
+        correctionApplier.apply(dossier)
 
         val isEnabled: (String) -> Boolean = { it in rulesToRun }
         val t0 = System.nanoTime()
@@ -186,7 +210,8 @@ class ValidationEngine(
             r.documentIds = prev.documentIds
         }
         resultatRepository.saveAll(allResults)
-        log.info("Rerun rule {} on dossier {}: {} results ({}ms)", regle, dossier.reference, allResults.size, totalMs)
+        log.info("Rerun rule {} on dossier {}: {} results ({}ms, fresh-data={})",
+            regle, dossier.reference, allResults.size, totalMs, rulesWithFreshData.size)
 
         return allResults
     }
@@ -1425,18 +1450,51 @@ class ValidationEngine(
             }
         }
 
-        // R16c: sum of line amounts equals facture HT
+        // R16c: sum of line amounts equals facture HT.
+        // Garde-fou contre les faux positifs : certaines factures n'ont pas de
+        // colonne HT separee sur les lignes — l'extracteur remplit alors
+        // `montantTotalHt` avec des valeurs TTC. Avant de declarer NON_CONFORME,
+        // on detecte ce scenario (somme ≈ TTC OU ratio somme/HT ≈ taux TVA legal)
+        // et on degrade en AVERTISSEMENT avec un message explicatif.
         if (isEnabled("R16c") && facture != null && facture.lignes.isNotEmpty() && fHt != null) {
             val sum = facture.lignes.mapNotNull { it.montantTotalHt }
                 .fold(BigDecimal.ZERO) { acc, v -> acc.add(v) }
                 .setScale(2, RoundingMode.HALF_UP)
-            results += checkMontant("R16c", "Somme des lignes = montant HT facture",
-                sum, fHt, tol, dossier,
-                listOf(
-                    evidence("calcule", "sommeLignes",
-                        "Somme des ${facture.lignes.size} ligne(s) de la facture", fDoc, sum),
-                    evidence("attendu", "montantHT", "Montant HT de la facture", fDoc, fHt)
-                ))
+            val baseEvidences = listOf(
+                evidence("calcule", "sommeLignes",
+                    "Somme des ${facture.lignes.size} ligne(s) de la facture", fDoc, sum),
+                evidence("attendu", "montantHT", "Montant HT de la facture", fDoc, fHt)
+            )
+            val gapHt = sum.subtract(fHt).abs()
+            if (gapHt <= tol) {
+                results += checkMontant("R16c", "Somme des lignes = montant HT facture",
+                    sum, fHt, tol, dossier, baseEvidences)
+            } else {
+                val ttcSuspicion = detectLignesTtcSuspectees(sum, fHt, fTtc, tol, tolPct)
+                if (ttcSuspicion != null) {
+                    val extraEv = mutableListOf<ValidationEvidence>()
+                    if (fTtc != null) {
+                        extraEv += evidence("source", "montantTTC",
+                            "Montant TTC de la facture", fDoc, fTtc)
+                    }
+                    extraEv += evidence("calcule", "ratioSommeHt",
+                        "Ratio somme lignes / HT facture", null, ttcSuspicion.ratioLabel)
+                    results += ResultatValidation(
+                        dossier = dossier, regle = "R16c",
+                        libelle = "Somme des lignes = montant HT facture",
+                        statut = StatutCheck.AVERTISSEMENT,
+                        detail = "Lignes probablement extraites en TTC (pas de colonne HT separee). " +
+                            "Somme lignes ${sum.toPlainString()} ${ttcSuspicion.detail}. " +
+                            "Verifier l'extraction des lignes ou desactiver R16c pour ce dossier.",
+                        valeurAttendue = fHt.toPlainString(),
+                        valeurTrouvee = sum.toPlainString(),
+                        evidences = baseEvidences + extraEv
+                    )
+                } else {
+                    results += checkMontant("R16c", "Somme des lignes = montant HT facture",
+                        sum, fHt, tol, dossier, baseEvidences)
+                }
+            }
         }
 
         // R01f: total of invoice items matches total of BC items

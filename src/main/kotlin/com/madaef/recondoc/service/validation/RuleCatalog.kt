@@ -90,7 +90,7 @@ object RuleCatalog {
             "Pour chaque ligne : quantite × PU HT = montant total HT (tolerance abs + 0.5 % relatif).",
             "montants-concordance"),
         Def("R16c", "Somme des lignes = HT facture",
-            "Somme des montants HT lignes = HT facture global.",
+            "Somme des montants HT lignes = HT facture global. Si la somme correspond au TTC ou a HT × (1 + taux TVA legal), la regle bascule en AVERTISSEMENT (lignes probablement extraites en TTC, facture sans colonne HT distincte).",
             "montants-concordance"),
 
         // === 4. Paiement / arithmetique / taux legaux MA ==========================
