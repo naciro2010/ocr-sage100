@@ -164,6 +164,39 @@ class GroundingValidatorTest {
     }
 
     @Test
+    fun `RIB hybride - 20 derniers chiffres composes de 2 RIBs distincts est detecte`() {
+        // Cas pathologique : le texte OCR liste 2 RIBs distincts. Claude
+        // hybride (debut RIB-A + fin RIB-B) en gardant les 12 derniers chiffres
+        // qui correspondent au RIB-B. Avant le fix (minLen=12), ce RIB hybride
+        // passait le grounding car les 12 derniers chiffres existaient.
+        // Avec minLen=20, l'hybride est detecte (les 20 derniers chiffres ne
+        // correspondent a aucun RIB pur).
+        val ribA = "230810000150002775637823"  // 24 digits
+        val ribB = "001780000220003344556677"  // 24 digits
+        val ribHybride = ribA.substring(0, 12) + ribB.substring(12)  // 12 debut A + 12 fin B
+        val text = "RIB principal: $ribA\nRIB secondaire (info): $ribB\nFacture F-2026-001\n"
+
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "rib" to ribHybride
+        ), text)
+        assertNull(r.cleanedData["rib"], "RIB hybride doit etre strip a null")
+        assertTrue(r.violations.any { it.field == "rib" && it.reason.contains("absente") })
+    }
+
+    @Test
+    fun `RIB legitime present dans le texte passe meme avec espaces et tirets`() {
+        val rib = "230810000150002775637823"
+        val text = "RIB beneficiaire : 230 810 000150002775 6378 23\nFacture F-2026-001\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "rib" to rib
+        ), text)
+        assertTrue(r.valid)
+        assertEquals(rib, r.cleanedData["rib"])
+    }
+
+    @Test
     fun `warnings precedents preserves et nouvelles violations concatenees`() {
         val text = "Facture DEV-2026-42\n"
         val r = validator.validate(TypeDocument.FACTURE, mapOf(
