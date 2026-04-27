@@ -90,9 +90,13 @@ class ValidationEngine(
     @Transactional
     fun validate(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running system validation for dossier {}", dossier.reference)
-        resultatRepository.deleteSystemByDossierId(dossier.id!!)
+        // Suppression via le persistence context (pas un @Modifying @Query) :
+        // un bulk DELETE detacherait les entites du dossier et casserait les
+        // acces lazy plus loin (ex : OrdrePaiement.retenues dans runAllRules).
+        val toDelete = dossier.resultatsValidation.filter { !it.regle.startsWith("CUSTOM-") }
+        resultatRepository.deleteAll(toDelete)
+        dossier.resultatsValidation.removeAll(toDelete.toSet())
         resultatRepository.flush()
-        dossier.resultatsValidation.removeIf { !it.regle.startsWith("CUSTOM-") }
 
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
@@ -116,9 +120,10 @@ class ValidationEngine(
     @Transactional
     fun validateCustomOnly(dossier: DossierPaiement): List<ResultatValidation> {
         log.info("Running custom (LLM) validation for dossier {}", dossier.reference)
-        resultatRepository.deleteCustomByDossierId(dossier.id!!)
+        val toDelete = dossier.resultatsValidation.filter { it.regle.startsWith("CUSTOM-") }
+        resultatRepository.deleteAll(toDelete)
+        dossier.resultatsValidation.removeAll(toDelete.toSet())
         resultatRepository.flush()
-        dossier.resultatsValidation.removeIf { it.regle.startsWith("CUSTOM-") }
 
         val isEnabled = loadEnabledRules(dossier.id!!)
         val t0 = System.nanoTime()
