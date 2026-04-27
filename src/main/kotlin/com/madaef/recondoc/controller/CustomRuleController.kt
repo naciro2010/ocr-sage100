@@ -55,7 +55,7 @@ class CustomRuleController(
             "statut" to result.statut.name,
             "detail" to result.detail,
             "evidences" to result.evidences,
-            "documentIds" to result.documentIds?.split(",")?.filter { it.isNotBlank() }
+            "documentIds" to result.documentIds?.split(",")?.filter { it.isNotBlank() }?.distinct()
         )
     }
 

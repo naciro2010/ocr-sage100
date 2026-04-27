@@ -214,10 +214,14 @@ class ValidationEngine(
         //        ce qui revenait a accepter 5% d'ecart sur une ligne — trop laxiste.
         val tol = BigDecimal(toleranceMontant)
         val tolPct = BigDecimal(toleranceMontantPct)
+        // Dedupe defensif : l'EntityGraph qui charge documents + factures + resultatsValidation
+        // peut produire un produit cartesien sur les bags (List<Facture>), ce qui multiplie
+        // chaque facture et fait exploser la liste documentIds (UI R11 = dizaines de chips).
+        val factures = dossier.factures.distinctBy { it.id ?: it }
         val ctx = ValidationContext(
             dossier = dossier,
-            facture = dossier.factures.firstOrNull(),
-            allFactures = dossier.factures.toList(),
+            facture = factures.firstOrNull(),
+            allFactures = factures,
             bc = dossier.bonCommande,
             op = dossier.ordrePaiement,
             contrat = dossier.contratAvenant,
@@ -609,8 +613,18 @@ class ValidationEngine(
                     ?.mapNotNull { normalizeRib(it) } ?: emptyList())
             val allOpRibs = opRibs.distinct()
 
+            // Schema OP : `rib` + `ribs[]` sont des RIBs de BENEFICIAIRE.
+            // Verite metier : chaque RIB liste sur l'OP doit etre un RIB
+            // legitime du fournisseur (donc apparaitre dans les RIBs des
+            // factures). Un RIB OP supplementaire et inconnu = potentiellement
+            // un compte attaquant glisse dans l'OP -> R11 doit lever
+            // NON_CONFORME meme si un autre RIB matche par ailleurs. L'ancien
+            // critere `any { fr == or }` etait trop laxiste : il ignorait les
+            // RIBs OP frauduleux des qu'un seul des RIBs OP correspondait.
+            val unknownOpRibs = if (combinedFactureRibs.isEmpty()) emptyList()
+                else allOpRibs.filterNot { or -> or in combinedFactureRibs }
             val hasMatch = combinedFactureRibs.any { fr -> allOpRibs.any { or -> fr == or } }
-            val docIds = allFactures.mapNotNull { it.document.id?.toString() } + listOfNotNull(op.document.id?.toString())
+            val docIds = (allFactures.mapNotNull { it.document.id?.toString() } + listOfNotNull(op.document.id?.toString())).distinct()
 
             val r11Evidences = mutableListOf<ValidationEvidence>()
             allFactures.forEach { f ->
@@ -623,12 +637,17 @@ class ValidationEngine(
                 libelle = "Coherence RIB : Factures ↔ OP",
                 statut = when {
                     combinedFactureRibs.isEmpty() || allOpRibs.isEmpty() -> StatutCheck.AVERTISSEMENT
-                    hasMatch -> StatutCheck.CONFORME
-                    else -> StatutCheck.NON_CONFORME
+                    !hasMatch -> StatutCheck.NON_CONFORME
+                    unknownOpRibs.isNotEmpty() -> StatutCheck.NON_CONFORME
+                    else -> StatutCheck.CONFORME
                 },
                 valeurAttendue = "Factures: ${combinedFactureRibs.joinToString(", ").ifBlank { "Aucun RIB" }}",
                 valeurTrouvee = "OP: ${allOpRibs.joinToString(", ").ifBlank { "Aucun RIB" }}",
                 detail = when {
+                    !hasMatch && combinedFactureRibs.isNotEmpty() && allOpRibs.isNotEmpty() ->
+                        "Aucun RIB de l'OP ne correspond aux RIBs des factures (substitution potentielle de beneficiaire)"
+                    unknownOpRibs.isNotEmpty() ->
+                        "RIB(s) OP non reconnu(s) dans les factures: ${unknownOpRibs.joinToString(", ")} (compte additionnel suspect)"
                     combinedFactureRibs.size > 1 -> "${combinedFactureRibs.size} RIBs trouves dans les factures"
                     else -> null
                 },
@@ -1605,6 +1624,7 @@ class ValidationEngine(
                     r.documentIds = dossier.documents
                         .filter { it.typeDocument in types }
                         .mapNotNull { it.id?.toString() }
+                        .distinct()
                         .joinToString(",")
                         .ifBlank { null }
                 }
