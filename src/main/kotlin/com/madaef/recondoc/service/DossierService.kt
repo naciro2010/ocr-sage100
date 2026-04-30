@@ -70,6 +70,7 @@ class DossierService(
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val groundingValidator: GroundingValidator,
     private val identifierConsistencyService: com.madaef.recondoc.service.extraction.IdentifierConsistencyService,
+    private val arithmeticReconciler: com.madaef.recondoc.service.extraction.ArithmeticReconciler,
     private val pseudonymizationService: com.madaef.recondoc.service.extraction.PseudonymizationService,
     private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
@@ -956,12 +957,18 @@ class DossierService(
                         // si ai.identifier_consistency.enabled = false ou si le type n'a
                         // pas d'identifiants critiques.
                         val consistency = identifierConsistencyService.verify(detectedType, groundedData, rawText)
-                        val finalData = consistency.cleanedData
                         criticalSchemaFailure = if (consistency.hasCriticalDiscrepancy) {
                             criticalViolations + consistency.discrepancies.map { d ->
                                 FieldViolation(d.field, d.firstRun, d.reason)
                             }
                         } else criticalViolations
+                        // Reconciliation arithmetique post-extraction (Sprint 1 #5):
+                        // auto-correction des arrondis HT+TVA=TTC, calcul du champ
+                        // manquant si 2 sur 3 sont presents, signalisation des
+                        // incoherences irrecuperables. Ne mute jamais une valeur
+                        // sans signal fort (tauxTVA legal coherent avec HT/TVA).
+                        val reconciliation = arithmeticReconciler.reconcile(detectedType, consistency.cleanedData)
+                        val finalData = reconciliation.data
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
@@ -1297,12 +1304,16 @@ class DossierService(
             // Grounding aussi sur la re-extraction : pas de regression du niveau
             // de protection anti-hallucination entre la 1ere et la 2e passe.
             val grounded = groundingValidator.validate(type, validated, rawText).cleanedData
+            // Reconciliation arithmetique aussi sur la 2e passe : la re-extraction
+            // peut avoir corrige certains champs mais en avoir laisse d'autres en
+            // arrondi. Filet de coherence avant scoring qualite final.
+            val reconciled = arithmeticReconciler.reconcile(type, grounded).data
 
-            doc.donneesExtraites = grounded
-            doc.extractionConfidence = (grounded["_confidence"] as? Number)?.toDouble() ?: -1.0
-            val warnings = (grounded["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
+            doc.donneesExtraites = reconciled
+            doc.extractionConfidence = (reconciled["_confidence"] as? Number)?.toDouble() ?: -1.0
+            val warnings = (reconciled["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
             doc.extractionWarnings = if (warnings.isNotEmpty()) warnings.joinToString("||") else null
-            saveExtractedEntity(doc.dossier, doc, type, grounded)
+            saveExtractedEntity(doc.dossier, doc, type, reconciled)
             val retryReport = extractionQualityService.applyTo(doc)
             log.info("Retry extraction for {}: score {} -> {}", doc.nomFichier, initialReport.score, retryReport.score)
             retryReport
