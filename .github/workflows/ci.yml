@@ -69,6 +69,22 @@ jobs:
           path: build/reports/tests/
           retention-days: 7
 
+      - name: Coverage report (Jacoco)
+        if: always()
+        run: ./gradlew jacocoTestReport --no-daemon --stacktrace
+        env:
+          SPRING_PROFILES_ACTIVE: test
+
+      - name: Upload coverage report
+        if: always()
+        uses: actions/upload-artifact@v4
+        with:
+          name: backend-coverage
+          path: |
+            build/reports/jacoco/test/html/
+            build/reports/jacoco/test/jacocoTestReport.xml
+          retention-days: 7
+
       - name: Upload JAR artifact
         uses: actions/upload-artifact@v4
         with:

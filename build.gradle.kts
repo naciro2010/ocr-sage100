@@ -6,6 +6,7 @@ plugins {
     kotlin("jvm") version "2.3.20"
     kotlin("plugin.spring") version "2.3.20"
     kotlin("plugin.jpa") version "2.3.20"
+    jacoco
 }
 
 group = "com.madaef.recondoc"
@@ -150,4 +151,35 @@ tasks.withType<Test> {
     jvmArgumentProviders += CommandLineArgumentProvider {
         listOf("-javaagent:${mockitoAgent.asPath}")
     }
+    finalizedBy(tasks.jacocoTestReport)
+}
+
+// Couverture de tests (Jacoco). Rapport HTML pour revue locale, XML pour la CI
+// et les outils externes (Codecov, SonarQube, ...). Pas de seuil bloquant
+// pour cette premiere PR : on etablit la baseline avant d'imposer des minima.
+jacoco {
+    toolVersion = "0.8.13"
+}
+
+tasks.jacocoTestReport {
+    dependsOn(tasks.test)
+    reports {
+        xml.required.set(true)
+        html.required.set(true)
+        csv.required.set(false)
+    }
+    classDirectories.setFrom(
+        files(classDirectories.files.map {
+            fileTree(it) {
+                exclude(
+                    // Exclusions standard : DTOs, entites JPA, classes generees,
+                    // configuration Spring (peu de logique a couvrir).
+                    "com/madaef/recondoc/dto/**",
+                    "com/madaef/recondoc/entity/**",
+                    "com/madaef/recondoc/config/**",
+                    "com/madaef/recondoc/OcrSageApplication*",
+                )
+            }
+        })
+    )
 }
