@@ -77,7 +77,23 @@ object ExtractionSchemas {
 
     private fun qualityFields(): Map<String, Map<String, Any>> = mapOf(
         "_confidence" to num("Confiance globale 0..1 (1=tout clair, 0.5=OCR bruite)", minimum = 0, nullable = false),
-        "_warnings" to arrayOf(mapOf("type" to "string"), description = "Liste des problemes detectes")
+        "_warnings" to arrayOf(mapOf("type" to "string"), description = "Liste des problemes detectes"),
+        // Citations textuelles pour les champs critiques. Anti-hallucination renforcee :
+        // si Claude extrait une valeur sans pouvoir pointer une phrase exacte du texte
+        // source, GroundingValidator strip la valeur. Pas de citation = pas de valeur.
+        "_sourceQuotes" to arrayOf(obj(
+            properties = mapOf(
+                "field" to str(
+                    "Nom du champ critique extrait (ex: 'ice', 'rib', 'identifiantFiscal', 'numeroFacture', 'numeroOp', 'reference', 'montantTTC', 'dateFacture', 'dateEmission', 'fournisseur', 'beneficiaire').",
+                    nullable = false
+                ),
+                "quote" to str(
+                    "Phrase EXACTE (5 a 80 caracteres consecutifs) du document_content contenant la valeur. Preserver les espaces, ponctuation, separateurs OCR (ex: 'ICE : 001 509 176 000 008'). JAMAIS paraphraser ni fabriquer.",
+                    nullable = false
+                )
+            ),
+            required = listOf("field", "quote")
+        ), description = "Citations textuelles obligatoires pour les champs critiques. Si tu ne peux PAS pointer une phrase exacte du document_content, mets le champ a null + warning.")
     )
 
     // --- Helpers Maroc (formats reutilises entre les schemas) ---

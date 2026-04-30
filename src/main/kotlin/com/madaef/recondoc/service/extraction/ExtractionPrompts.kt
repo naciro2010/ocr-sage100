@@ -98,6 +98,32 @@ object ExtractionPrompts {
           NE PAS gonfler la confidence : une surestimation = perte de confiance de l'utilisateur.
         - "_warnings" : liste de strings decrivant les problemes detectes (format court, ex:
           "montantHT+TVA != TTC ecart 5%", "ICE partiellement illisible ligne 3", "date 31/02/2026 invalide").
+        - "_sourceQuotes" (CITATIONS OBLIGATOIRES anti-hallucination) : liste d'objets {field, quote}
+          fournie pour CHAQUE champ critique extrait :
+            * facture : ice, rib, identifiantFiscal, numeroFacture, montantTTC, dateFacture, fournisseur
+            * BC      : reference, fournisseur, montantTTC, dateBc
+            * OP      : numeroOp, rib, beneficiaire, montantOperation, dateEmission
+            * contrat / marche / BC cadre / contrat cadre : reference, fournisseur, montantTtc, dateDocument
+            * attestation : numero, raisonSociale, ice, identifiantFiscal, dateEdition
+            * checklists / tableau : referenceFacture, prestataire/fournisseur
+          Format de chaque entree :
+            * field : nom EXACT du champ JSON (ex: "ice", "montantTTC", "numeroFacture")
+            * quote : sous-chaine EXACTE (5 a 80 caracteres consecutifs) du document_content,
+              copiee textuellement, contenant la valeur. Preserver les espaces, ponctuation,
+              separateurs OCR. Exemples valides :
+                {"field":"ice","quote":"ICE : 001 509 176 000 008"}
+                {"field":"montantTTC","quote":"Total TTC :  12 000,00 DH"}
+                {"field":"numeroFacture","quote":"FACTURE N DEV-2026-0142"}
+          Regles strictes :
+            1. Si tu ne peux PAS pointer une phrase exacte du document_content ou la valeur a
+               ete lue, METS LE CHAMP A NULL + warning. Pas de citation = pas de valeur.
+            2. JAMAIS paraphraser, traduire, normaliser ou fabriquer une citation.
+            3. JAMAIS recoller des fragments de plusieurs lignes : la citation doit etre une
+               sous-chaine continue du texte source.
+            4. Si plusieurs occurrences existent, citer celle qui a guide l'extraction
+               (typiquement en-tete pour les identifiants, recapitulatif pour les totaux).
+            5. Pour un montant, la citation doit contenir la valeur lue (ex: "12 000,00"
+               ou "12000.00", pas "douze mille").
     """.trimIndent()
 
     // =====================================================================

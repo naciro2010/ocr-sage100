@@ -196,6 +196,123 @@ class GroundingValidatorTest {
         assertEquals(rib, r.cleanedData["rib"])
     }
 
+    // --- Citations source_quote (anti-hallucination renforcee) ---
+
+    @Test
+    fun `citation source presente dans le texte OCR valide le champ`() {
+        val text = "FACTURE N F-2026-001\nDate : 15/03/2026\nICE : 001 509 176 000 008\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "ice" to "001509176000008",
+            "numeroFacture" to "F-2026-001",
+            "_sourceQuotes" to listOf(
+                mapOf("field" to "ice", "quote" to "ICE : 001 509 176 000 008"),
+                mapOf("field" to "numeroFacture", "quote" to "FACTURE N F-2026-001")
+            )
+        ), text)
+        assertTrue(r.valid)
+        assertEquals("001509176000008", r.cleanedData["ice"])
+        assertEquals("F-2026-001", r.cleanedData["numeroFacture"])
+    }
+
+    @Test
+    fun `citation absente du texte strip la valeur extraite (hallucination cite)`() {
+        // Claude renvoie une citation qui n'apparait NULLE PART dans le texte OCR
+        // -> hallucination probable, on strip le champ.
+        val text = "FACTURE N F-2026-001\nMontant TTC : 12 000,00 DH\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to "001509176000008",
+            "_sourceQuotes" to listOf(
+                mapOf("field" to "ice", "quote" to "ICE attribue par DGI: 001509176000008")
+            )
+        ), text)
+        assertNull(r.cleanedData["ice"], "ICE avec citation introuvable doit etre strip")
+        assertFalse(r.valid, "ICE est critique sur FACTURE")
+        assertTrue(r.violations.any { it.field == "ice" && it.reason.contains("citation") })
+    }
+
+    @Test
+    fun `champ critique extrait sans citation est rejete (preuve manquante)`() {
+        // Claude oublie de citer ses sources sur un champ critique : on durcit.
+        // Sans citation, on ne peut pas distinguer une lecture honnete d'une
+        // hallucination -> traiter comme suspect.
+        val text = "FACTURE N F-2026-001\nICE : 001509176000008\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to "001509176000008",
+            "_sourceQuotes" to listOf(
+                // Citation fournie SEULEMENT pour numeroFacture, pas pour ice
+                mapOf("field" to "numeroFacture", "quote" to "FACTURE N F-2026-001")
+            )
+        ), text)
+        assertNull(r.cleanedData["ice"], "ICE sans citation doit etre strip")
+        assertFalse(r.valid)
+        assertTrue(r.violations.any { it.field == "ice" && it.reason.contains("preuve manquante") })
+    }
+
+    @Test
+    fun `tolerance OCR de 1 caractere sur la citation (confusion O 0)`() {
+        // Citation contient OO au lieu de 00 (confusion OCR frequente). Avec
+        // une fenetre fuzzy de 1 caractere, la citation reste valide.
+        val text = "FACTURE N F-2026-001\nICE : 001509176000008\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to "001509176000008",
+            "_sourceQuotes" to listOf(
+                mapOf("field" to "numeroFacture", "quote" to "FACTURE N F-2026-001"),
+                mapOf("field" to "ice", "quote" to "ICE : 0O1509176000008") // O au lieu de 0 a la 2e position
+            )
+        ), text)
+        assertTrue(r.violations.none { it.field == "ice" && it.reason.contains("citation") },
+            "1 caractere de difference doit passer la fuzz")
+    }
+
+    @Test
+    fun `absence totale de _sourceQuotes preserve le comportement legacy`() {
+        // Si Claude ne fournit pas du tout de _sourceQuotes (compat ascendante,
+        // cache stale, vieux prompt), on retombe sur le grounding par valeur.
+        val text = "FACTURE N F-2026-001\nICE : 001509176000008\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to "001509176000008"
+            // _sourceQuotes absent
+        ), text)
+        assertTrue(r.valid, "absence de _sourceQuotes ne doit pas casser l'extraction legacy")
+    }
+
+    @Test
+    fun `citation valide avec separateurs differents (espaces tirets)`() {
+        // OCR : "ICE: 001-509-176-000-008", citation : "ICE : 001 509 176 000 008"
+        // Apres normalisation (suppression espaces/tirets/ponctuation), les deux
+        // donnent "ice001509176000008" -> match.
+        val text = "FACTURE N F-2026-001\nICE: 001-509-176-000-008\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to "001509176000008",
+            "_sourceQuotes" to listOf(
+                mapOf("field" to "numeroFacture", "quote" to "FACTURE N F-2026-001"),
+                mapOf("field" to "ice", "quote" to "ICE : 001 509 176 000 008")
+            )
+        ), text)
+        assertTrue(r.violations.none { it.field == "ice" })
+    }
+
+    @Test
+    fun `citation pour champ non extrait (null) est ignoree silencieusement`() {
+        // Edge case : Claude fournit une citation pour un champ qu'il a mis a
+        // null. Pas d'erreur, on ignore.
+        val text = "FACTURE N F-2026-001\n"
+        val r = validator.validate(TypeDocument.FACTURE, mapOf(
+            "numeroFacture" to "F-2026-001",
+            "ice" to null,
+            "_sourceQuotes" to listOf(
+                mapOf("field" to "numeroFacture", "quote" to "FACTURE N F-2026-001"),
+                mapOf("field" to "ice", "quote" to "ICE : non lu")
+            )
+        ), text)
+        assertTrue(r.valid)
+    }
+
     @Test
     fun `warnings precedents preserves et nouvelles violations concatenees`() {
         val text = "Facture DEV-2026-42\n"

@@ -112,10 +112,29 @@ class GroundingValidator {
 
         val digitsText by lazy { OcrConfusions.applyDigitConfusions(rawText) }
         val alnumText by lazy { normalizeAlnum(rawText) }
+        val normalizedHaystack by lazy { normalizeForQuote(rawText) }
+
+        // Couche 1 : citations source_quote fournies par Claude. Si une valeur
+        // est extraite mais sa citation est introuvable dans le texte source,
+        // on traite le champ comme hallucine (strip + violation).
+        val criticalFieldNames = typeChecks.filter { it.critical }.map { it.field }.toSet()
+        val quoteValidation = validateSourceQuotes(data, normalizedHaystack, criticalFieldNames)
+        for ((field, reason) in quoteValidation.failures) {
+            // Ne strip que si une valeur a ete extraite : un champ deja null
+            // ne necessite pas de violation supplementaire.
+            if (cleaned.getFieldCaseInsensitive(field) != null) {
+                violations += FieldViolation(field, cleaned.getFieldCaseInsensitive(field)?.toString() ?: "", reason)
+                cleaned[field] = null
+                if (field in criticalFieldNames) hasCritical = true
+                log.warn("SourceQuote grounding violation on {}.{}: {}", type, field, reason)
+            }
+        }
 
         for (check in typeChecks) {
             val value = data.getFieldCaseInsensitive(check.field)?.toString()?.trim()
             if (value.isNullOrEmpty()) continue
+            // Si la couche citation a deja strip ce champ, ne pas re-violer dessus.
+            if (cleaned.getFieldCaseInsensitive(check.field) == null) continue
 
             val grounded = when (check.kind) {
                 Kind.DIGITS -> groundDigits(value, digitsText, check.minLen)
@@ -147,6 +166,89 @@ class GroundingValidator {
             violations = violations,
             cleanedData = cleaned
         )
+    }
+
+    private data class QuoteValidation(val failures: List<Pair<String, String>>)
+
+    /**
+     * Verifie les citations `_sourceQuotes` fournies par Claude. Format attendu :
+     * `[ {"field":"ice","quote":"ICE : 001 509 176 000 008"}, ... ]`.
+     *
+     * Une citation est valide si, apres normalisation (lowercase + suppression
+     * espaces/ponctuation), elle est une sous-chaine du texte OCR normalise.
+     * Tolerance OCR : 1 caractere de difference accepte sur les citations >= 10
+     * caracteres (Levenshtein <= 1) pour absorber les confusions O/0, l/1.
+     *
+     * Si la citation ne correspond a rien dans le texte source, le champ est
+     * considere comme hallucine et sera strip par le caller. Pas de citation
+     * pour un champ critique extrait = violation aussi (Claude doit citer ses
+     * sources).
+     */
+    private fun validateSourceQuotes(
+        data: Map<String, Any?>,
+        normalizedHaystack: String,
+        criticalFields: Set<String>
+    ): QuoteValidation {
+        val failures = mutableListOf<Pair<String, String>>()
+        val rawQuotes = data["_sourceQuotes"] as? List<*> ?: return QuoteValidation(emptyList())
+
+        // 1. Citations fournies : verifier qu'elles existent dans le texte source.
+        val citedFields = mutableSetOf<String>()
+        for (entry in rawQuotes) {
+            val map = entry as? Map<*, *> ?: continue
+            val field = map["field"]?.toString()?.trim().orEmpty()
+            val quote = map["quote"]?.toString()?.trim().orEmpty()
+            if (field.isEmpty() || quote.isEmpty()) continue
+            citedFields += field
+            val normalizedQuote = normalizeForQuote(quote)
+            if (normalizedQuote.length < 5) continue // citation trop courte pour etre fiable
+            val matches = normalizedHaystack.contains(normalizedQuote) ||
+                (normalizedQuote.length >= 10 && containsWithFuzz(normalizedHaystack, normalizedQuote, maxEdits = 1))
+            if (!matches) {
+                failures += field to "citation source absente du texte OCR (quote='${quote.take(60)}')"
+            }
+        }
+
+        // 2. Champ critique extrait sans citation : exiger la preuve. Le schema
+        // l'impose deja dans le prompt, mais on durcit cote serveur pour bloquer
+        // les regressions silencieuses (cache stale, prompt cassé).
+        for (field in criticalFields) {
+            val value = data.getFieldCaseInsensitive(field)
+            if (value != null && value.toString().isNotBlank() && field !in citedFields) {
+                failures += field to "champ critique extrait sans _sourceQuote (preuve manquante)"
+            }
+        }
+
+        return QuoteValidation(failures)
+    }
+
+    /**
+     * Normalisation pour la comparaison de citations : lowercase, suppression
+     * des espaces, tirets, points, virgules, slashs, sauts de ligne. Preserve
+     * les caracteres alphanumeriques et accentues.
+     */
+    private fun normalizeForQuote(s: String): String =
+        s.lowercase().replace(Regex("[\\s\\-.,/:;'\"()\\[\\]]+"), "")
+
+    /**
+     * Recherche fuzzy : la citation est consideree presente si une fenetre de
+     * la meme longueur dans le haystack a une distance d'edition <= maxEdits.
+     * Implementation simple O(n*m) suffisante pour des citations <= 80 chars.
+     */
+    private fun containsWithFuzz(haystack: String, needle: String, maxEdits: Int): Boolean {
+        if (needle.length > haystack.length) return false
+        val m = needle.length
+        for (start in 0..haystack.length - m) {
+            var diffs = 0
+            for (i in 0 until m) {
+                if (haystack[start + i] != needle[i]) {
+                    diffs++
+                    if (diffs > maxEdits) break
+                }
+            }
+            if (diffs <= maxEdits) return true
+        }
+        return false
     }
 
     private fun groundDigits(value: String, normalizedText: String, minLen: Int): Boolean {
