@@ -173,6 +173,22 @@ class AppSettingsService(
     }
 
     /**
+     * Cross-model verification (Sprint 3 #4) : un 3e signal independant qui
+     * re-extrait les identifiants reglementaires via un AUTRE modele (Haiku
+     * 4.5 par defaut, vs Sonnet 4.6 pour le run principal). Une hallucination
+     * stable a la fois sur Sonnet T=0, Sonnet T>0 et Haiku est statistiquement
+     * tres rare. Coût ~5x moins cher que Sonnet, ROI fort sur fiabilite.
+     */
+    fun isCrossModelVerificationEnabled(): Boolean {
+        val raw = get("ai.cross_model.enabled") ?: return true
+        return raw != "false"
+    }
+
+    fun getCrossModelVerificationModel(): String {
+        return get("ai.cross_model.model")?.takeIf { it.isNotBlank() } ?: "claude-haiku-4-5-20251001"
+    }
+
+    /**
      * Temperature du second run de verification d'identifiants. Differente du
      * run principal (defaut 0.0) pour briser le determinisme local et exposer
      * les hallucinations stables. 0.5 est un compromis : assez de variance

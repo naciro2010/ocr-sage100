@@ -209,7 +209,7 @@ class LlmExtractionService(
     @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolTemperatureFallback")
     @RateLimiter(name = "claude")
     @Bulkhead(name = "claude")
-    fun callClaudeToolWithTemperature(
+    open fun callClaudeToolWithTemperature(
         systemPrompt: String,
         userContent: String,
         toolName: String,
@@ -217,6 +217,28 @@ class LlmExtractionService(
         kind: CallKind,
         temperatureOverride: Double
     ): ClaudeToolResponse = executeClaudeToolCall(null, systemPrompt, userContent, toolName, inputSchema, kind, null, temperatureOverride)
+
+    /**
+     * Variante avec override de modele (Sprint 3 #4 cross-model voting). Pour
+     * le filet anti-hallucination cross-model : identique a callClaudeTool
+     * mais bypass `modelFor(kind)` pour forcer un autre modele (typiquement
+     * Haiku 4.5 quand le run principal utilise Sonnet). Une hallucination
+     * stable a la fois sur Sonnet et Haiku est statistiquement plus rare,
+     * donc l'accord entre les deux est un fort signal de fiabilite.
+     */
+    @CircuitBreaker(name = "claude", fallbackMethod = "claudeToolModelFallback")
+    @RateLimiter(name = "claude")
+    @Bulkhead(name = "claude")
+    open fun callClaudeToolWithModel(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        modelOverride: String,
+        temperatureOverride: Double = 0.0
+    ): ClaudeToolResponse = executeClaudeToolCallWithModel(
+        systemPrompt, userContent, toolName, inputSchema, modelOverride, temperatureOverride
+    )
 
     /**
      * Variante combinant le cache prefixe stable + un override de temperature.
@@ -238,6 +260,71 @@ class LlmExtractionService(
         kind: CallKind,
         temperatureOverride: Double
     ): ClaudeToolResponse = executeClaudeToolCall(stableSystemPrefix, systemPrompt, userContent, toolName, inputSchema, kind, null, temperatureOverride)
+
+    /**
+     * Variante avec modele explicite (Sprint 3 #4) : identique a
+     * executeClaudeToolCall mais ignore `modelFor(kind)`. Reutilise tout le
+     * reste (cache, prompt caching, telemetry, retry).
+     */
+    private fun executeClaudeToolCallWithModel(
+        systemPrompt: String,
+        userContent: String,
+        toolName: String,
+        inputSchema: Map<String, Any>,
+        model: String,
+        temperatureOverride: Double
+    ): ClaudeToolResponse {
+        val maxTokens = appSettingsService.getAiMaxTokens("extraction")
+        log.info("Calling Claude API (cross-model tool_use, model={}, tool={}, max_tokens={}, text={}chars)",
+            model, toolName, maxTokens, userContent.length)
+
+        val cacheKey = if (extractionCacheService != null) {
+            val schemaJson = runCatching { objectMapper.writeValueAsString(inputSchema) }.getOrDefault("")
+            extractionCacheService.keyFor(model, toolName, systemPrompt, userContent, schemaJson, temperatureOverride)
+        } else null
+        if (cacheKey != null) {
+            extractionCacheService?.lookup(cacheKey)?.let { hit ->
+                log.info("Claude cross-model cache HIT (model={}, tool={}) -> 0 API call", model, toolName)
+                return ClaudeToolResponse(toolInput = hit.toolInput, stopReason = hit.stopReason)
+            }
+        }
+
+        val tool = mapOf(
+            "name" to toolName,
+            "description" to "Cross-model verification tool. Call this exactly once.",
+            "input_schema" to inputSchema,
+            "cache_control" to mapOf("type" to "ephemeral", "ttl" to "1h")
+        )
+        val baseBody = mapOf(
+            "model" to model,
+            "max_tokens" to maxTokens,
+            "system" to cacheableSystem(null, systemPrompt),
+            "tools" to listOf(tool),
+            "tool_choice" to mapOf(
+                "type" to "tool",
+                "name" to toolName,
+                "disable_parallel_tool_use" to true
+            ),
+            "messages" to listOf(mapOf("role" to "user", "content" to userContent))
+        )
+        val requestBody = if (temperatureOverride >= 0.0) baseBody + ("temperature" to temperatureOverride) else baseBody
+
+        val response = postToAnthropic(requestBody, model, " (cross-model tool_use)")
+
+        @Suppress("UNCHECKED_CAST")
+        val content = response["content"] as? List<Map<String, Any>>
+            ?: throw RuntimeException("Unexpected response format (cross-model tool_use)")
+        val toolUseBlock = content.firstOrNull { it["type"] == "tool_use" }
+            ?: throw RuntimeException("No tool_use block in cross-model response. stop_reason=${response["stop_reason"]}")
+        @Suppress("UNCHECKED_CAST")
+        val input = toolUseBlock["input"] as? Map<String, Any?>
+            ?: throw RuntimeException("Empty cross-model tool_use input")
+        val stopReason = response["stop_reason"] as? String
+        if (cacheKey != null) {
+            extractionCacheService?.store(cacheKey, input, stopReason)
+        }
+        return ClaudeToolResponse(toolInput = input, stopReason = stopReason)
+    }
 
     private fun executeClaudeToolCall(
         stableSystemPrefix: String?,
@@ -561,6 +648,16 @@ class LlmExtractionService(
         stableSystemPrefix: String?, systemPrompt: String, userContent: String,
         toolName: String, inputSchema: Map<String, Any>, kind: CallKind,
         maxTokensOverride: Int, t: Throwable
+    ): ClaudeToolResponse {
+        fallbackMessage(t)
+        throw IllegalStateException("unreachable")
+    }
+
+    @Suppress("unused", "UNUSED_PARAMETER")
+    private fun claudeToolModelFallback(
+        systemPrompt: String, userContent: String, toolName: String,
+        inputSchema: Map<String, Any>, modelOverride: String,
+        temperatureOverride: Double, t: Throwable
     ): ClaudeToolResponse {
         fallbackMessage(t)
         throw IllegalStateException("unreachable")

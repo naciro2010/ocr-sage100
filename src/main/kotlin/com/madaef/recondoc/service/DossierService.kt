@@ -70,6 +70,7 @@ class DossierService(
     private val extractionSchemaValidator: ExtractionSchemaValidator,
     private val groundingValidator: GroundingValidator,
     private val identifierConsistencyService: com.madaef.recondoc.service.extraction.IdentifierConsistencyService,
+    private val crossModelVerificationService: com.madaef.recondoc.service.extraction.CrossModelVerificationService,
     private val arithmeticReconciler: com.madaef.recondoc.service.extraction.ArithmeticReconciler,
     private val chainOfVerificationService: com.madaef.recondoc.service.extraction.ChainOfVerificationService,
     private val extractionDriftMonitor: com.madaef.recondoc.service.extraction.ExtractionDriftMonitor,
@@ -959,17 +960,24 @@ class DossierService(
                         // si ai.identifier_consistency.enabled = false ou si le type n'a
                         // pas d'identifiants critiques.
                         val consistency = identifierConsistencyService.verify(detectedType, groundedData, rawText)
-                        criticalSchemaFailure = if (consistency.hasCriticalDiscrepancy) {
-                            criticalViolations + consistency.discrepancies.map { d ->
-                                FieldViolation(d.field, d.firstRun, d.reason)
-                            }
+                        // Cross-model verification (Sprint 3 #4) : 3e signal sur ICE/RIB/IF
+                        // via Haiku 4.5. Une hallucination stable a la fois sur Sonnet T=0,
+                        // Sonnet T>0 et Haiku est extremement rare. Skip si type non
+                        // applicable ou si tous les identifiants sont deja null.
+                        val crossModel = crossModelVerificationService.verify(
+                            detectedType, consistency.cleanedData, rawText
+                        )
+                        criticalSchemaFailure = if (consistency.hasCriticalDiscrepancy || crossModel.hasCriticalDiscrepancy) {
+                            criticalViolations +
+                                consistency.discrepancies.map { d -> FieldViolation(d.field, d.firstRun, d.reason) } +
+                                crossModel.discrepancies.map { d -> FieldViolation(d.field, d.mainModelValue, d.reason) }
                         } else criticalViolations
                         // Reconciliation arithmetique post-extraction (Sprint 1 #5):
                         // auto-correction des arrondis HT+TVA=TTC, calcul du champ
                         // manquant si 2 sur 3 sont presents, signalisation des
                         // incoherences irrecuperables. Ne mute jamais une valeur
                         // sans signal fort (tauxTVA legal coherent avec HT/TVA).
-                        val reconciliation = arithmeticReconciler.reconcile(detectedType, consistency.cleanedData)
+                        val reconciliation = arithmeticReconciler.reconcile(detectedType, crossModel.cleanedData)
                         // Chain-of-Verification (Sprint 2 #2) : 2e appel Claude qui
                         // verifie que les champs critiques apparaissent exactement
                         // dans le texte OCR. Filet supplementaire apres grounding
@@ -990,7 +998,7 @@ class DossierService(
                                 criticalFields = criticalFieldsForDrift,
                                 afterExtraction = restoredData,
                                 afterGrounding = groundedData,
-                                afterConsistency = consistency.cleanedData,
+                                afterConsistency = crossModel.cleanedData,
                                 afterReconciliation = reconciliation.data,
                                 afterCove = finalData
                             )
