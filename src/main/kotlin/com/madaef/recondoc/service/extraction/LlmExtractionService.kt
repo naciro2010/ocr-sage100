@@ -53,7 +53,8 @@ data class ClaudeToolResponse(
 class LlmExtractionService(
     private val objectMapper: ObjectMapper,
     private val appSettingsService: AppSettingsService,
-    private val claudeUsageRepository: ClaudeUsageRepository
+    private val claudeUsageRepository: ClaudeUsageRepository,
+    private val extractionCacheService: ExtractionCacheService? = null
 ) {
     private val log = LoggerFactory.getLogger(javaClass)
     private val clientCache = ConcurrentHashMap<String, WebClient>()
@@ -253,6 +254,24 @@ class LlmExtractionService(
         log.info("Calling Claude API (tool_use kind={}, model={}, tool={}, max_tokens={}, text={}chars)",
             kind, model, toolName, maxTokens, userContent.length)
 
+        // Cache deterministe in-memory (Sprint 2 #6) : meme prompt+texte+schema
+        // -> meme reponse. Court-circuite Claude pour les re-uploads et fige
+        // le verdict d'une session a l'autre. Skip pour les calls avec
+        // temperatureOverride > 0 (self-consistency exige des runs distincts).
+        val temperatureForKey = temperatureOverride ?: appSettingsService.getAiTemperature()
+        val isSelfConsistencyRun = temperatureOverride != null && temperatureOverride > 0.0
+        val cacheKey = if (extractionCacheService != null && !isSelfConsistencyRun) {
+            val schemaJson = runCatching { objectMapper.writeValueAsString(inputSchema) }.getOrDefault("")
+            val systemFull = (stableSystemPrefix ?: "") + " " + systemPrompt
+            extractionCacheService.keyFor(model, toolName, systemFull, userContent, schemaJson, temperatureForKey)
+        } else null
+        if (cacheKey != null) {
+            extractionCacheService?.lookup(cacheKey)?.let { hit ->
+                log.info("Claude tool_use cache HIT (kind={}, tool={}) -> 0 API call", kind, toolName)
+                return ClaudeToolResponse(toolInput = hit.toolInput, stopReason = hit.stopReason)
+            }
+        }
+
         // Prompt caching : on marque la definition de l'outil comme cache
         // ephemere (TTL 1h via beta header extended-cache-ttl). Le schema JSON
         // est identique pour tous les documents d'un meme type (ex: FACTURE),
@@ -312,6 +331,11 @@ class LlmExtractionService(
         val stopReason = response["stop_reason"] as? String
         if (stopReason == "max_tokens") {
             log.warn("Claude tool_use call (kind={}) hit max_tokens — input may be partial", kind)
+        }
+
+        // Store dans le cache (skip si max_tokens, cf. ExtractionCacheService).
+        if (cacheKey != null) {
+            extractionCacheService?.store(cacheKey, input, stopReason)
         }
 
         return ClaudeToolResponse(toolInput = input, stopReason = stopReason)
