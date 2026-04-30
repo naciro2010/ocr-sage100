@@ -1744,7 +1744,11 @@ class DossierService(
     private fun parseDate(s: String?): LocalDate? {
         if (s.isNullOrBlank()) return null
         for (fmt in dateFormats) {
-            try { return LocalDate.parse(s.trim(), fmt) } catch (_: Exception) {}
+            try {
+                return LocalDate.parse(s.trim(), fmt)
+            } catch (_: java.time.format.DateTimeParseException) {
+                // Format suivant : c'est le but de la liste dateFormats
+            }
         }
         return null
     }
@@ -1780,7 +1784,9 @@ class DossierService(
 
     private inline fun <reified T : Enum<T>> parseEnum(value: String?, default: T): T {
         if (value.isNullOrBlank()) return default
-        return try { enumValueOf<T>(value) } catch (_: Exception) { default }
+        // enumValueOf leve uniquement IllegalArgumentException quand le nom
+        // ne correspond a aucune constante. Tout autre throwable doit remonter.
+        return try { enumValueOf<T>(value) } catch (_: IllegalArgumentException) { default }
     }
 
     private fun audit(dossierId: UUID?, action: String, detail: String? = null) {

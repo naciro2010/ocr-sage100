@@ -11,6 +11,7 @@ import java.math.BigDecimal
 import java.math.RoundingMode
 import java.text.Normalizer
 import java.time.LocalDate
+import java.time.format.DateTimeParseException
 import java.time.temporal.ChronoUnit
 
 /**
@@ -85,7 +86,10 @@ fun matchReference(ref1: String?, ref2: String?): Boolean {
 fun parseLocalDate(s: String): LocalDate? {
     return try {
         LocalDate.parse(s)
-    } catch (_: Exception) {
+    } catch (_: DateTimeParseException) {
+        // Fallback : DD/MM/YYYY et variantes. Capture cible :
+        // - NumberFormatException si un segment n'est pas un entier
+        // - DateTimeException si la date construite est invalide (31 fevrier...)
         try {
             val parts = s.split("/", "-", ".")
             if (parts.size == 3) {
@@ -94,7 +98,11 @@ fun parseLocalDate(s: String): LocalDate? {
                 val y = parts[2].trim().toInt().let { if (it < 100) it + 2000 else it }
                 LocalDate.of(y, m, d)
             } else null
-        } catch (_: Exception) { null }
+        } catch (_: NumberFormatException) {
+            null
+        } catch (_: java.time.DateTimeException) {
+            null
+        }
     }
 }
 
