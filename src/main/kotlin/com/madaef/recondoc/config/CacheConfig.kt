@@ -31,6 +31,23 @@ class CacheConfig {
                 .maximumSize(1000)
                 .recordStats()
         )
+
+        // Cache dedie pour le journal d'audit : TTL plus court (15s) car il
+        // change a chaque action utilisateur (audit() appele a la creation,
+        // validation, rerun, correction, finalize, ...). On evite la
+        // complexite d'un @CacheEvict cross-bean (les self-calls dans Spring
+        // ne traversent pas le proxy AOP) en acceptant 15s de retard sur
+        // le journal — il est consultatif, pas critique pour la fiabilite
+        // des verdicts. Gros gain sur les bursts de GET (StrictMode dev,
+        // navigations rapides, polling SSE qui rappelle l'audit panel).
+        mgr.registerCustomCache(
+            "auditLogByDossier",
+            Caffeine.newBuilder()
+                .expireAfterWrite(15, TimeUnit.SECONDS)
+                .maximumSize(500)
+                .recordStats()
+                .build()
+        )
         return mgr
     }
 }

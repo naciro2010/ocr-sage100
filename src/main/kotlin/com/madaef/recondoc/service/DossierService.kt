@@ -1505,6 +1505,7 @@ class DossierService(
         return documentStorage.presignGet(doc.cheminFichier)
     }
 
+    @org.springframework.cache.annotation.Cacheable("auditLogByDossier")
     fun getAuditLog(dossierId: UUID): List<AuditLogResponse> {
         return auditLogRepo.findByDossierIdOrderByDateActionDesc(dossierId)
             .map { AuditLogResponse(action = it.action, detail = it.detail, utilisateur = it.utilisateur, dateAction = it.dateAction) }
