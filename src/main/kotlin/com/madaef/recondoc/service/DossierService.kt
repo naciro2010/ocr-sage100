@@ -72,6 +72,7 @@ class DossierService(
     private val identifierConsistencyService: com.madaef.recondoc.service.extraction.IdentifierConsistencyService,
     private val arithmeticReconciler: com.madaef.recondoc.service.extraction.ArithmeticReconciler,
     private val chainOfVerificationService: com.madaef.recondoc.service.extraction.ChainOfVerificationService,
+    private val extractionDriftMonitor: com.madaef.recondoc.service.extraction.ExtractionDriftMonitor,
     private val pseudonymizationService: com.madaef.recondoc.service.extraction.PseudonymizationService,
     private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
@@ -978,6 +979,23 @@ class DossierService(
                             detectedType, reconciliation.data, rawText
                         )
                         val finalData = verification.cleanedData
+                        // Drift monitoring (Sprint 3 #10) : metriques Prometheus
+                        // par champ pour detecter les derives silencieuses
+                        // (mises a jour Claude, nouveaux formats fournisseurs,
+                        // strip excessif). Pas de PII : seulement type+field+outcome.
+                        val criticalFieldsForDrift = criticalFieldsFor(detectedType)
+                        if (criticalFieldsForDrift.isNotEmpty()) {
+                            extractionDriftMonitor.recordDocumentOutcomes(
+                                type = detectedType,
+                                criticalFields = criticalFieldsForDrift,
+                                afterExtraction = restoredData,
+                                afterGrounding = groundedData,
+                                afterConsistency = consistency.cleanedData,
+                                afterReconciliation = reconciliation.data,
+                                afterCove = finalData
+                            )
+                            extractionDriftMonitor.recordConfidence(detectedType, confidenceFor(finalData))
+                        }
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence
@@ -993,6 +1011,7 @@ class DossierService(
             doc.statutExtraction = StatutExtraction.EXTRAIT
             doc.erreurExtraction = null
             val qualityReport = extractionQualityService.applyTo(doc)
+            extractionDriftMonitor.recordQualityScore(detectedType, qualityReport.score)
 
             if (qualityReport.score < minQualityScore && llmService.isAvailable && retriesLeft > 0) {
                 val retryReport = retryExtractionWithReinforcedPrompt(doc, detectedType, rawText, ocrResult, qualityReport)
@@ -1892,4 +1911,25 @@ class DossierService(
         "tauxTVA" to f.tauxTva, "montantTTC" to f.montantTtc,
         "referenceContrat" to f.referenceContrat, "periode" to f.periode
     )
+
+    /**
+     * Champs critiques par type pour le drift monitoring (Sprint 3 #10).
+     * Doit rester aligne sur les criticalFields de ChainOfVerificationService
+     * et les checks de GroundingValidator pour que les outcomes soient
+     * comparables entre les couches.
+     */
+    private fun criticalFieldsFor(type: TypeDocument): List<String> = when (type) {
+        TypeDocument.FACTURE -> listOf("ice", "rib", "identifiantFiscal", "numeroFacture", "montantTTC", "dateFacture", "fournisseur")
+        TypeDocument.BON_COMMANDE -> listOf("reference", "fournisseur", "montantTTC", "dateBc")
+        TypeDocument.ORDRE_PAIEMENT -> listOf("numeroOp", "rib", "beneficiaire", "montantOperation", "dateEmission")
+        TypeDocument.CONTRAT_AVENANT -> listOf("referenceContrat", "dateSignature", "objet")
+        TypeDocument.ATTESTATION_FISCALE -> listOf("numero", "raisonSociale", "ice", "identifiantFiscal", "dateEdition")
+        TypeDocument.MARCHE,
+        TypeDocument.BON_COMMANDE_CADRE,
+        TypeDocument.CONTRAT_CADRE -> listOf("reference", "fournisseur", "montantTtc", "dateDocument")
+        else -> emptyList()
+    }
+
+    private fun confidenceFor(data: Map<String, Any?>): Double =
+        (data["_confidence"] as? Number)?.toDouble()?.coerceIn(0.0, 1.0) ?: -1.0
 }
