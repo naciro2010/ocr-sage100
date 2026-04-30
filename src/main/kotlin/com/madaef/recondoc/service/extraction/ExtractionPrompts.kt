@@ -88,6 +88,83 @@ object ExtractionPrompts {
         - Si une date est invalide ou dans un futur absurde (> 2 ans apres aujourd'hui), retourner null.
         - Si un ICE n'a pas exactement 15 chiffres apres normalisation OCR, mettre null + warning.
 
+        PIEGES ANTI-HALLUCINATION (cas ou la BONNE reponse est null) :
+
+        Ces cas sont la cause #1 de faux positifs dans les controles. La regle
+        d'or : MIEUX VAUT 50 nulls qu'UNE hallucination. Un null declenche une
+        revue humaine ; une hallucination corrompt la base et echoue les regles
+        de coherence cross-documents.
+
+        EXEMPLE A - RIB tronque par tampon ou pli (NE PAS DEVINER LA FIN) :
+        <document_content>
+        Beneficiaire : ACME SARL
+        RIB : 011 810 00000001234567 [tampon noir illisible] 12
+        </document_content>
+        Sortie correcte : "rib":null avec warning "RIB partiellement masque par tampon (chiffres 21-22 illisibles), mis a null pour eviter hallucination".
+        Sortie INCORRECTE (a NE PAS produire) : "rib":"011810000000123456789012" en supposant les chiffres manquants.
+
+        EXEMPLE B - Date ambigue (jamais inferer le siecle ou le format) :
+        <document_content>
+        Date facture : 10/05/26
+        </document_content>
+        Sortie correcte : "dateFacture":null avec warning "Date '10/05/26' ambigue : annee sur 2 chiffres, jour/mois indistinguable. Format ISO YYYY-MM-DD requis pour validation -> revue humaine".
+        Sortie INCORRECTE : "dateFacture":"2026-05-10" en supposant arbitrairement.
+
+        EXEMPLE C - Montant ecrit UNIQUEMENT en lettres (sans chiffres lisibles) :
+        <document_content>
+        Total : douze mille trois cents dirhams TTC
+        (chiffres effaces)
+        </document_content>
+        Sortie correcte : "montantTTC":null avec warning "montant TTC en lettres sans chiffres lisibles -> revue humaine pour conversion".
+        Sortie INCORRECTE : "montantTTC":12300.00 en convertissant les lettres.
+
+        EXEMPLE D - ICE avec 1 chiffre manquant (NE PAS COMPLETER) :
+        <document_content>
+        ICE : 00150917600000_  (dernier chiffre macule)
+        </document_content>
+        Sortie correcte : "ice":null avec warning "ICE partiellement illisible (14 chiffres lisibles sur 15), mis a null".
+        Sortie INCORRECTE : "ice":"001509176000008" en devinant le 8 (memoire OCR voisine).
+
+        EXEMPLE E - Numero facture coupe en bord de page :
+        <document_content>
+        FACTURE N DEV-2026-...   (suite coupee)
+        </document_content>
+        Sortie correcte : "numeroFacture":null avec warning "Numero facture coupe au bord de page apres 'DEV-2026-'".
+        Sortie INCORRECTE : "numeroFacture":"DEV-2026-001" en devinant le suffixe.
+
+        EXEMPLE F - Beneficiaire ou fournisseur en double sur un meme document :
+        <document_content>
+        Beneficiaire : ACME SARL
+        ...
+        Beneficiaire : BETA CONSULTING (sur 2e page)
+        </document_content>
+        Sortie correcte : "beneficiaire":null avec warning "Deux beneficiaires distincts (ACME SARL p.1, BETA CONSULTING p.2) -> incoherence document, revue humaine".
+        Sortie INCORRECTE : choisir arbitrairement un des deux sans warning.
+
+        EXEMPLE G - Champ requis par schema mais absent du document :
+        <document_content>
+        BON DE COMMANDE
+        Date : 01/02/2026
+        Fournisseur : ACME SARL
+        Total HT : 12 000,00
+        (numero BC absent du document)
+        </document_content>
+        Sortie correcte : "reference":null avec warning "Reference BC absente du document -> incident a documenter, revue humaine".
+        Sortie INCORRECTE : "reference":"BC-2026-001" en fabriquant un numero plausible.
+
+        EXEMPLE H - Confusion entre 2 documents superposes au scan :
+        <document_content>
+        FACTURE N F-2026-001 ... ICE 001509176000008
+        [chevauchement]
+        FACTURE N F-2026-002 ... ICE 002345678000091
+        </document_content>
+        Sortie correcte : separer si possible (un objet par facture detectee). Sinon "_confidence":0.30 avec warning "Deux factures chevauchees au scan (F-2026-001, F-2026-002), separation impossible -> rescan recommande".
+        Sortie INCORRECTE : melanger les champs (ICE de F-001 + numero de F-002).
+
+        REGLE D'OR : devant tout doute, prendre null + warning explicite. Ne JAMAIS
+        completer une valeur a partir d'une "memoire" du contexte voisin, d'un
+        format type, ou d'une "connaissance generale" du Maroc.
+
         Champs qualite (a inclure dans CHAQUE reponse) :
         - "_confidence" : nombre entre 0 et 1. Calibration OBLIGATOIRE :
           * 0.95-1.0 : tous les champs obligatoires lus clairement dans un texte net

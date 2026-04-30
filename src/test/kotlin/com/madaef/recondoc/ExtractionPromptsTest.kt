@@ -58,6 +58,31 @@ class ExtractionPromptsTest {
     }
 
     @Test
+    fun `pieges adversariaux dans STABLE_COMMON_PREFIX (anti-hallucination)`() {
+        // Sprint1 #7 : exemples explicites ou la BONNE reponse est null.
+        // Ces pieges doivent etre dans le bloc commun pour s'appliquer a TOUS
+        // les types de documents et beneficier du cache cross-type.
+        val prefix = ExtractionPrompts.STABLE_COMMON_PREFIX
+        assertTrue(prefix.contains("PIEGES ANTI-HALLUCINATION"),
+            "STABLE_COMMON_PREFIX doit contenir la section dediee aux pieges adversariaux")
+        // Au moins 5 cas distincts ou null est la bonne reponse
+        val nullExamples = Regex("Sortie correcte\\s*:\\s*\"(?:[a-zA-Z]+)\":null").findAll(prefix).count()
+        assertTrue(nullExamples >= 5,
+            "STABLE_COMMON_PREFIX doit contenir >=5 exemples 'null est la bonne reponse', trouves: $nullExamples")
+        // Le piege RIB tronque (cas le plus frequent)
+        assertTrue(prefix.contains("RIB partiellement masque") || prefix.contains("RIB tronque") ||
+                   prefix.contains("RIB : 011 810 00000001234567"),
+            "STABLE_COMMON_PREFIX doit avoir un exemple RIB tronque par tampon")
+        // Le piege date ambigue (annee 2 chiffres)
+        assertTrue(prefix.contains("Date ambigue") || prefix.contains("Date '10/05/26'") ||
+                   prefix.contains("annee sur 2 chiffres"),
+            "STABLE_COMMON_PREFIX doit avoir un exemple date ambigue")
+        // Regle d'or anti-hallucination
+        assertTrue(prefix.contains("MIEUX VAUT 50 nulls") || prefix.contains("REGLE D'OR"),
+            "STABLE_COMMON_PREFIX doit reaffirmer la regle d'or null > hallucination")
+    }
+
+    @Test
     fun `few-shots negatifs presents pour ATTESTATION_FISCALE PV CONTRAT`() {
         // ATTESTATION : 3 shots (en regle, NON en regle, ambigu)
         val attestation = ExtractionPrompts.ATTESTATION_FISCALE
