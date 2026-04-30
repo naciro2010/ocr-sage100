@@ -161,6 +161,18 @@ class AppSettingsService(
     }
 
     /**
+     * Chain-of-Verification (Sprint 2 #2) : 2e appel Claude qui ne fait QUE
+     * verifier que les valeurs critiques deja extraites apparaissent
+     * exactement dans le texte OCR. Defense en profondeur supplementaire
+     * apres GroundingValidator + IdentifierConsistency. Couts ~2k tokens
+     * par dossier porteur de champs critiques. Desactivable.
+     */
+    fun isChainOfVerificationEnabled(): Boolean {
+        val raw = get("ai.cove.enabled") ?: return true
+        return raw != "false"
+    }
+
+    /**
      * Temperature du second run de verification d'identifiants. Differente du
      * run principal (defaut 0.0) pour briser le determinisme local et exposer
      * les hallucinations stables. 0.5 est un compromis : assez de variance

@@ -71,6 +71,7 @@ class DossierService(
     private val groundingValidator: GroundingValidator,
     private val identifierConsistencyService: com.madaef.recondoc.service.extraction.IdentifierConsistencyService,
     private val arithmeticReconciler: com.madaef.recondoc.service.extraction.ArithmeticReconciler,
+    private val chainOfVerificationService: com.madaef.recondoc.service.extraction.ChainOfVerificationService,
     private val pseudonymizationService: com.madaef.recondoc.service.extraction.PseudonymizationService,
     private val appSettingsService: AppSettingsService,
     private val fournisseurMatchingService: FournisseurMatchingService,
@@ -968,7 +969,15 @@ class DossierService(
                         // incoherences irrecuperables. Ne mute jamais une valeur
                         // sans signal fort (tauxTVA legal coherent avec HT/TVA).
                         val reconciliation = arithmeticReconciler.reconcile(detectedType, consistency.cleanedData)
-                        val finalData = reconciliation.data
+                        // Chain-of-Verification (Sprint 2 #2) : 2e appel Claude qui
+                        // verifie que les champs critiques apparaissent exactement
+                        // dans le texte OCR. Filet supplementaire apres grounding
+                        // + identifier consistency. Inerte si le type n'a pas de
+                        // champs critiques ou si tous sont deja null.
+                        val verification = chainOfVerificationService.verify(
+                            detectedType, reconciliation.data, rawText
+                        )
+                        val finalData = verification.cleanedData
                         val confidence = (finalData["_confidence"] as? Number)?.toDouble() ?: -1.0
                         val warnings = (finalData["_warnings"] as? List<*>)?.mapNotNull { it?.toString() } ?: emptyList()
                         doc.extractionConfidence = confidence

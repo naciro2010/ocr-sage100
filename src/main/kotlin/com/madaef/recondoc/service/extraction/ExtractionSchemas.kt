@@ -565,6 +565,39 @@ object ExtractionSchemas {
         )
     )
 
+    /**
+     * Schema `verify_extracted_values_batch` pour Chain-of-Verification
+     * (Sprint 2 #2). 2e appel Claude qui ne fait QUE verifier que les
+     * valeurs deja extraites apparaissent exactement dans le texte OCR.
+     * Independant du run principal -> filet anti-hallucination supplementaire.
+     *
+     * Une seule entree par champ critique : Claude doit dire si la valeur
+     * proposee est presente dans le texte (`presentInSource: true/false`)
+     * et fournir une nouvelle citation. Si false ou citation introuvable,
+     * le champ est strip cote serveur.
+     */
+    val VERIFICATION_BATCH = ToolSchema(
+        name = "verify_extracted_values_batch",
+        description = "Pour chaque (champ, valeur) propose, dire si la valeur apparait EXACTEMENT dans le texte OCR. JAMAIS inventer une preuve : si la valeur n'est pas la, repondre presentInSource=false avec citation=null.",
+        inputSchema = obj(
+            properties = mapOf(
+                "verifications" to arrayOf(obj(
+                    properties = mapOf(
+                        "field" to str("Nom du champ verifie (copie EXACTEMENT depuis l'entree).", nullable = false),
+                        "presentInSource" to bool(
+                            "true si la valeur proposee est EXACTEMENT presente dans le texte OCR (modulo espaces/tirets/ponctuation OCR). false si la valeur est absente, partielle, ou si tu n'es pas sur a >= 95%. JAMAIS true par sympathie pour le 1er extracteur.",
+                            nullable = false
+                        ),
+                        "citation" to str("Phrase exacte du texte OCR (5-80 chars) prouvant la presence. null si presentInSource=false ou si tu ne peux pas pointer une phrase precise."),
+                        "reason" to str("Court motif (<= 200 chars) : pourquoi present ou absent. Ex: 'ICE present ligne 3 entete', 'RIB tronque par tampon', 'valeur absente du texte OCR'.")
+                    ),
+                    required = listOf("field", "presentInSource")
+                ), description = "Une entree par champ a verifier. L'ordre doit suivre celui de l'entree.")
+            ) + qualityFields(),
+            required = listOf("verifications")
+        )
+    )
+
     val CUSTOM_RULES_BATCH = ToolSchema(
         name = "evaluate_custom_rules_batch",
         description = "Retourne un verdict pour chaque regle CUSTOM-XX evaluee contre le dossier. Une entree par regle, code exact.",
