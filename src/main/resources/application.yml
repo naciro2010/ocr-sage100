@@ -71,6 +71,15 @@ spring:
         max-size: ${ASYNC_MAX_SIZE:30}
         queue-capacity: 200
       thread-name-prefix: ocr-async-
+  # Virtual Threads (JEP 444 — stable depuis JDK 21, on tourne sur 25).
+  # Spring Boot 4 dispatche chaque requete HTTP sur un virtual thread plutot
+  # qu'un thread plateforme. Les appels bloquants (Claude API ~3-8s, OCR
+  # Tesseract, queries DB) ne consomment plus de thread plateforme : le pool
+  # Tomcat (200) cesse d'etre le facteur limitant en charge. Pour neutraliser
+  # en cas de regression : SPRING_THREADS_VIRTUAL_ENABLED=false.
+  threads:
+    virtual:
+      enabled: ${SPRING_THREADS_VIRTUAL_ENABLED:true}
 
 # Claude API configuration
 claude:
@@ -185,6 +194,13 @@ server:
     enabled: true
     min-response-size: 1024
     mime-types: application/json,application/xml,text/html,text/plain,text/css,application/javascript
+  http2:
+    # HTTP/2 (h2c en clair derriere le proxy Railway qui termine TLS, h2 si
+    # TLS est termine par Tomcat). Multiplexage : la SPA enchaine 6+ GET
+    # paralleles au mount d'un dossier (summary, documents, validation,
+    # audit, rule-config, metrics) qui partagent une seule connexion TCP
+    # au lieu de 6, supprimant le head-of-line blocking HTTP/1.1.
+    enabled: true
   tomcat:
     threads:
       max: ${TOMCAT_MAX_THREADS:200}

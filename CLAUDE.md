@@ -28,6 +28,7 @@ Plateforme de reconciliation documentaire des dossiers de paiement MADAEF (Group
 ./gradlew bootRun                  # Run Spring Boot (requires PostgreSQL + CLAUDE_API_KEY)
 ./gradlew test --tests "com.madaef.recondoc.ValidationServiceTest"  # Single test class
 ./gradlew test --tests "*.ValidationServiceTest.testMethodName"     # Single test method
+./gradlew jacocoTestReport         # Couverture (HTML: build/reports/jacoco/test/html/index.html)
 ```
 
 ### Frontend

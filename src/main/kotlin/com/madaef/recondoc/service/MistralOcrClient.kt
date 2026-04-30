@@ -12,6 +12,7 @@ import org.springframework.web.reactive.function.BodyInserters
 import org.springframework.web.reactive.function.client.WebClient
 import org.springframework.web.reactive.function.client.WebClientResponseException
 import reactor.netty.http.client.HttpClient
+import reactor.netty.resources.ConnectionProvider
 import java.nio.file.Files
 import java.nio.file.Path
 import java.time.Duration
@@ -37,6 +38,23 @@ class MistralOcrClient(
     private val log = LoggerFactory.getLogger(javaClass)
     private val clientCache = ConcurrentHashMap<String, WebClient>()
 
+    companion object {
+        /**
+         * Connection pool dedie aux appels Mistral. 3 hops par OCR (POST file,
+         * GET signed URL, POST ocr, DELETE) -> on dimensionne plus large que
+         * pour Claude pour absorber les bursts d'upload sans contention.
+         * maxIdleTime 30s : Mistral ferme passive a 60s, on reste en-dessous.
+         */
+        private val MISTRAL_CONNECTION_PROVIDER: ConnectionProvider = ConnectionProvider.builder("mistral")
+            .maxConnections(30)
+            .pendingAcquireMaxCount(120)
+            .pendingAcquireTimeout(Duration.ofSeconds(15))
+            .maxIdleTime(Duration.ofSeconds(30))
+            .maxLifeTime(Duration.ofMinutes(5))
+            .evictInBackground(Duration.ofMinutes(1))
+            .build()
+    }
+
     fun isAvailable(): Boolean {
         return appSettingsService.isMistralOcrEnabled() &&
             appSettingsService.getMistralApiKey().isNotBlank()
@@ -47,9 +65,10 @@ class MistralOcrClient(
         val baseUrl = appSettingsService.getMistralBaseUrl()
         val cacheKey = "$baseUrl|${apiKey.takeLast(8)}"
         return clientCache.computeIfAbsent(cacheKey) {
-            val httpClient = HttpClient.create()
+            val httpClient = HttpClient.create(MISTRAL_CONNECTION_PROVIDER)
                 .option(ChannelOption.CONNECT_TIMEOUT_MILLIS, 10_000)
                 .responseTimeout(Duration.ofSeconds(120))
+                .keepAlive(true)
             WebClient.builder()
                 .baseUrl(baseUrl)
                 .clientConnector(ReactorClientHttpConnector(httpClient))

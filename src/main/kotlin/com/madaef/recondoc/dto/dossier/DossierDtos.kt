@@ -2,6 +2,7 @@ package com.madaef.recondoc.dto.dossier
 
 import com.madaef.recondoc.entity.dossier.*
 import jakarta.validation.constraints.NotNull
+import org.hibernate.Hibernate
 import java.math.BigDecimal
 import java.time.LocalDate
 import java.time.LocalDateTime
@@ -189,9 +190,17 @@ data class AuditLogResponse(
 // === Mapper functions ===
 
 fun DossierPaiement.toListResponse(): DossierListResponse {
-    val docs = try { documents.size } catch (_: Exception) { 0 }
-    val checksConformes = try { resultatsValidation.count { it.statut == StatutCheck.CONFORME } } catch (_: Exception) { 0 }
-    val checksTotal = try { resultatsValidation.size } catch (_: Exception) { 0 }
+    // Les collections sont LAZY (FetchType.LAZY) : si l'appelant n'est plus
+    // dans une transaction Hibernate ou n'a pas declenche de fetch, l'acces
+    // leverait LazyInitializationException. On retourne 0 explicitement
+    // plutot que de masquer l'erreur avec un catch generique : la liste est
+    // un endpoint a forte volumetrie ou les compteurs detaillees viennent du
+    // summary dedie (voir getDossierSummary), pas de cette projection.
+    val docs = if (Hibernate.isInitialized(documents)) documents.size else 0
+    val checksConformes = if (Hibernate.isInitialized(resultatsValidation)) {
+        resultatsValidation.count { it.statut == StatutCheck.CONFORME }
+    } else 0
+    val checksTotal = if (Hibernate.isInitialized(resultatsValidation)) resultatsValidation.size else 0
     return DossierListResponse(
         id = id!!, reference = reference, type = type, statut = statut,
         fournisseur = fournisseur, description = description,
